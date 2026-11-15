@@ -9,3 +9,6 @@ dist
 host/bin/
 release/
 *.zip
+.build/
+host-mac/.build/
+*.app

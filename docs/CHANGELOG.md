@@ -2,6 +2,18 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
+## 0.29.0 — 2026-11-16
+
+macOS 改为 Universal 包，签名/公证可选，self-test 与发布流程加固。
+
+- macOS Universal：arm64 与 x86_64 各用一次 `swift build --triple <arch>-apple-macosx13.0 --scratch-path`，每片先 `lipo -archs` 断言单一架构，再 `lipo -create`；两片 `minos` 都是 13.0。产物固定 `Sidelight-<版本>-macos-universal.zip`（不再按 `uname -m` 命名）。x86_64 片失败先试 `--arch`，仍失败直接 `::error::` 禁止发布，不拿 arm64 冒充。
+- self-test 加固：`--self-test --require-bundle` 必须在 `.app` 内运行、禁止回退 `cwd/dist`；6 项断言（首页 200 + `id="root"`、静态 JS、`/__doc`、`/__recent`、未知路径 404、`Host: evil` 403 用原始 socket）。
+- 签名/公证可选：`host-mac/sign.sh` 完整 keychain 链 + `codesign --keychain`（不加 `--deep`）+ `notarytool submit --wait` + `stapler staple`；公证 zip 只装 `.app`，staple 后用 `STAGE_DIR` 重打发布 zip（保住 `README.txt`）。无 Apple secrets 时走 ad-hoc，Release 首行标注「**未签名、未公证**」；有 secrets 但签名/公证失败则 job 失败，不静默降级。
+- 发布流程：`release.yml` 的 `workflow_dispatch` 增加必填 `tag`；preflight 校验 `v<version>`；release job 先断言 3 个资产、用显式文件名生成 `SHA256SUMS-<版本>.txt`、再断言 4 个文件并 `sha256sum -c`；同 tag 重跑删除旧的 arm64 资产（`overwrite_files`）。
+- Edit 菜单：撤销/重做/剪切/拷贝/粘贴/全选，全部 `target = nil` 走 first responder（`undo:`/`redo:` 由 WKWebView 的 `undoManager` 处理）。
+- zip 内多一份 `README.txt`（Gatekeeper 三档、签名三态、Intel、数据位置、校验方式）。
+- 测试 16 个文件 205 条；首屏 gzip 仍 283,826 B（≤285,000，余 1,174 B）；体积与 SHA256 `[TBD]`（出包后回填，或见 Release `SHA256SUMS-0.29.0.txt`）。
+- 未验：真实 Intel Mac 与 Rosetta、真实签名/公证（本机无证书）、图标真机显示、WKWebView 的 ⌘C/⌘V/⌘Z、`--triple` 交叉编译 x86_64（CI 首次实跑）。
 ## 0.28.1 — 2026-11-16
 
 修复版：只改可访问性与测试，不改功能。

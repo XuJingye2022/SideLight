@@ -39,6 +39,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
     func applicationDidFinishLaunching(_ notification: Notification) {
         let root = Bundle.main.resourceURL?.appendingPathComponent("www").path
             ?? (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("dist")
+        let indexURL = ((root as NSString).appendingPathComponent("index.html"))
+        if !FileManager.default.fileExists(atPath: indexURL) {
+            let alert = NSAlert()
+            alert.messageText = "Sidelight 启动失败"
+            alert.informativeText = "缺少前端资源：\(indexURL)。请用 host-mac/build.sh 重新打包。"
+            alert.alertStyle = .critical
+            alert.addButton(withTitle: "退出")
+            alert.runModal()
+            exit(1)
+        }
+
         server = HTTPServer(root: root)
         do {
             try server.start()
@@ -118,6 +129,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         fileMenu.addItem(withTitle: "关闭窗口", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileItem.submenu = fileMenu
 
+        let editItem = NSMenuItem()
+        mainMenu.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        // 全部 target = nil，走 first responder；undo:/redo: 由 WKWebView 的 undoManager 处理，
+        // 不额外给网页发快捷键事件（否则 Cmd+C 会触发两次）。
+        editMenu.addItem(makeMenuItem("撤销", "undo:", "z"))
+        editMenu.addItem(makeMenuItem("重做", "redo:", "Z"))
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(makeMenuItem("剪切", "cut:", "x"))
+        editMenu.addItem(makeMenuItem("拷贝", "copy:", "c"))
+        editMenu.addItem(makeMenuItem("粘贴", "paste:", "v"))
+        editMenu.addItem(makeMenuItem("全选", "selectAll:", "a"))
+        editItem.submenu = editMenu
+
         NSApp.mainMenu = mainMenu
     }
 
@@ -134,6 +159,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
             recentMenu.addItem(withTitle: "没有最近打开", action: nil, keyEquivalent: "")
         }
         recentItem.submenu = recentMenu
+    }
+
+    private func makeMenuItem(_ title: String, _ action: String, _ key: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: Selector((action)), keyEquivalent: key)
+        item.target = nil
+        return item
     }
 
     @objc private func openDocument(_ sender: Any?) {

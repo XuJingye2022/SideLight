@@ -2,15 +2,24 @@
 
 你的写作，AI 在页边。左侧写作，右侧按需补光。
 
-发布目标：面向所有中文写作者的桌面 Markdown 编辑器。现有两套原生宿主：Windows 的 **C# WebView2 宿主**（`host/`）与 macOS 的 **Swift/AppKit/WKWebView 宿主**（`host-mac/`）。逐版本变更见 [docs/CHANGELOG.md](docs/CHANGELOG.md)。
+发布目标：面向所有中文写作者的桌面 Markdown 编辑器。现有两套原生宿主：Windows 的 **C# WebView2 宿主**（`host/`）与 macOS 的 **Swift/AppKit/WKWebView 宿主**（`host-mac/`）。逐版本变更见 [docs/CHANGELOG.md](docs/CHANGELOG.md)。下文命令里的 `Ctrl` 在 macOS 上换成 `Cmd`（例如保存是 `Cmd + S`，撤销是 `Cmd + Z`）。
 
 ## 下载
 
 最新版本：[github.com/XuJingye2022/SideLight/releases](https://github.com/XuJingye2022/SideLight/releases)。
 
 - **Windows**：`Sidelight-<版本>-win-x64-setup.exe`（per-user 安装包，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据）或 `Sidelight-<版本>-win-x64-portable.zip`（免安装）。
-- **macOS（Apple Silicon / arm64）**：`Sidelight-<版本>-macos-arm64.zip`。**未签名、未公证**：首次打开请右键点 App →「打开」；macOS 15 起右键「打开」可能不再生效，去「系统设置 → 隐私与安全性 → 仍要打开」；也可以执行 `xattr -dr com.apple.quarantine /Applications/Sidelight.app`。
-- Intel Mac 暂未构建（只在 arm64 runner 上出包）。
+- **macOS（Universal：Apple Silicon + Intel，macOS 13+）**：`Sidelight-<版本>-macos-universal.zip`，zip 根目录里还有 `README.txt`。一个包两种芯片都能跑。
+
+macOS 首次打开（未签名时按系统版本二选一，**每次更新后重做**）：
+
+- **macOS 15 及更新**：把 App 拖进「应用程序」→ 先双击一次（提示里只有「完成」是正常的）→ 打开「系统设置 → 隐私与安全性」→ 点「仍要打开」→ 再双击 App → 点「打开」。
+- **macOS 13–14**：在 Finder 里右键（或按住 Control 点）App → 选「打开」→ 再点「打开」。
+- 命令行去隔离（路径含空格要加引号）：`xattr -dr com.apple.quarantine "<App 路径>"`。
+- 提示「已损坏，无法打开」时先别重新下载：先核对 SHA256，再执行上面的 `xattr`，仍失败再反馈。
+- 校验：`shasum -a 256 <zip 文件>`，与 Release 页的 `SHA256SUMS-<版本>.txt` 对照。
+- 签名状态见 Release 说明首行：**未签名、未公证**（ad-hoc，需按上面步骤打开）或**已签名并公证**（通常不再需要额外步骤）。
+- 从 0.28.1（arm64）升级：直接覆盖安装即可，数据保留；首次打开步骤要重做。0.28.1 及更早的 arm64 包只支持 Apple Silicon；不确定芯片时看「 菜单 → 关于本机 → 芯片」。
 
 ## 现在能做什么
 
@@ -51,7 +60,7 @@
 ## 现在不能做什么
 
 - 文件树只能删文件：不能移动、复制、重命名文件，也不能删目录；没有应用内「恢复」或 trash 浏览界面，恢复要在资源管理器里把文件挪回去。trash 只增不减，不自动清理，卸载也不删。
-- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。安装用 `release/Sidelight-0.28.1-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
+- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。安装用 `release/Sidelight-0.29.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
 - `.md` 默认不关联。安装时勾选「在「打开方式」中加入 Sidelight」后，右键 `.md` 的「打开方式」里会多一项；默认程序仍要在 Windows 设置里自己选，安装器不改它。
 - 密钥存在浏览器 localStorage，没有加密，也没有系统钥匙串。
 - 表格：没动过的表格整块写回原文（表内字节与 02 型单空行）；改过单元格、增删行列或改对齐的表格会重新排版，且不弹保存确认；表格前后 ≥2 空行会规范化成一个。引用式链接定义块默认源码打开，写回原文；切回富文本首次保存仍拦一次。
@@ -72,7 +81,10 @@
 - 日志可能含文件名：宿主 `host.log` 只记 basename，超过 1 MB 轮转为 `host.log.1`；删除 `host.log*` 可清。
 - 草稿与批注在文档同目录 `.sidelight/`：草稿 `drafts/`，批注 `annotations/`；只在本机，不发网络。
 - trash 只在本机：删除的文件进工作区 `.sidelight/trash/`，不发网络、不自动清理、卸载不删；要彻底清掉，手动删这个目录。
-- 卸载保留 `%LOCALAPPDATA%\Sidelight`（WebView2 配置、`recent.json`）；要彻底清掉，卸载后手动删。
+- Windows 卸载保留 `%LOCALAPPDATA%\Sidelight`（WebView2 配置、`recent.json`）；要彻底清掉，卸载后手动删。
+- macOS 的最近文件与 WebView 存储：`~/Library/Application Support/Sidelight`；文档同目录 `.sidelight/`（草稿、批注、trash）与 Windows 一致。
+- 换包/升级不丢数据；同一时间只保留一个 `Sidelight.app`；不要改 `CFBundleIdentifier`（改了会当成另一个应用，数据与 Gatekeeper 记录都会分叉）。
+- File 菜单有打开/打开最近/关闭窗口；Edit 菜单有撤销/重做/剪切/拷贝/粘贴/全选，快捷键交给系统（macOS 用 `Cmd`）。
 - 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
 ## 依赖与体积
 
@@ -136,7 +148,7 @@ host/                     C# WebView2 宿主（Program.cs、build.ps1、冒烟�
 packaging/                NSIS 安装器、便携包、图标生成、安装/便携验收脚本
 scripts/                  截图、验收、缺陷探测、往返测量、字体裁剪
 fixtures/markdown/        7 个真实 .md 样本
-docs/adr/                 架构决策记录（0001–0014）
+docs/adr/                 架构决策记录（0001–0015）
 docs/iteration/           每轮简报、发现、计划、实施、验收
 release/                  安装包与便携 zip，不进版本控制
 ```
@@ -159,6 +171,7 @@ release/                  安装包与便携 zip，不进版本控制
 - KaTeX 惰性加载：首屏不再含 KaTeX，首次渲染公式时才加载。见 [ADR 0012](docs/adr/0012-katex-lazy-loading.md)。
 - 文件树只做删除：移到工作区 `.sidelight/trash/`，不提供应用内恢复，不自动清理。见 [ADR 0013](docs/adr/0013-file-tree-operations.md)。
 - 文件重命名：同目录、只接受 `.md`/`.markdown`、目标存在拒绝、`move()` 唯一路径、缓存写新成功才删旧。见 [ADR 0014](docs/adr/0014-file-rename.md)。
+- macOS 打包：默认 Universal（arm64 + x86_64），签名/公证可选三态，zip 内带 README。见 [ADR 0015](docs/adr/0015-macos-universal-and-signing.md)。
 
 ## 已知的重要问题：Markdown 往返损失
 

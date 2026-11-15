@@ -121,8 +121,11 @@ jobs:
       - name: Build macOS app (swift build + .app + zip)
         run: bash host-mac/build.sh
 
-      - name: Self-test (start server, GET /__doc)
-        run: ./.tmp/mac/Sidelight.app/Contents/MacOS/SidelightMac --self-test
+      - name: Self-test (bundle, 6 assertions)
+        run: ./.tmp/mac/stage/Sidelight.app/Contents/MacOS/SidelightMac --self-test --require-bundle
+
+      - name: Verify app bundle and zip
+        run: bash host-mac/verify.sh ".tmp/mac/stage/Sidelight.app" "release/Sidelight-$(node -p "require('./package.json').version")-macos-universal.zip"
 
       - name: Upload macOS zip
         uses: actions/upload-artifact@v4
