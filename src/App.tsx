@@ -3900,7 +3900,20 @@ export default function App() {
           )}
         </div>
 
-        <main id="editor" tabIndex={-1} className="doc-scroll" ref={scrollRef}>
+        <main
+          id="editor"
+          tabIndex={-1}
+          className="doc-scroll"
+          ref={scrollRef}
+          onKeyDownCapture={(event) => {
+            // 自动聚焦正文后仍保留「第一个 Tab 到 skip link」；只在文档开头劫持
+            if (event.key !== 'Tab' || event.shiftKey || !editor) return
+            const { from, to } = editor.state.selection
+            if (from !== 1 || to !== 1) return
+            event.preventDefault()
+            document.querySelector<HTMLElement>('.skip-link')?.focus()
+          }}
+        >
           {hostError && (
             <div className="host-error-banner" role="alert">
               <span>{hostError}</span>

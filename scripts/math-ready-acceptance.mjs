@@ -132,7 +132,7 @@ const makePage = async ({ formula = false } = {}) => {
   await page.getByRole('button', { name: '预览', exact: true }).click()
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 5000 }).catch(() => null),
-    page.getByRole('button', { name: '导出 ▾' }).click().then(() => page.getByRole('button', { name: 'HTML', exact: true }).click()),
+    page.getByRole('button', { name: '导出 ▾' }).click().then(() => page.getByRole('menuitem', { name: 'HTML', exact: true }).click()),
   ])
   if (download) {
     const path = await download.path()

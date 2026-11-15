@@ -106,11 +106,41 @@ const settle = async () => {
   }
 }
 
-// 1) skip link：第一下 Tab + Enter 进正文
-await page.evaluate(() => document.body.focus())
+// 1) skip link：自动聚焦正文后第一下 Tab 仍到 skip link；正文中间 Tab 不劫持
+const autoFocus = await page.evaluate(() => document.activeElement?.classList?.contains('ProseMirror'))
+check('首屏自动聚焦正文', autoFocus === true)
 await page.keyboard.press('Tab')
-const firstTab = await active()
-check('第一下 Tab 是 skip link', (firstTab.cls ?? '').includes('skip-link'), firstTab.cls ?? 'none')
+const autoTab = await active()
+check('自动聚焦后第一次 Tab = skip link', (autoTab.cls ?? '').includes('skip-link'), autoTab.cls ?? 'none')
+const editorBox = await page.locator('.ProseMirror').boundingBox()
+if (editorBox) {
+  await page.mouse.click(editorBox.x + 40, editorBox.y + 28)
+  await page.keyboard.press('End')
+  await page.waitForTimeout(300)
+}
+await page.evaluate(() => {
+  window.__middleTabPrevented = null
+  document.addEventListener(
+    'keydown',
+    (event) => {
+      if (event.key === 'Tab') window.__middleTabPrevented = event.defaultPrevented
+    },
+    { once: true },
+  )
+})
+const middleState = await page.evaluate(() => ({
+  focused: document.activeElement?.classList?.contains('ProseMirror'),
+  anchor: window.getSelection()?.anchorOffset,
+  text: window.getSelection()?.anchorNode?.textContent?.slice(0, 8),
+}))
+check('正文中间 Tab 前焦点在正文', middleState.focused === true, JSON.stringify(middleState))
+await page.keyboard.press('Tab')
+const middleTab = await page.evaluate(() => window.__middleTabPrevented)
+const middleCtx = await page.evaluate(() => window.__tabCtx)
+check('正文中间 Tab 不被劫持', middleTab === false, `${String(middleTab)} ctx=${JSON.stringify(middleCtx)}`)
+
+// 1b) skip link：Enter 进正文
+await page.locator('.skip-link').focus()
 await page.screenshot({ path: 'shots/round-05/t1-skip.png' })
 await page.keyboard.press('Enter')
 await page.waitForTimeout(200)
