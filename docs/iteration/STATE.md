@@ -49,11 +49,11 @@
 
 ## 当前版本与体积
 
-- v0.24.0。`dist` 1,413,750 B；首屏 JS+CSS gzip **282,809 B**（KaTeX 惰性），KaTeX chunk gzip 77,660。
-- 便携 zip：891,471 B；NSIS per-user 安装包：811,756 B（硬线 850,000）。
-- 宿主冷启动 FCP 304 ms；最近文件 8 篇；草稿/关窗/自动保存已具备。
-- 往返：rich 5/7、source 7/7、首次保存仍拦截 1/7（04）。
-- 已知：265 KiB 目标不可达（下限 281,471，ADR-0012）；06 列表间空行不保真。
+- v0.25.0。`dist` 1,427,617 B；首屏 JS+CSS gzip **284,134 B**（余 866 B）；测试 16 文件 205 条。
+- 便携 zip：897,251 B；NSIS per-user 安装包：815,683 B（内部预算 815,000 +683，硬线 850,000 未破）。
+- 往返：rich 5/7、source 7/7、首次保存仍拦截 1/7（04）；265 KiB 目标不可达（ADR-0012）。
+- 文件树：删除文件到 `.sidelight/trash/`、刷新、可访问性树；无目录删除/重命名。
+- 已知：侧栏 tablist 与大纲 `aria-current` 因首屏预算延后（不算达标）。
 
 ## 轮次记录
 
@@ -70,17 +70,18 @@
 | 9 | 最近文件 + 日志脱敏 + CI | round-09/plan.md | PASS-WITH-UNVERIFIED：宿主最近 8 篇、`/__recent` 无路径、日志只记 basename、CI 目录修复、0.22.0 | fa06aa1 |
 | 10 | 表格/空行/引用式链接 | round-10/plan.md | PASS-WITH-UNVERIFIED：表格整块复用、01 空行、04 默认源码、rich 5/7 source 7/7、0.23.0 | 4878030 |
 | 11 | KaTeX 惰性 + 首屏预算 | round-11/plan.md | PASS-WITH-UNVERIFIED：首屏 364,960→282,809 B、alias/shim/导出/占位全过、0.24.0 | 6bd6831 |
+| 12 | 文件树删除/刷新/可访问性 | round-12/plan.md | PASS-WITH-UNVERIFIED：删文件进 trash、删除不复活、树键盘与 live region、0.25.0 | 971e1ca |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
-- **文件树操作**：只有新建文件；没有新建文件夹、删除（可做「移到 .sidelight/trash」）、刷新；FSA 无 rename API。
-- **可访问性**：无屏幕阅读器实录；13 处 11–11.5px 小字；部分图标按钮缺 `aria-label`；树/大纲缺 `role`。
-- **真实环境 UNVERIFIED**：HKCU 关联/打开方式/卸载、真人双击、系统对话框、真实 IME、文件占用/网络盘/中文长路径、AltGr、Alt+F4/注销关窗、只读目录草稿失败、localStorage 配额、真实最近列表、真实宿主源码保存字节、真实 WebView2 冷启动、离线 KaTeX chunk、打印路径。
-- `src/App.tsx` 约 2800 行；三处重复序列化 / 草稿写入；22 处字号无变量。
+- **文件树补齐**：重命名（`FileSystemFileHandle.move()` 实测可用，目录仍不行）、树缩进/长名换行、展开态跨页签保持；目录删除仍不做。
+- **可访问性延后项**：侧栏 tablist、大纲 `aria-current`（首屏预算 866 B，需先省出体积）。
+- **真实环境 UNVERIFIED**：HKCU 关联/打开方式/卸载、真人双击、系统对话框、真实 IME、文件占用/网络盘/中文长路径、AltGr、Alt+F4/注销关窗、只读目录草稿失败、localStorage 配额、真实最近列表、真实宿主源码保存字节、真实 WebView2 冷启动、离线 KaTeX chunk、打印路径、trash 手动恢复、并发删除、屏幕阅读器实录。
+- `src/App.tsx` 约 2900 行；三处重复序列化 / 草稿写入；22 处字号无变量。
 - 无 Mermaid、字体不可换、无自定义快捷键。
-- 密钥明文存 localStorage；CI `windows-host` 未在 GitHub 首跑。
+- 密钥明文存 localStorage；CI `windows-host` 未在 GitHub 首跑（仓库无 remote）。
 - 6 MB 上限（marked 8 MB 爆栈）；更大文件需换解析器。
-- 500 toast 原始响应未进 `title`；ADR-0004 载荷数每次宿主改动后要复算；ADR-0012 子值 276,401 vs 实测 276,413（非阻断）。
+- 500 toast 原始响应未进 `title`；ADR-0004 载荷数每次宿主改动后要复算。
 
 ## 决策记录
 
@@ -99,3 +100,4 @@
 - 2026-11-16 第 9 轮：宿主最近 8 篇（`%LOCALAPPDATA%\Sidelight\recent.json`），`/__recent` 不暴露完整路径；日志只记 basename 并轮转；CI 补 `.tmp`/`release` 目录；版本 0.22.0。
 - 2026-11-16 第 10 轮：未改动的表格整块复用原文（rich 5/7）；frontmatter 后空行保真；含引用式链接的文档载入即源码（source 7/7）；版本 0.23.0。
 - 2026-11-16 第 11 轮：KaTeX 惰性（alias + shim + 动态 CSS + 就绪订阅），首屏 364,960→282,809 B；265 KiB 不可达写进 ADR-0012；版本 0.24.0。
+- 2026-11-16 第 12 轮：文件树删除文件到 `.sidelight/trash/`（move 优先、SHA 回退）、删除后不复活、刷新重绑、树可访问性；首屏 284,134 B；版本 0.25.0。
