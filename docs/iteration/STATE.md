@@ -49,11 +49,11 @@
 
 ## 当前版本与体积
 
-- v0.20.0。`dist` 1,389,367 B（1.33 MiB）；JS 1.12 MB（gzip 350 KB）、CSS 51 KB、KaTeX 字体 213,664 B / 15 个 woff2。
-- 便携 zip：876,034 B；NSIS per-user 安装包：799,631 B（硬线 850,000）。关联 opt-in 默认不勾。
-- 宿主冷启动 FCP 304 ms；主 chunk 1.1 MB，`chunkSizeWarningLimit` 1200。
-- 打开文件上限 6 MB；保存差异门覆盖浏览器与宿主四条路径。
-- 已知：KaTeX 仍全量进首屏；引用式链接/表格仍不保真，但保存前会拦截并要求确认。
+- v0.21.0。`dist` 1,398,672 B（1.33 MiB）；JS 1.13 MB（gzip 352 KB）、CSS 51 KB、KaTeX 字体 213,664 B / 15 个 woff2。
+- 便携 zip：880,851 B；NSIS per-user 安装包：803,335 B（硬线 850,000）。
+- 宿主冷启动 FCP 304 ms；主 chunk 约 1.11 MB，`chunkSizeWarningLimit` 1200。
+- 草稿：宿主写 `.sidelight/drafts/`，浏览器 localStorage；关窗三选一；自动保存 2 s 防抖、有损失不写。
+- 已知：KaTeX 仍全量进首屏；引用式链接/表格不保真但保存前拦截。
 
 ## 轮次记录
 
@@ -66,18 +66,18 @@
 | 5 | 键盘/主题/公式导出/字体 | round-05/plan.md | PASS-WITH-UNVERIFIED：快捷键与焦点、三档主题、MathML 导出、15 woff2、0.18.0 | 2b031e8 |
 | 6 | 写回原文件 + 编码/大文件 | round-06/plan.md | PASS-WITH-UNVERIFIED：/__doc + postMessage、BOM/CRLF/GBK 保留、6 MB 上限、0.19.0 | d5e7b8d |
 | 7 | 保存门 + 源码原文 + 关联 opt-in | round-07/plan.md | PASS-WITH-UNVERIFIED：四条保存路径统一差异门、源码显示原文、.md 打开方式 opt-in、0.20.0 | d65164a |
+| 8 | 草稿兜底 + 关窗保护 + 自动保存 | round-08/plan.md | PASS-WITH-UNVERIFIED：宿主草稿/恢复、关窗三选一、自动保存安全子集、0.21.0 | 47e5602 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
-- **自动保存 / 关闭保护**：写盘没有自动保存；关窗/切文档时未保存改动只靠草稿与提示，可能丢改动。
-- **最近文件**：没有「最近打开」入口，重开要重新找文件。
-- **文件树操作**：只有新建文件；没有删除、刷新、新建文件夹；FSA 无 rename API，重命名要另想安全方案。
+- **最近文件**：没有「最近打开」入口；宿主知道路径，浏览器不能重开。
+- **文件树操作**：只有新建文件；没有删除、刷新、新建文件夹；FSA 无 rename API。
 - **编辑器保真**：引用式链接/表格不保真，靠保存门拦截；真正保真仍待做（02/04）。
 - **KaTeX 全量首屏**：tiptap 静态 import；惰性 alias spike 未做，目标 gzip 265 KiB，风险高。
-- **真实环境 UNVERIFIED**：HKCU 关联/打开方式/卸载、真人双击、系统对话框、真实 IME、文件占用/网络盘/中文长路径、AltGr。
-- `src/App.tsx` 约 2400 行；三处重复序列化 / 草稿写入；22 处字号无变量。
+- **真实环境 UNVERIFIED**：HKCU 关联/打开方式/卸载、真人双击、系统对话框、真实 IME、文件占用/网络盘/中文长路径、AltGr、Alt+F4/注销关窗、只读目录草稿失败、localStorage 配额。
+- `src/App.tsx` 约 2500 行；三处重复序列化 / 草稿写入；22 处字号无变量。
 - 13 处 11–11.5px 小字；无 Mermaid、字体不可换、无自定义快捷键。
-- 密钥明文存 localStorage；CI `windows-host` job 未在 GitHub 首跑。
+- 密钥明文存 localStorage；CI `windows-host` job 未在 GitHub 首跑（`.tmp` 目录缺失会让首跑红）。
 - 6 MB 上限（marked 8 MB 爆栈）；更大文件需换解析器。
 - 500 toast 原始响应未进 `title`；ADR-0004 载荷数每次宿主改动后要复算。
 
@@ -94,3 +94,4 @@
 - 2026-11-15 第 5 轮：主题三档（浅/深/跟随系统）；快捷键改用 `Ctrl+Alt+*`，删除线改 `Ctrl+Shift+X`；HTML 导出用 KaTeX MathML 自包含；字体裁到 15 个 woff2；`chunkSizeWarningLimit` 1200，不拆 KaTeX；版本 0.18.0。
 - 2026-11-15 第 6 轮：宿主正文改走 `GET /__doc` + `postMessage` 写回，不再经 localStorage；保留 BOM/CRLF/GBK；原子替换；6 MB 解析上限（超过给可见错误）；30 个零引用截图移出跟踪；版本 0.19.0。
 - 2026-11-15 第 7 轮：四条保存路径统一差异门，引用式链接/表格不再静默改写；源码模式未编辑时显示原文；`.md` 打开方式 opt-in（默认不勾、不改默认程序）；版本 0.20.0。
+- 2026-11-15 第 8 轮：宿主草稿写 `.sidelight/drafts/`、关窗三选一、自动保存 2 s 防抖且不绕过差异门；浏览器草稿键兼容旧键；版本 0.21.0。
