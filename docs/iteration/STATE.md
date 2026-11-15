@@ -83,6 +83,19 @@
 - 密钥明文存 localStorage；6 MB 上限；500 toast 原始响应未进 title。
 - ADR-0004 载荷数每次宿主改动后要复算。
 
+## 发布状态（2026-11-16）
+
+- 仓库：https://github.com/XuJingye2022/SideLight（public，MIT，版权人 XuJingye）。
+- 发布：https://github.com/XuJingye2022/SideLight/releases/tag/v0.27.0
+  - Windows：`Sidelight-0.27.0-win-x64-setup.exe` 817,242 B（`974A0357…`）、`Sidelight-0.27.0-win-x64-portable.zip` 899,986 B（`0CEC9036…`）。
+  - macOS：`Sidelight-0.27.0-macos-arm64.zip` 770,783 B（`259ADDF2…`），未签名/未公证，要求 macOS 13+，仅 arm64。
+  - `SHA256SUMS-0.27.0.txt`。
+- 历史：v0.26.0 为 Windows-only 发布。
+- CI：`.github/workflows/ci.yml` 三组 job `gate` / `windows-host` / `macos-host` 全绿；`install-verify` 仅手动 dispatch。
+- macOS 宿主：`host-mac/`（Swift + AppKit + WKWebView，arm64），由 GitHub Actions `macos-latest` 编译并跑 `--self-test`；本机（Windows）无法运行，真机 GUI/IME/拖放/签名公证仍未验。
+- 推送方式：`origin` 用 SSH over 443（`ssh://git@ssh.github.com:443/XuJingye2022/SideLight.git`），仓库里加了一把 write deploy key `sidelight-agent`（2026-11-16）；不用时可在 GitHub Settings → Deploy keys 删除。
+- CI Windows smoke 已忽略预期 404：`/__doc`、`/__draft`、`/favicon.ico`；其他 404 仍失败。
+
 ## 下一轮怎么开始（给接手的调度器）
 
 1. 读本文件、`AGENTS.md`、最近一次 `docs/iteration/round-13/test.md`。
@@ -90,7 +103,7 @@
 3. 派 3 个新 finder（缺陷/体验/发布）只读侦察，报告写 `round-14/findings-*.md`；重点从上面待办池挑。
 4. 复用已有持久代理：`planner`、`critic`、`builder`、`builder2`、`tester`（用 send_message，别新建同名）。
 5. 按「侦察 → 计划 → 审计划 → 实施 → 验收」循环；根代理只在阶段之间分派、跑最终门禁、commit、更新本文件。
-6. 建议主题：round 14 性能与内存 / App.tsx 关键拆分；round 15 首次使用与 P3/P4；round 16 发布准备（隐私确认、CI 首跑、校验和）；round 17 主题细化；round 18 文档/贡献指南；round 19 1.0 RC；round 20 最终 QA。
+6. 建议主题：round 14 macOS 真机验证/签名或 Intel 构建；round 15 首次使用与 P3/P4；round 16 性能与 App.tsx 拆分；round 17 主题细化；round 18 文档/贡献指南；round 19 1.0 RC；round 20 最终 QA。
 
 ## 决策记录
 
