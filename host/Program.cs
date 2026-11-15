@@ -5,9 +5,11 @@ using System.IO;
 using System.IO.Pipes;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -35,6 +37,14 @@ static class Program
     static bool portableDataDir;
     static string fatalInitError;
 
+    // /__doc 与写回：只认 argv / 单实例转发打开的这一个文件；页面永远拿不到路径。
+    static string currentPath;
+    static DocMeta currentMeta;
+    static int currentDocErrorStatus;
+    static string currentDocErrorCode;
+    static readonly Dictionary<string, string> saveResults = new Dictionary<string, string>();
+    static readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 64 * 1024 * 1024 };
+
     [STAThread]
     static void Main(string[] args)
     {
@@ -43,6 +53,7 @@ static class Program
         Log("start args=" + string.Join(" | ", args));
 
         pendingFile = args.Length > 0 ? Resolve(args[0]) : null;
+        if (pendingFile != null) SetCurrentDoc(pendingFile);
 
         // 单实例：优先全局命名对象，被拒绝时退回会话级。拿不到就把 argv 转给第一个实例。
         foreach (string candidate in new string[] { @"Global\Sidelight", @"Local\Sidelight" })
@@ -215,7 +226,14 @@ static class Program
                 if (string.IsNullOrEmpty(requestLine)) return;
                 int guard = 0;
                 string headerLine;
-                while (guard++ < 100 && !string.IsNullOrEmpty(headerLine = reader.ReadLine())) { }
+                string host = null;
+                while (guard++ < 100 && !string.IsNullOrEmpty(headerLine = reader.ReadLine()))
+                {
+                    if (headerLine.StartsWith("Host:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        host = headerLine.Substring(5).Trim();
+                    }
+                }
 
                 string[] parts = requestLine.Split(' ');
                 if (parts.Length < 2)
@@ -235,6 +253,11 @@ static class Program
 
                 int query = target.IndexOf('?');
                 if (query >= 0) target = target.Substring(0, query);
+                if (target == "/__doc")
+                {
+                    HandleDocRequest(stream, method, host);
+                    return;
+                }
                 if (target.Length == 0 || target == "/") target = "/index.html";
 
                 string decoded;
@@ -301,6 +324,408 @@ static class Program
         }
     }
 
+    class DocException : Exception
+    {
+        public int Status;
+        public string Code;
+        public DocException(int status, string code) : base(code) { Status = status; Code = code; }
+    }
+
+    class DocMeta
+    {
+        public string Encoding;
+        public bool Bom;
+        public string Eol;
+        public bool EndsWithNewline;
+        public int LineCount;
+        public long Size;
+        public long Mtime;
+        public string Text;
+        public string[] LineEols;
+    }
+
+    static readonly Encoding StrictUtf8 = new UTF8Encoding(false, true);
+    static readonly Encoding StrictGbk = Encoding.GetEncoding(936, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+
+    static byte[] BuildErrorJson(string code)
+    {
+        Dictionary<string, object> msg = new Dictionary<string, object>();
+        msg["v"] = 1;
+        msg["ok"] = false;
+        msg["error"] = code;
+        return Encoding.UTF8.GetBytes(json.Serialize(msg));
+    }
+
+    static string EncodeError(string id, string error)
+    {
+        Dictionary<string, object> msg = new Dictionary<string, object>();
+        msg["v"] = 1;
+        msg["type"] = "save-result";
+        msg["id"] = id;
+        msg["ok"] = false;
+        msg["error"] = error;
+        return json.Serialize(msg);
+    }
+
+    static string EncodeOk(string id, long bytes, long mtime)
+    {
+        Dictionary<string, object> msg = new Dictionary<string, object>();
+        msg["v"] = 1;
+        msg["type"] = "save-result";
+        msg["id"] = id;
+        msg["ok"] = true;
+        msg["bytes"] = bytes;
+        msg["mtime"] = mtime;
+        return json.Serialize(msg);
+    }
+
+    // 打开（argv 或转发）时抓一份 LF 文本与元数据：写回时以它做「不改不写」与 EOL/mtime 基准。
+    static void SetCurrentDoc(string path)
+    {
+        currentPath = path;
+        currentMeta = null;
+        currentDocErrorCode = null;
+        currentDocErrorStatus = 0;
+        saveResults.Clear();
+        try
+        {
+            currentMeta = ReadDocMeta(path);
+            Log("doc open file=" + SafeFileName(path) + " encoding=" + currentMeta.Encoding + " eol=" + currentMeta.Eol + " size=" + currentMeta.Size);
+        }
+        catch (DocException ex)
+        {
+            currentDocErrorStatus = ex.Status;
+            currentDocErrorCode = ex.Code;
+            Log("doc open failed file=" + SafeFileName(path) + " error=" + ex.Code);
+        }
+        catch (Exception ex)
+        {
+            currentDocErrorStatus = 500;
+            currentDocErrorCode = "IO";
+            Log("doc open failed " + ex.GetType().Name);
+        }
+    }
+
+    static DocMeta ReadDocMeta(string path)
+    {
+        string resolved = Resolve(path);
+        if (Directory.Exists(resolved)) throw new DocException(409, "FILE_GONE");
+        byte[] bytes;
+        try { bytes = File.ReadAllBytes(resolved); }
+        catch (FileNotFoundException) { throw new DocException(409, "FILE_GONE"); }
+        catch (DirectoryNotFoundException) { throw new DocException(409, "FILE_GONE"); }
+        catch (UnauthorizedAccessException) { throw new DocException(409, "FILE_GONE"); }
+        catch (IOException) { throw new DocException(409, "FILE_GONE"); }
+        if (bytes.Length > 32L * 1024 * 1024) throw new DocException(413, "TOO_LARGE");
+
+        DocMeta meta = new DocMeta();
+        meta.Size = bytes.Length;
+        meta.Bom = false;
+        string text;
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+        {
+            meta.Encoding = "utf-8";
+            meta.Bom = true;
+            text = DecodeStrict(StrictUtf8, bytes, 3);
+        }
+        else if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+        {
+            meta.Encoding = "utf-16le";
+            meta.Bom = true;
+            text = DecodeStrict(new UnicodeEncoding(false, false, true), bytes, 2);
+        }
+        else if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+        {
+            meta.Encoding = "utf-16be";
+            meta.Bom = true;
+            text = DecodeStrict(new UnicodeEncoding(true, false, true), bytes, 2);
+        }
+        else
+        {
+            try
+            {
+                text = StrictUtf8.GetString(bytes);
+                meta.Encoding = "utf-8";
+            }
+            catch (DecoderFallbackException)
+            {
+                try
+                {
+                    text = StrictGbk.GetString(bytes);
+                    meta.Encoding = "gbk";
+                }
+                catch (DecoderFallbackException)
+                {
+                    throw new DocException(409, "ENCODING");
+                }
+            }
+        }
+        if (text.IndexOf('\u0000') >= 0) throw new DocException(409, "ENCODING");
+
+        List<string> lineEols = new List<string>();
+        for (int index = 0; index < text.Length; index++)
+        {
+            if (text[index] != '\n') continue;
+            lineEols.Add(index > 0 && text[index - 1] == '\r' ? "crlf" : "lf");
+        }
+        int crlfCount = 0;
+        foreach (string eol in lineEols) if (eol == "crlf") crlfCount++;
+        meta.LineEols = lineEols.ToArray();
+        if (crlfCount > 0 && crlfCount < lineEols.Count) meta.Eol = "mixed";
+        else if (crlfCount > 0) meta.Eol = "crlf";
+        else meta.Eol = "lf";
+        meta.EndsWithNewline = text.EndsWith("\n");
+        meta.Text = text.Replace("\r\n", "\n");
+        meta.LineCount = meta.Text.Split('\n').Length;
+        meta.Mtime = File.GetLastWriteTimeUtc(resolved).Ticks;
+        return meta;
+    }
+
+    static string DecodeStrict(Encoding encoding, byte[] bytes, int offset)
+    {
+        try { return encoding.GetString(bytes, offset, bytes.Length - offset); }
+        catch (DecoderFallbackException) { throw new DocException(409, "ENCODING"); }
+    }
+
+    static byte[] BuildDocJson(DocMeta meta)
+    {
+        Dictionary<string, object> doc = new Dictionary<string, object>();
+        doc["v"] = 1;
+        doc["ok"] = true;
+        doc["fileName"] = SafeFileName(currentPath);
+        doc["encoding"] = meta.Encoding;
+        doc["bom"] = meta.Bom;
+        doc["eol"] = meta.Eol;
+        doc["endsWithNewline"] = meta.EndsWithNewline;
+        doc["lineCount"] = meta.LineCount;
+        doc["size"] = meta.Size;
+        doc["mtime"] = meta.Mtime;
+        try { doc["readOnly"] = (File.GetAttributes(Resolve(currentPath)) & FileAttributes.ReadOnly) != 0; }
+        catch (Exception) { doc["readOnly"] = true; }
+        doc["text"] = meta.Text;
+        return Encoding.UTF8.GetBytes(json.Serialize(doc));
+    }
+
+    // GET /__doc：只认 127.0.0.1:47821 的 Host；不返回完整路径，不加 CORS 头。
+    static void HandleDocRequest(NetworkStream stream, string method, string host)
+    {
+        if (method != "GET")
+        {
+            WriteResponse(stream, 405, null, null, false);
+            return;
+        }
+        if (!string.Equals(host, "127.0.0.1:" + port, StringComparison.OrdinalIgnoreCase))
+        {
+            Log("doc refused reason=host host=" + host);
+            WriteResponse(stream, 403, null, null, false);
+            return;
+        }
+        byte[] body;
+        int status = 200;
+        if (currentPath == null)
+        {
+            status = 404;
+            body = BuildErrorJson("NO_DOC");
+        }
+        else if (currentDocErrorCode != null)
+        {
+            status = currentDocErrorStatus > 0 ? currentDocErrorStatus : 409;
+            body = BuildErrorJson(currentDocErrorCode);
+        }
+        else
+        {
+            body = BuildDocJson(currentMeta);
+        }
+        WriteResponse(stream, status, "application/json; charset=utf-8", body, false);
+    }
+
+    static void OnWebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        CoreWebView2 senderCore = sender as CoreWebView2;
+        try
+        {
+            string expected = "http://127.0.0.1:" + port + "/index.html";
+            if (!string.Equals(e.Source, expected, StringComparison.OrdinalIgnoreCase))
+            {
+                Log("save rejected reason=source source=" + e.Source);
+                return;
+            }
+            Dictionary<string, object> msg = json.Deserialize<Dictionary<string, object>>(e.WebMessageAsJson);
+            if (msg == null || !msg.ContainsKey("v") || Convert.ToInt32(msg["v"]) != 1) return;
+            string type = msg.ContainsKey("type") ? Convert.ToString(msg["type"]) : null;
+            if (type == "forget")
+            {
+                currentPath = null;
+                currentMeta = null;
+                currentDocErrorCode = null;
+                currentDocErrorStatus = 0;
+                Log("doc forgotten");
+                return;
+            }
+            if (type != "save") return;
+
+            string id = msg.ContainsKey("id") ? Convert.ToString(msg["id"]) : Guid.NewGuid().ToString("N");
+            if (msg.ContainsKey("path") || msg.ContainsKey("fileName") || msg.ContainsKey("file"))
+            {
+                Log("save rejected error=BAD_REQUEST file=" + SafeFileName(currentPath));
+                if (senderCore != null) senderCore.PostWebMessageAsJson(EncodeError(id, "BAD_REQUEST"));
+                return;
+            }
+            if (saveResults.ContainsKey(id))
+            {
+                if (senderCore != null) senderCore.PostWebMessageAsJson(saveResults[id]);
+                return;
+            }
+            string text = msg.ContainsKey("text") ? Convert.ToString(msg["text"]) : null;
+            if (text == null)
+            {
+                if (senderCore != null) senderCore.PostWebMessageAsJson(EncodeError(id, "BAD_REQUEST"));
+                return;
+            }
+            string result = SaveDocument(id, text);
+            if (saveResults.Count > 50) saveResults.Clear();
+            saveResults[id] = result;
+            if (senderCore != null) senderCore.PostWebMessageAsJson(result);
+        }
+        catch (Exception ex)
+        {
+            Log("save message failed " + ex.GetType().Name);
+        }
+    }
+
+    static string SaveDocument(string id, string text)
+    {
+        if (currentPath == null || currentMeta == null) return EncodeError(id, "FILE_GONE");
+        if (text.Length > 32 * 1024 * 1024) return EncodeError(id, "TOO_LARGE");
+        DocMeta meta = currentMeta;
+        if (text == meta.Text) return EncodeOk(id, meta.Size, meta.Mtime);
+
+        string resolved = Resolve(currentPath);
+        string name = SafeFileName(resolved);
+        try
+        {
+            if (!File.Exists(resolved)) return EncodeError(id, "FILE_GONE");
+            if ((File.GetAttributes(resolved) & FileAttributes.ReadOnly) != 0)
+            {
+                Log("save rejected error=READONLY file=" + name);
+                return EncodeError(id, "READONLY");
+            }
+            if (File.GetLastWriteTimeUtc(resolved).Ticks != meta.Mtime || new FileInfo(resolved).Length != meta.Size)
+            {
+                Log("save rejected error=PATH_CHANGED file=" + name);
+                return EncodeError(id, "PATH_CHANGED");
+            }
+
+            string trimmed = text.TrimEnd('\n');
+            string bodyLf = meta.EndsWithNewline ? trimmed + "\n" : trimmed;
+            string body;
+            if (meta.Eol == "mixed")
+            {
+                string[] lines = bodyLf.Split('\n');
+                if (lines.Length != meta.LineCount || meta.LineEols == null || meta.LineEols.Length != lines.Length - 1)
+                {
+                    Log("save rejected error=EOL_MISMATCH file=" + name);
+                    return EncodeError(id, "EOL_MISMATCH");
+                }
+                StringBuilder sb = new StringBuilder();
+                for (int index = 0; index < lines.Length; index++)
+                {
+                    sb.Append(lines[index]);
+                    if (index < lines.Length - 1) sb.Append(meta.LineEols[index] == "crlf" ? "\r\n" : "\n");
+                }
+                body = sb.ToString();
+            }
+            else if (meta.Eol == "crlf")
+            {
+                body = bodyLf.Replace("\n", "\r\n");
+            }
+            else
+            {
+                body = bodyLf;
+            }
+
+            byte[] payload;
+            try { payload = EncodeText(meta, body); }
+            catch (EncoderFallbackException)
+            {
+                Log("save rejected error=ENCODING file=" + name);
+                return EncodeError(id, "ENCODING");
+            }
+            try { AtomicWrite(resolved, payload); }
+            catch (UnauthorizedAccessException) { Log("save failed error=READONLY file=" + name); return EncodeError(id, "READONLY"); }
+            catch (IOException) { Log("save failed error=FILE_LOCKED file=" + name); return EncodeError(id, "FILE_LOCKED"); }
+            catch (Exception ex) { Log("save failed error=IO file=" + name + " " + ex.GetType().Name); return EncodeError(id, "IO"); }
+
+            meta.Text = text;
+            meta.Size = payload.Length;
+            meta.Mtime = File.GetLastWriteTimeUtc(resolved).Ticks;
+            Log("save ok file=" + name + " bytes=" + payload.Length);
+            return EncodeOk(id, payload.Length, meta.Mtime);
+        }
+        catch (UnauthorizedAccessException) { return EncodeError(id, "READONLY"); }
+        catch (IOException) { return EncodeError(id, "FILE_LOCKED"); }
+        catch (Exception ex) { Log("save failed error=IO " + ex.GetType().Name); return EncodeError(id, "IO"); }
+    }
+
+    static byte[] EncodeText(DocMeta meta, string body)
+    {
+        byte[] content;
+        if (meta.Encoding == "gbk") content = StrictGbk.GetBytes(body);
+        else if (meta.Encoding == "utf-16le") content = new UnicodeEncoding(false, false, true).GetBytes(body);
+        else if (meta.Encoding == "utf-16be") content = new UnicodeEncoding(true, false, true).GetBytes(body);
+        else content = StrictUtf8.GetBytes(body);
+        if (!meta.Bom) return content;
+        byte[] preamble;
+        if (meta.Encoding == "utf-16le") preamble = new byte[] { 0xFF, 0xFE };
+        else if (meta.Encoding == "utf-16be") preamble = new byte[] { 0xFE, 0xFF };
+        else preamble = new byte[] { 0xEF, 0xBB, 0xBF };
+        byte[] result = new byte[preamble.Length + content.Length];
+        Buffer.BlockCopy(preamble, 0, result, 0, preamble.Length);
+        Buffer.BlockCopy(content, 0, result, preamble.Length, content.Length);
+        return result;
+    }
+
+    // 原子替换：临时文件同目录 + File.Replace；失败退回 MoveFileEx(REPLACE_EXISTING|WRITE_THROUGH)。
+    // 任何分支都不写目标文件本身，失败时删临时文件、原文件保持原样。
+    static void AtomicWrite(string target, byte[] payload)
+    {
+        string dir = Path.GetDirectoryName(target);
+        string temp = Path.Combine(dir, ".sidelight-tmp-" + Guid.NewGuid().ToString("N"));
+        bool moved = false;
+        try
+        {
+            using (FileStream fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                fs.Write(payload, 0, payload.Length);
+                fs.Flush(true);
+            }
+            try
+            {
+                File.Replace(temp, target, null);
+                moved = true;
+            }
+            catch (Exception ex)
+            {
+                Log("file replace failed " + ex.GetType().Name + ", trying MoveFileEx");
+                if (!MoveFileEx(temp, target, 0x1 | 0x8))
+                {
+                    int code = Marshal.GetLastWin32Error();
+                    throw new IOException("MoveFileEx failed " + code);
+                }
+                moved = true;
+            }
+        }
+        finally
+        {
+            if (!moved && File.Exists(temp))
+            {
+                try { File.Delete(temp); } catch (Exception) { }
+            }
+        }
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool MoveFileEx(string existingFileName, string newFileName, uint flags);
     static void WriteResponse(NetworkStream stream, int status, string mime, byte[] body, bool headOnly)
     {
         string reason = "Error";
@@ -434,6 +859,7 @@ static class Program
             }
             core.PermissionRequested += OnPermissionRequested;
             core.DownloadStarting += OnDownloadStarting;
+            core.WebMessageReceived += OnWebMessageReceived;
             core.NavigationStarting += OnNavigationStarting;
             core.NavigationCompleted += OnNavigationCompleted;
             core.ProcessFailed += delegate(object s, CoreWebView2ProcessFailedEventArgs e)
@@ -692,6 +1118,8 @@ static class Program
                 Log("forward confirmed " + path);
             }
 
+            // 先更新 currentPath/currentMeta，再注入 + reload：前端 reload 后 fetch /__doc 才对得上这一份。
+            SetCurrentDoc(path);
             string text = File.ReadAllText(path, Encoding.UTF8);
             string script = BuildApplyScript(text, Path.GetFileName(path), false);
             Task exec = web.CoreWebView2.ExecuteScriptAsync(script);

@@ -29,26 +29,29 @@
 - 数学公式：行内 `$E=mc^2$` 与块级 `$$…$$` 用 KaTeX 渲染；内侧不能是空白的成对 `$` 才当公式，`$5 到 $10` 在打字与载入两条路径上都保留为文字（无空格写法 `$5-$10` 仍会被当公式）。
 - 字号：设置里调 12–26，`Ctrl + =` 放大、`Ctrl + -` 缩小、`Ctrl + 0` 复位。
 - 打开用到引用式链接的文档时，顶部提示编辑器读不全，可一键转源码模式。
-- 新建与另存为：顶栏「文件」菜单有新建、另存为、打开文件、打开文件夹；文件树头有「＋ 新建文件」。没有文件句柄时保存走系统保存对话框，保存成功有持久提示。`n- 双击 `.md` 由宿主打开时显示只读横幅，保存走「另存为」，不会假装写回原文件。`n- 保存：`Ctrl + S`，有文件句柄时写回磁盘，否则下载。第一次保存会把被规范化的行列出来，你确认后才写。
+- 新建与另存为：顶栏「文件」菜单有新建、另存为、打开文件、打开文件夹；文件树头有「＋ 新建文件」。没有文件句柄时保存走系统保存对话框，保存成功有持久提示。
+- 双击 `.md` 由宿主打开时可以直接写回原文件：宿主提供正文与编码元数据，保存是原子替换，BOM、换行与编码不变。
+- 保存：`Ctrl + S`，有文件句柄时写回磁盘，否则下载。第一次保存会把被规范化的行列出来，你确认后才写。
 - 草稿与批注存在文档同级（打开文件夹时在工作区根目录）的 `.sidelight/` 里：`drafts/<名字>.md` 与 `annotations/<名字>.json`；保存成功后删草稿，重开文档恢复批注（有磁盘句柄时，未验证）。没有磁盘句柄（示例文件）时退回浏览器本地存储。
 - 设置里填接口地址、API Key、模型名，走 OpenAI 兼容协议。没填时走模拟流。
 
 ## 现在不能做什么
 
-- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen 尚未人工验。安装用 `release/Sidelight-0.18.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
+- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen 尚未人工验。安装用 `release/Sidelight-0.19.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
 - 没有 .md 文件关联：双击 .md 不会用 Sidelight 打开，要在「打开方式」里手动选一次。
 - 密钥存在浏览器 localStorage，没有加密，也没有系统钥匙串。
 - 引用式链接打开再保存会被改写成行内链接；打开时提示，保存前把受影响的行摆出来给你确认。
 - 行内 HTML 只保真不渲染：正文里看到的是 `<kbd>` 文字，不是键盘样式。
 - 图片在没打开文件夹时只能内联，不进 `assets/`。
-- 还没有 Mermaid 图表、主题切换；字号只能调大小，不能换字体。
+- 还没有 Mermaid 图表；字号只能调大小，不能换字体。
 - 真模型没测过：没有 key。中文输入法（组合输入、候选窗、组合期间开对话框）在浏览器与宿主里都没验。
+- 写回只在 UTF-8 / UTF-16LE / GBK 与 6 MB 以内文件上验过；超过 6 MB 显示「文件过大，暂不支持（上限 6 MB）」并清空正文；文件被占用、网络盘、中文长路径、真人双击下的保存对话框与写回都没验。
 
 与 Typora 的逐项对照在 [docs/typora-gap.md](docs/typora-gap.md)：当前已有 21 项，缺 18 项。
 
 ## 依赖与体积
 
-打包产物约 1.31 MiB（1,373,690 B）：JS 1.1 MB、KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联成 data URI）、其余是 HTML 与 CSS。
+打包产物约 1.32 MiB（1,382,298 B）：JS 1.1 MB、KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联成 data URI）、其余是 HTML 与 CSS。
 
 **为什么不拆 KaTeX**：`@tiptap/extension-mathematics` 顶层静态 `import katex`，扩展在编辑器首帧就要注册，拆包必须换惰性 shim 并异步化三处渲染，0.18.0 不做；构建用 `chunkSizeWarningLimit: 1200` 显式设告警线（主 chunk 约 1.10 MB 是首屏必需，1200 留约 100 kB 余量）。
 
@@ -59,14 +62,14 @@
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
 
-宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 788,878 B（SHA256 `FE5AC4097DF71E438A9F6FB21CC8BFE81E9A838ACBDB48C17279AD8650B9BB94`）、便携 zip 866,981 B（SHA256 `F866D2AA548562BA21ABD920588FDFEA628AB14839EC300F31B4E92497FCFE6E`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
+宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 794,843 B（SHA256 `649FBA924E14F8AB12F409CE49065E53AE8CB9989D6C435D5E8424A2E204A0E3`）、便携 zip 873,775 B（SHA256 `8E5C57986AF3515DA37A8683BC2A250C4184F85F9B06B18C9D63710EDA48A4D4`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
 
 ## 跑起来
 
 ```bash
 npm install
 npm run dev       # http://localhost:5173
-npm test          # 16 个文件、171 条断言
+npm test          # 16 个文件、177 条断言
 npm run roundtrip # Markdown 往返损失测量，写 docs/roundtrip-report.md
 npm run build     # 类型检查 + 打包
 npm run shot      # 无头浏览器跑流程并截图（需先起 dev；默认写 .tmp/shots/shot.png，--out 指定路径）
@@ -98,7 +101,7 @@ host/                     C# WebView2 宿主（Program.cs、build.ps1、冒烟�
 packaging/                NSIS 安装器、便携包、图标生成、安装/便携验收脚本
 scripts/                  截图、验收、缺陷探测、往返测量、字体裁剪
 fixtures/markdown/        7 个真实 .md 样本
-docs/adr/                 架构决策记录（0001–0005）
+docs/adr/                 架构决策记录（0001–0006）
 docs/iteration/           每轮简报、发现、计划、实施、验收
 release/                  安装包与便携 zip，不进版本控制
 ```
@@ -112,6 +115,7 @@ release/                  安装包与便携 zip，不进版本控制
 - AI 不直接写正文：每次写入都要人点一次「采纳」。
 - 桌面壳：C#/.NET Framework + WebView2 宿主，零管理员；Tauri 2 只在拿到管理员/MSVC 或改由 CI 出包时重评估。见 [ADR 0004](docs/adr/0004-webview2-host-before-admin.md)。
 - 宿主 origin：固定回环 `http://127.0.0.1:47821`，端口被占就报错退出，不换端口。见 [ADR 0005](docs/adr/0005-loopback-fixed-origin.md)。
+- 写回：宿主是唯一写者，页面从 `/__doc` 拿正文与编码元数据、拿不到路径；保存走 `postMessage`，宿主用同目录临时文件 + 原子替换。见 [ADR 0006](docs/adr/0006-argv-writeback.md)。
 
 ## 已知的重要问题：Markdown 往返损失
 

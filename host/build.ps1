@@ -43,6 +43,7 @@ $cscArgs = @(
     "/r:$(Join-Path $lib 'Microsoft.Web.WebView2.WinForms.dll')",
     '/r:System.Windows.Forms.dll',
     '/r:System.Drawing.dll',
+    '/r:System.Web.Extensions.dll',
     (Join-Path $PSScriptRoot 'Program.cs')
 )
 & $csc $cscArgs

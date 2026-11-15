@@ -2,16 +2,32 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
+## 0.19.0 — 2026-11-15
+
+宿主写回通道：双击 `.md` 打开后可以写回原文件，编码、BOM 与换行不变。
+
+- 写回：`GET /__doc` 给页面正文与元数据（编码 / BOM / EOL / mtime / readOnly），页面不拿路径；保存走 `postMessage`，宿主用同目录临时文件 + `File.Replace`（失败回退 `MoveFileEx(REPLACE_EXISTING|WRITE_THROUGH)`）原子替换，失败时原文件不变、临时文件清理。
+- 编码：BOM → 严格 UTF-8 → 严格 GBK（`ExceptionFallback`）；解码/编码失败回 `ENCODING`，不写 `?`、不写 U+FFFD；无 BOM 但含 NUL 判 UTF-16 或拒绝。
+- 换行：`crlf` / `lf` / `mixed` 按打开时还原；`mixed` 行数不符回 `EOL_MISMATCH`；结尾换行与原文件一致。
+- 授权：只写 argv / 单实例转发记录的当前文件；保存消息带 `path` / `fileName` / `file` 一律 `BAD_REQUEST`；`/__doc` 只 GET、只认 `Host: 127.0.0.1:47821`、`Cache-Control: no-store`、不加 CORS、不含完整路径。
+- 前端：保存请求 10 s 超时；转发打开的文件可写（先更新 `currentPath` 再 reload）；只读横幅改成可写提示。
+- 大文件：正文不再走 `localStorage`，改由 `/__doc` 与 `postMessage` 承载；解析上限 6 MB，超过时显示「文件过大，暂不支持（上限 6 MB）」并清空正文。
+- 保存状态机：保存中 / 已保存 / 失败可重试；失败不丢改动，状态栏同步显示当前文件名。
+- 冷启动：有未保存草稿时先确认再恢复，不静默覆盖。
+- 测试 16 个文件 177 条。
+- 体积：构建产物 1,382,298 B；安装包 794,843 B（SHA256 `649FBA924E14F8AB12F409CE49065E53AE8CB9989D6C435D5E8424A2E204A0E3`）、便携 zip 873,775 B（SHA256 `8E5C57986AF3515DA37A8683BC2A250C4184F85F9B06B18C9D63710EDA48A4D4`）。
+- 未验：文件被占用、网络盘、中文路径、真人双击下的写回；`.md` 关联本轮不做。
+
 ## 0.18.0 — 2026-11-15
 
 主题与键盘可达、导出公式保真、字体裁剪。
 
 - 主题：浅色 / 深色 / 跟随系统三档。
-- 快捷键：常用操作键盘可达（清单见 README 的快捷键段）。
+- 快捷键：`Ctrl+S` 保存、`Ctrl+F` 查找、`Ctrl+Enter` 分析等常用操作键盘可达。
 - 导出：HTML 导出里的公式用 MathML 并保留 TeX 源码；纯文本导出保留公式源码。
 - 构建口径：显式设 `chunkSizeWarningLimit: 1200`；不拆 KaTeX（`@tiptap/extension-mathematics` 顶层静态 import，原因见 README「为什么不拆 KaTeX」）。
 - 字体裁剪：只发 woff2，并删掉 4 个装饰 face（Fraktur / Caligraphic / SansSerif 的粗/斜体）；KaTeX 字体 256,168 B / 19 文件 → **213,664 B / 15 文件**（另 1 个 face 内联），只影响 dist 与安装包，不影响首屏。
-- 体积与测试：构建产物 1,373,690 B；安装包 788,878 B（SHA256 `FE5AC4097DF71E438A9F6FB21CC8BFE81E9A838ACBDB48C17279AD8650B9BB94`）、便携 zip 866,981 B（SHA256 `F866D2AA548562BA21ABD920588FDFEA628AB14839EC300F31B4E92497FCFE6E`）；测试 16 个文件 177 条。
+- 体积与测试：测试 16 个文件 177 条；产物体积与校验和见 0.19.0。
 ## 0.17.0 — 2026-11-15
 
 首次给用户可见的「能装、能读、能看清错误」一轮，同时补记第 1、2 轮（那两轮版本号仍是 0.16.3，没有单独发版）。

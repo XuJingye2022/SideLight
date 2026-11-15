@@ -52,4 +52,5 @@ powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 
 - 未签名：首次运行会被 SmartScreen 拦一次。
 - 不写 HKLM，不需要管理员。
-- 不做 `.md` 文件关联（是否做，待产品负责人确认）。
+- 不做 `.md` 文件关联：本轮不做。方案备忘（`OpenWithProgids` 只加「打开方式」候选、不承诺默认程序、`/S` 静默安装不写关联）留待产品负责人确认。
+- 体积预算：安装包硬线 850,000 B；0.19.0 预计 +3 KB（宿主写回代码），超出硬线时先打印载荷占比，不抬线。

@@ -1278,6 +1278,38 @@ main.doc-scroll:focus {
 
 /* ---------- 语法风险提示 ---------- */
 
+/* 宿主文档读不到 / 写回失败的横幅：可见、不自动消失 */
+.host-error-banner,
+.save-error-banner {
+  position: sticky;
+  top: 0;
+  z-index: 14;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto;
+  max-width: 60rem;
+  padding: 8px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  background: color-mix(in srgb, var(--warn) 14%, var(--paper));
+  font-size: var(--text-xs);
+  color: var(--ink);
+}
+
+.host-error-banner span,
+.save-error-banner span {
+  flex: 1;
+}
+
+.host-error-banner button,
+.save-error-banner button {
+  flex: none;
+  padding: 3px 10px;
+  color: var(--paper-raised);
+  background: var(--warn);
+  border-color: var(--warn);
+}
+
 /* 命令行打开的文档：持久横幅，说明 Ctrl+S 不会写回原文件 */
 .readonly-banner {
   position: sticky;

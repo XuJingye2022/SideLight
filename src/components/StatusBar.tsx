@@ -7,14 +7,21 @@ type Props = {
   typewriterMode: boolean
   draftLabel?: string
   hasFrontmatter?: boolean
+  /** 宿主文档：状态栏显示「保存到 <文件名>」 */
+  hostFileName?: string
 }
 
-export function StatusBar({ stats, mode, focusMode, typewriterMode, draftLabel, hasFrontmatter }: Props) {
+export function StatusBar({ stats, mode, focusMode, typewriterMode, draftLabel, hasFrontmatter, hostFileName }: Props) {
   return (
     <footer className="status-bar">
       <span className="status-left">
         {formatStats(stats)}
         {hasFrontmatter && <span className="status-chip status-chip-quiet">元数据</span>}
+        {hostFileName && (
+          <span className="status-chip status-chip-quiet" title="Ctrl+S 保存到这个文件">
+            保存到 {hostFileName}
+          </span>
+        )}
       </span>
       <span className="status-right">
         {draftLabel && <span className="status-chip status-chip-quiet">{draftLabel}</span>}

@@ -73,6 +73,14 @@ declare global {
   interface Window {
     /** 宿主与验收脚本读的脏标记与文档名；round-02 跨组契约，随 [dirty, docName] 更新 */
     __slState?: { dirty: boolean; name: string; readOnly?: boolean }
+    /** WebView2 宿主桥：只在宿主里存在；浏览器里是 undefined */
+    chrome?: {
+      webview?: {
+        postMessage: (message: unknown) => void
+        addEventListener: (type: 'message', listener: (event: { data: unknown }) => void) => void
+        removeEventListener: (type: 'message', listener: (event: { data: unknown }) => void) => void
+      }
+    }
   }
 }
 
@@ -176,6 +184,53 @@ type Notice = {
   action?: { label: string; onClick: () => void }
   /** true 时跳过 6 秒计时器：保存结果这类信息要一直留着 */
   persist?: boolean
+  /** 自定义存活时长（毫秒），优先于默认 6 秒 */
+  ttl?: number
+}
+
+/** 宿主 `/__doc` 提供的信息：页面不拿完整路径，只认文件名与元数据 */
+type HostDoc = {
+  writable: boolean
+  fileName: string
+  mtime: number
+  ready: boolean
+}
+
+/** 宿主文档的解析上限：marked 的行内正则对超长单行会在 8 MB 左右爆栈，这里留余量 */
+const MAX_HOST_DOC_LENGTH = 6 * 1024 * 1024
+type HostDocResponse = {
+  v?: number
+  ok?: boolean
+  text?: string
+  fileName?: string
+  eol?: string
+  readOnly?: boolean
+  mtime?: number
+  error?: string
+}
+
+/** 宿主写回的错误码 → 用户能读懂的一句话 */
+function hostErrorCopy(code: string): string {
+  switch (code) {
+    case 'READONLY':
+      return '这个文件是只读的，宿主没有写盘。请把文件属性改成可写，或用「另存为」存到别处。'
+    case 'FILE_LOCKED':
+      return '文件正被别的程序占用，宿主没有写盘。关掉占用它的程序后再重试。'
+    case 'PATH_CHANGED':
+      return '文件在打开后被外部修改过，为了避免覆盖别人的改动，这次没有写盘。请确认后再重试或另存为。'
+    case 'FILE_GONE':
+      return '原文件不见了，宿主没有写盘。请用「另存为」保存到新位置。'
+    case 'ENCODING':
+      return '这个文件的编码没法安全写回（会改动原字节），这次没有写盘。请用「另存为」存成 UTF-8。'
+    case 'TOO_LARGE':
+      return '文件超过 32 MB，宿主拒绝写回。请用别的编辑器处理，或另存为。'
+    case 'EOL_MISMATCH':
+      return '换行结构与打开时不一致，宿主拒绝写回，避免整篇换行被改写。请用「另存为」。'
+    case 'BAD_REQUEST':
+      return '宿主拒绝了这次保存请求（请求格式不对），没有写盘。'
+    default:
+      return '宿主写回失败，没有写盘。改动还在，可以重试或另存为。'
+  }
 }
 
 
@@ -293,6 +348,19 @@ export default function App() {
 
   const [docName, setDocName] = useState(initial.name)
   const [readOnly, setReadOnly] = useState(initial.readOnly)
+  /** 宿主文档（`/__doc` 成功才有）；null 表示普通浏览器文档 */
+  const [hostDoc, setHostDoc] = useState<HostDoc | null>(null)
+  const [hostError, setHostError] = useState<string | null>(null)
+  /** 冷启动时发现未保存草稿：先问用户保留草稿还是继续打开宿主文件 */
+  const [draftPrompt, setDraftPrompt] = useState<{ fileName: string; savedAt: number } | null>(null)
+  const hostPayloadRef = useRef<HostDocResponse | null>(null)
+  const draftDialogRef = useRef<HTMLDivElement | null>(null)
+  /** 等宿主写回结束再切文档的排队（不复制 saving 状态机） */
+  const hostSaveWaitersRef = useRef<Array<() => void>>([])
+  /** 宿主写回进行中：按钮显示「保存中…」，再按一次只排队一次 */
+  const [saving, setSaving] = useState(false)
+  /** 宿主写回失败/超时的可见原因（带重试与另存为） */
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [frontmatter, setFrontmatter] = useState(initial.frontmatter)
   const [footnotes, setFootnotes] = useState(initial.footnotes)
   const [originalText, setOriginalText] = useState<string | null>(null)
@@ -325,6 +393,35 @@ export default function App() {
   const togglePreviewRef = useRef<() => void>(() => {})
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const railToggleRef = useRef<HTMLButtonElement | null>(null)
+  /** 宿主文档模式：onUpdate 不再往 localStorage 写整篇正文（大文件会撑爆配额） */
+  const hostModeRef = useRef(false)
+  /** 写回状态机：pendingIds + pendingSave + saving 是唯一一套 */
+  const pendingIdsRef = useRef(new Set<number>())
+  const pendingSaveRef = useRef<{ text: string } | null>(null)
+  const sentTextRef = useRef<{ id: number; text: string } | null>(null)
+  const saveTimersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>())
+  const nextSaveIdRef = useRef(0)
+  const sendHostSaveRef = useRef<(text: string) => void>(() => {})
+  const hostSaveSuccessRef = useRef<(id: number, payload: { mtime?: number }) => void>(() => {})
+
+  /** 写回还没结束就切文档：等回包或超时再放行，避免旧回包清掉新文档的 dirty */
+  const waitForHostSave = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        if (pendingIdsRef.current.size === 0) {
+          resolve()
+          return
+        }
+        hostSaveWaitersRef.current.push(resolve)
+      }),
+    [],
+  )
+
+  const flushHostSaveWaiters = useCallback(() => {
+    if (pendingIdsRef.current.size > 0) return
+    const waiters = hostSaveWaitersRef.current.splice(0)
+    for (const resolve of waiters) resolve()
+  }, [])
 
   useEffect(() => {
     fileRef.current = activeFile
@@ -369,6 +466,11 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', settings.theme)
   }, [settings.theme, settingsOpen])
+
+  // 宿主文档：窗口标题显示文件名（转发/另存为后会跟着变）
+  useEffect(() => {
+    document.title = hostDoc?.ready ? `${hostDoc.fileName} — Sidelight` : 'Sidelight'
+  }, [hostDoc])
 
   // 切换文档的确认框与另外两个对话框共用一套焦点逻辑
   useDialogFocus(pendingSwitch !== null, switchDialogRef)
@@ -475,10 +577,13 @@ export default function App() {
       const body = repairCalloutMarkers(repairHtml(repairMath(repairFootnoteRefs(current.getMarkdown()))))
       const draft = joinFrontmatter(frontmatterRef.current, joinFootnotes(body, footnotesRef.current))
 
-      try {
-        localStorage.setItem(DOC_KEY, JSON.stringify({ text: draft, name: docNameRef.current, savedAt: Date.now() }))
-      } catch {
-        // 存储被禁用或配额满：只保留内存状态，别让一次写盘失败拖垮字数与大纲
+      // 宿主文档不写 localStorage：大文件会撑爆配额，正文由宿主保管
+      if (!hostModeRef.current) {
+        try {
+          localStorage.setItem(DOC_KEY, JSON.stringify({ text: draft, name: docNameRef.current, savedAt: Date.now() }))
+        } catch {
+          // 存储被禁用或配额满：只保留内存状态，别让一次写盘失败拖垮字数与大纲
+        }
       }
 
       // 有磁盘目录时，再往 .sidelight/drafts 写一份。
@@ -547,6 +652,159 @@ export default function App() {
     setSelection({ chars: context.selection.length, from, to, source: context.source })
     syncDocInfo(editor)
   }, [editor, initial.text, setMarkdown, syncDocInfo])
+
+  useDialogFocus(draftPrompt !== null, draftDialogRef)
+
+  /** 把 `/__doc` 的正文装进编辑器：宿主文档的唯一入口 */
+  const applyHostPayload = useCallback(
+    (data: HostDocResponse) => {
+      if (!editor || typeof data.text !== 'string') return
+      const writable = data.readOnly !== true
+      hostModeRef.current = true
+      const split = splitFrontmatter(data.text)
+      const footnoteSplit = extractFootnotes(split.body)
+      setFrontmatter(split.frontmatter)
+      frontmatterRef.current = split.frontmatter
+      setFootnotes(footnoteSplit.footnotes)
+      footnotesRef.current = footnoteSplit.footnotes
+      try {
+        setMarkdown(footnoteSplit.body)
+      } catch {
+        // 结构异常（例如超深嵌套）也会在这里爆栈：给可见错误，不留一个空白页面
+        setHostError('这个文件没法安全载入（解析失败，可能是结构异常或超过解析上限）。请用别的编辑器处理。')
+        setMarkdown('')
+        setDirty(false)
+        return
+      }
+      baselineRef.current = data.text.replace(/\r\n/g, '\n')
+      setOriginalText(data.text)
+      eolRef.current = data.eol === 'crlf' ? 'crlf' : 'lf'
+      setRisks(findRiskySyntax(data.text))
+      setDocName(data.fileName ?? docNameRef.current)
+      docNameRef.current = data.fileName ?? docNameRef.current
+      saveTargetRef.current = null
+      setHostDoc({ writable, fileName: data.fileName ?? '未命名.md', mtime: Number(data.mtime ?? 0), ready: true })
+      setReadOnly(!writable)
+      setSaveWarned(true)
+      setDraftShown(false)
+      setDirty(false)
+      setSaveError(null)
+      setHostError(null)
+      document.title = `${data.fileName ?? '未命名.md'} — Sidelight`
+      // 旧版本把 readOnly 写进草稿；清掉这个字段，避免下次又当成只读
+      try {
+        const raw = localStorage.getItem(DOC_KEY)
+        if (raw) {
+          const parsed = JSON.parse(raw) as Record<string, unknown>
+          if (parsed && 'readOnly' in parsed) {
+            delete parsed.readOnly
+            localStorage.setItem(DOC_KEY, JSON.stringify(parsed))
+          }
+        }
+      } catch {
+        // 草稿坏了不影响宿主正文
+      }
+      syncDocInfo(editor)
+      const { from, to } = editor.state.selection
+      const context = buildContext(readBlocks(editor), from, to)
+      setSelection({ chars: context.selection.length, from, to, source: context.source })
+    },
+    [editor, setMarkdown, syncDocInfo],
+  )
+
+  /**
+   * 宿主文档：只从 `/__doc` 取正文与元数据，绝不再回退到 localStorage 旧草稿。
+   * 浏览器里 dev server 的 SPA fallback 会返回 HTML，按普通浏览器启动。
+   */
+  useEffect(() => {
+    if (!editor) return
+    let cancelled = false
+
+    /** 宿主信息取不到：显示错误、清空正文，绝不回退到 localStorage 旧草稿 */
+    const hostUnavailable = (message: string) => {
+      if (cancelled) return
+      hostModeRef.current = true
+      setHostError(message)
+      setHostDoc(null)
+      setMarkdown('')
+      baselineRef.current = ''
+      setOriginalText('')
+      setDocName('未命名.md')
+      docNameRef.current = '未命名.md'
+      setFrontmatter('')
+      frontmatterRef.current = ''
+      setFootnotes('')
+      footnotesRef.current = ''
+      setRisks([])
+      setDirty(false)
+      setSaveError(null)
+      document.title = 'Sidelight'
+    }
+
+    const loadHostDoc = async () => {
+      let response: Response
+      try {
+        response = await fetch('/__doc', { cache: 'no-store' })
+      } catch {
+        hostUnavailable('无法从宿主读取文档信息（网络异常）。这次没有载入任何正文，也没有回退到旧草稿。')
+        return
+      }
+      const contentType = response.headers.get('content-type') ?? ''
+      if (contentType.includes('text/html')) return
+      // 404 = 宿主没有当前文档（无 argv 启动）：按普通浏览器启动，恢复草稿/示例，不报错
+      if (response.status === 404) return
+      if (!response.ok) {
+        hostUnavailable(`宿主返回 ${response.status}，这次没有载入正文，也没有回退到旧草稿。`)
+        return
+      }
+
+      let data: HostDocResponse | null = null
+      try {
+        data = (await response.json()) as HostDocResponse
+      } catch {
+        hostUnavailable('宿主文档信息不是 JSON，这次没有载入正文，也没有回退到旧草稿。')
+        return
+      }
+      if (cancelled) return
+      if (!data || data.v !== 1 || data.ok === false || typeof data.text !== 'string') {
+        hostUnavailable(
+          `宿主没有提供可用的正文（${data?.error ?? (data?.v !== 1 ? '版本不符' : '格式不对')}），这次没有载入正文。`,
+        )
+        return
+      }
+
+      // 解析上限：marked 对超长单行会在 8 MB 左右爆栈，宁可明确报错也不留一个停在示例的页面
+      if (data.text.length > MAX_HOST_DOC_LENGTH) {
+        const megabytes = (data.text.length / (1024 * 1024)).toFixed(1)
+        hostUnavailable(
+          `文件过大，暂不支持（上限 ${MAX_HOST_DOC_LENGTH / (1024 * 1024)} MB）。这个文件约 ${megabytes} MB，这次没有载入正文；请用别的编辑器处理，或先用工具把它拆小。`,
+        )
+        return
+      }
+
+      // 冷启动：localStorage 里有未保存草稿且与宿主正文不同，先问一句再覆盖
+      try {
+        const raw = localStorage.getItem(DOC_KEY)
+        if (raw) {
+          const draft = JSON.parse(raw) as { text?: string; savedAt?: number; name?: string }
+          if (typeof draft.text === 'string' && typeof draft.savedAt === 'number' && draft.savedAt > 0 && draft.text !== data.text) {
+            hostPayloadRef.current = data
+            setDraftPrompt({ fileName: data.fileName ?? '未命名.md', savedAt: draft.savedAt })
+            return
+          }
+        }
+      } catch {
+        // 草稿解析失败就当没有草稿，继续载入宿主正文
+      }
+
+      applyHostPayload(data)
+    }
+
+    void loadHostDoc()
+    return () => {
+      cancelled = true
+    }
+  }, [editor, applyHostPayload, setMarkdown, syncDocInfo])
 
   /* ---------- 批注 ---------- */
 
@@ -942,7 +1200,7 @@ export default function App() {
   // 普通提示六秒后自动消失；错误与 persist 提示留着，等用户处理
   useEffect(() => {
     if (!notice || notice.kind === 'error' || notice.persist) return
-    const timer = setTimeout(() => setNotice(null), 6000)
+    const timer = setTimeout(() => setNotice(null), notice.ttl ?? 6000)
     return () => clearTimeout(timer)
   }, [notice])
 
@@ -1088,7 +1346,10 @@ export default function App() {
       ).replace(/\r\n/g, '\n')
       setDocName(name)
       setActiveFile(file)
-      // 从文件打开 / 新建 / 切换文档：都不再是「命令行只读打开」
+      // 换成普通文档：宿主模式结束，之后保存不再写回 argv 文件
+      setHostDoc(null)
+      hostModeRef.current = false
+      setSaveError(null)
       setReadOnly(false)
       setAnnotations([])
       setUnresolved(0)
@@ -1105,13 +1366,17 @@ export default function App() {
   // 切换文档前先拦住未保存的改动
   const requestLoad = useCallback(
     (text: string, name: string, file: WorkspaceFileNode | null) => {
-      if (dirty) {
-        setPendingSwitch({ text, name, file })
-        return
-      }
-      loadIntoEditor(text, name, file)
+      void (async () => {
+        // 宿主写回还在飞：先等它结束（或超时），别让旧回包改到新文档
+        await waitForHostSave()
+        if (dirty) {
+          setPendingSwitch({ text, name, file })
+          return
+        }
+        loadIntoEditor(text, name, file)
+      })()
     },
-    [dirty, loadIntoEditor],
+    [dirty, loadIntoEditor, waitForHostSave],
   )
 
   const openFolder = useCallback(async () => {
@@ -1166,6 +1431,7 @@ export default function App() {
 
   /** 新建：有真实文件夹就建空文件并刷新树快照；示例/空态只换内存文档 */
   const startNewDocument = useCallback(async () => {
+    await waitForHostSave()
     const space = workspaceRef.current
     const root = space && !space.demo ? space.rootHandle : null
     if (!space || space.demo || !root || space.root?.kind !== 'dir') {
@@ -1201,6 +1467,23 @@ export default function App() {
     }
     void startNewDocument()
   }, [dirty, startNewDocument])
+
+  /** 冷启动草稿确认：保留草稿 → 不载入宿主文件、之后保存走另存为 */
+  const keepDraft = useCallback(() => {
+    setDraftPrompt(null)
+    hostPayloadRef.current = null
+    hostModeRef.current = false
+    setHostDoc(null)
+    setNotice({ text: '已保留本地草稿；宿主文件没有载入，保存会走「另存为」。', kind: 'info', persist: true })
+  }, [])
+
+  /** 冷启动草稿确认：继续打开 → 载入宿主正文 */
+  const openHostAnyway = useCallback(() => {
+    const payload = hostPayloadRef.current
+    hostPayloadRef.current = null
+    setDraftPrompt(null)
+    if (payload) applyHostPayload(payload)
+  }, [applyHostPayload])
 
   /** Blob + a.download；失败就抛给调用方，让用户看到「保存 / 导出失败」 */
   const saveBlob = useCallback((name: string, content: string, type: string) => {
@@ -1239,6 +1522,13 @@ export default function App() {
       setDirty(false)
       // 另存为之后有了新落点，只读横幅可以撤掉
       setReadOnly(false)
+      // 另存为成功：告诉宿主忘掉 argv 路径，之后 Ctrl+S 走句柄/另存为
+      if (hostDoc) {
+        window.chrome?.webview?.postMessage({ v: 1, type: 'forget' })
+        hostModeRef.current = false
+        setHostDoc(null)
+        document.title = `${name} — Sidelight`
+      }
       setNotice({
         text: `已保存 ${name}`,
         kind: 'info',
@@ -1254,7 +1544,7 @@ export default function App() {
         await removeCache(dir, 'draft', cacheKey(name))
       })()
     },
-    [cacheDirFor],
+    [cacheDirFor, hostDoc],
   )
 
   const commitSave = useCallback(
@@ -1318,7 +1608,22 @@ export default function App() {
     if (!editor) return
     const text = currentMarkdown()
 
-    // 只读文档（命令行打开）：Ctrl+S 一律走另存为，不假装写回原文件
+    // 宿主文档：写回走 postMessage 状态机，不碰浏览器下载
+    if (hostDoc?.ready) {
+      if (!hostDoc.writable) {
+        void saveAsCopyRef.current()
+        return
+      }
+      // 不改不写：dirty=false 时一个字节都不发，保证原文件 SHA 不变
+      if (!dirty) {
+        setNotice({ text: '没有改动，未写入。', kind: 'info', ttl: 1500 })
+        return
+      }
+      sendHostSaveRef.current(text)
+      return
+    }
+
+    // 兼容旧只读标记（现在只会由宿主设置）
     if (readOnly) {
       void saveAsCopyRef.current()
       return
@@ -1335,7 +1640,12 @@ export default function App() {
     }
 
     void commitSave(text)
-  }, [editor, readOnly, originalText, saveWarned, commitSave, currentMarkdown])
+  }, [editor, hostDoc, dirty, readOnly, originalText, saveWarned, commitSave, currentMarkdown])
+
+  const saveFileRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    saveFileRef.current = saveFile
+  }, [saveFile])
 
   /** 另存为：不管当前有没有句柄，都重新选一个落点 */
   const saveAsCopy = useCallback(async () => {
@@ -1366,6 +1676,104 @@ export default function App() {
   useEffect(() => {
     saveAsCopyRef.current = () => void saveAsCopy()
   }, [saveAsCopy])
+
+  /** 宿主文档：把一次写回发给宿主；同一时间只有一个 id 在飞 */
+  const sendHostSave = useCallback(
+    (text: string) => {
+      const webview = window.chrome?.webview
+      if (!webview || !hostDoc?.ready || !hostDoc.writable) return
+      if (pendingIdsRef.current.size > 0) {
+        // 保存中再按一次：只记最新一份，回包后补发
+        pendingSaveRef.current = { text }
+        return
+      }
+      const id = (nextSaveIdRef.current += 1)
+      pendingIdsRef.current.add(id)
+      sentTextRef.current = { id, text }
+      setSaving(true)
+      setSaveError(null)
+      // 只发正文，不带任何路径/文件名
+      webview.postMessage({ v: 1, type: 'save', id, text })
+      const timer = setTimeout(() => {
+        if (!pendingIdsRef.current.has(id)) return
+        pendingIdsRef.current.delete(id)
+        saveTimersRef.current.delete(id)
+        setSaving(false)
+        setSaveError('保存超时：宿主 10 秒没有回应。改动还在，可以重试。')
+        flushHostSaveWaiters()
+      }, 10000)
+      saveTimersRef.current.set(id, timer)
+    },
+    [hostDoc, flushHostSaveWaiters],
+  )
+
+  useEffect(() => {
+    sendHostSaveRef.current = sendHostSave
+  }, [sendHostSave])
+
+  /** 宿主写回成功：基线、dirty、mtime 一起更新 */
+  const applyHostSaveSuccess = useCallback(
+    (id: number, payload: { mtime?: number }) => {
+      const sent = sentTextRef.current
+      if (!sent || sent.id !== id) return
+      sentTextRef.current = null
+      // 文档已经换走（宿主模式结束）：旧回包只丢掉，不动新文档的 dirty 与提示
+      if (!hostDoc?.ready) {
+        setSaving(false)
+        setSaveError(null)
+        return
+      }
+      baselineRef.current = sent.text
+      setOriginalText(sent.text)
+      setDirty(false)
+      setSaveWarned(true)
+      setSaving(false)
+      setSaveError(null)
+      setHostDoc((previous) => (previous ? { ...previous, mtime: Number(payload.mtime ?? previous.mtime) } : previous))
+      // 正在等切文档：不弹「已保存」，免得新文档上挂着旧文档的成功提示
+      if (hostSaveWaitersRef.current.length === 0) {
+        setNotice({ text: `已保存到 ${hostDoc.fileName}`, kind: 'info', persist: true })
+      }
+    },
+    [hostDoc],
+  )
+
+  useEffect(() => {
+    hostSaveSuccessRef.current = applyHostSaveSuccess
+  }, [applyHostSaveSuccess])
+
+  // 宿主回包：只认 pendingIds 里的 id；失败保留 dirty，可重试
+  useEffect(() => {
+    const webview = window.chrome?.webview
+    if (!webview) return
+    const onMessage = (event: { data: unknown }) => {
+      const data = event.data as
+        | { v?: number; type?: string; id?: number; ok?: boolean; error?: string; mtime?: number }
+        | null
+      if (!data || data.v !== 1 || data.type !== 'save-result') return
+      const id = Number(data.id)
+      if (!pendingIdsRef.current.has(id)) return // 晚到/旧回包一律丢弃
+      pendingIdsRef.current.delete(id)
+      const timer = saveTimersRef.current.get(id)
+      if (timer) {
+        clearTimeout(timer)
+        saveTimersRef.current.delete(id)
+      }
+      if (data.ok === true) {
+        hostSaveSuccessRef.current(id, { mtime: data.mtime })
+      } else {
+        setSaving(false)
+        setSaveError(hostErrorCopy(String(data.error ?? 'IO')))
+      }
+      // 保存中按过的那一次：用最新正文补发
+      const queued = pendingSaveRef.current
+      pendingSaveRef.current = null
+      if (queued) sendHostSaveRef.current(queued.text)
+      flushHostSaveWaiters()
+    }
+    webview.addEventListener('message', onMessage)
+    return () => webview.removeEventListener('message', onMessage)
+  }, [flushHostSaveWaiters])
 
   const cancelSwitch = useCallback(() => setPendingSwitch(null), [])
 
@@ -1987,7 +2395,7 @@ export default function App() {
           onOpenFile={() => void openSingleFile()}
           onOpenFolder={() => void openFolder()}
         />
-        <div className="doc-name">
+        <div className="doc-name" title={hostDoc?.ready ? '保存会写回这个文件' : undefined}>
           {docName}
           {dirty && <span className="dirty" title="有未保存的改动" />}
         </div>
@@ -2089,8 +2497,8 @@ export default function App() {
         <button type="button" onClick={() => setShortcutsOpen(true)} aria-label="快捷键" title="快捷键">
           ?
         </button>
-        <button type="button" onClick={saveFile}>
-          保存
+        <button type="button" onClick={saveFile} aria-busy={saving}>
+          {saving ? '保存中…' : '保存'}
         </button>
         <button type="button" onClick={() => setSettingsOpen(true)}>
           设置
@@ -2333,9 +2741,28 @@ export default function App() {
         </div>
 
         <main id="editor" tabIndex={-1} className="doc-scroll" ref={scrollRef}>
-          {readOnly && (
+          {hostError && (
+            <div className="host-error-banner" role="alert">
+              <span>{hostError}</span>
+              <button type="button" onClick={() => window.location.reload()}>
+                重新载入
+              </button>
+            </div>
+          )}
+          {saveError && (
+            <div className="save-error-banner" role="alert">
+              <span>{saveError}</span>
+              <button type="button" onClick={() => saveFileRef.current()}>
+                重试
+              </button>
+              <button type="button" onClick={() => saveAsCopyRef.current()}>
+                另存为
+              </button>
+            </div>
+          )}
+          {hostDoc && hostDoc.writable === false && (
             <div className="readonly-banner" role="status">
-              <span>只读打开：Ctrl+S 不会写回原文件，请用「另存为」选择位置。</span>
+              <span>这个文件目前不能写回。保存会请你另选位置。</span>
               <button type="button" onClick={() => saveAsCopyRef.current()}>
                 另存为
               </button>
@@ -2453,6 +2880,7 @@ export default function App() {
         focusMode={focusMode}
         typewriterMode={typewriterMode}
         hasFrontmatter={frontmatter.length > 0}
+        hostFileName={hostDoc?.ready ? hostDoc.fileName : undefined}
         draftLabel={
           draftShown && initial.savedAt > 0
             ? `草稿 ${new Date(initial.savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
@@ -2476,6 +2904,35 @@ export default function App() {
           setSaveDiff([])
         }}
       />
+
+      {draftPrompt && (
+        <div className="overlay" role="presentation" onMouseDown={keepDraft}>
+          <div
+            ref={draftDialogRef}
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="未保存的草稿"
+            aria-labelledby="draft-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2 id="draft-title">有未保存的草稿</h2>
+            <p className="dialog-note">
+              有未保存的草稿（保存于{' '}
+              {new Date(draftPrompt.savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}）。打开{' '}
+              {draftPrompt.fileName} 会替换它。
+            </p>
+            <div className="dialog-actions">
+              <button type="button" onClick={keepDraft}>
+                保留草稿
+              </button>
+              <button type="button" className="primary" onClick={openHostAnyway}>
+                继续打开
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pendingSwitch && (
         <div className="overlay" role="presentation" onMouseDown={cancelSwitch}>

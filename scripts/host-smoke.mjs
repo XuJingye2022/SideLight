@@ -148,7 +148,7 @@ async function main() {
   await page.waitForTimeout(1500)
 
   const title = await page.title()
-  check('窗口：document.title 为 Sidelight', title === 'Sidelight', `document.title=${title}`)
+  check('窗口：document.title 以 Sidelight 结尾（「文件名 — Sidelight」）', title.endsWith('Sidelight'), `document.title=${title}`)
   check(
     '渲染：.ProseMirror 存在、控制台 0 错误',
     renderOk && consoleErrors.length === 0,
