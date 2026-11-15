@@ -49,11 +49,11 @@
 
 ## 当前版本与体积
 
-- v0.25.0。`dist` 1,427,617 B；首屏 JS+CSS gzip **284,134 B**（余 866 B）；测试 16 文件 205 条。
-- 便携 zip：897,251 B；NSIS per-user 安装包：815,683 B（内部预算 815,000 +683，硬线 850,000 未破）。
+- v0.26.0。`dist` 1,434,502 B；首屏 JS+CSS gzip **284,973 B**（余 27 B）；测试 16 文件 205 条。
+- 便携 zip：899,829 B；NSIS per-user 安装包：817,347 B（内部预算 820,000，硬线 850,000 未动）。
 - 往返：rich 5/7、source 7/7、首次保存仍拦截 1/7（04）；265 KiB 目标不可达（ADR-0012）。
-- 文件树：删除文件到 `.sidelight/trash/`、刷新、可访问性树；无目录删除/重命名。
-- 已知：侧栏 tablist 与大纲 `aria-current` 因首屏预算延后（不算达标）。
+- 文件树：新建文件/文件夹、删除文件到 `.sidelight/trash/`、重命名文件、刷新、树可访问性；目录删除/移动/复制仍不做。
+- 延后：P3 侧栏 tablist、P4 展开态/空文件夹提示（首屏预算）；不算达标。
 
 ## 轮次记录
 
@@ -71,17 +71,26 @@
 | 10 | 表格/空行/引用式链接 | round-10/plan.md | PASS-WITH-UNVERIFIED：表格整块复用、01 空行、04 默认源码、rich 5/7 source 7/7、0.23.0 | 4878030 |
 | 11 | KaTeX 惰性 + 首屏预算 | round-11/plan.md | PASS-WITH-UNVERIFIED：首屏 364,960→282,809 B、alias/shim/导出/占位全过、0.24.0 | 6bd6831 |
 | 12 | 文件树删除/刷新/可访问性 | round-12/plan.md | PASS-WITH-UNVERIFIED：删文件进 trash、删除不复活、树键盘与 live region、0.25.0 | 971e1ca |
+| 13 | 重命名 + 树细节 + 大纲可访问性 | round-13/plan.md | PASS-WITH-UNVERIFIED：安全重命名 22/22、树 43/43、aria-current、0.26.0 | ad1777d |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
-- **文件树补齐**：重命名（`FileSystemFileHandle.move()` 实测可用，目录仍不行）、树缩进/长名换行、展开态跨页签保持；目录删除仍不做。
-- **可访问性延后项**：侧栏 tablist、大纲 `aria-current`（首屏预算 866 B，需先省出体积）。
-- **真实环境 UNVERIFIED**：HKCU 关联/打开方式/卸载、真人双击、系统对话框、真实 IME、文件占用/网络盘/中文长路径、AltGr、Alt+F4/注销关窗、只读目录草稿失败、localStorage 配额、真实最近列表、真实宿主源码保存字节、真实 WebView2 冷启动、离线 KaTeX chunk、打印路径、trash 手动恢复、并发删除、屏幕阅读器实录。
-- `src/App.tsx` 约 2900 行；三处重复序列化 / 草稿写入；22 处字号无变量。
-- 无 Mermaid、字体不可换、无自定义快捷键。
-- 密钥明文存 localStorage；CI `windows-host` 未在 GitHub 首跑（仓库无 remote）。
-- 6 MB 上限（marked 8 MB 爆栈）；更大文件需换解析器。
-- 500 toast 原始响应未进 `title`；ADR-0004 载荷数每次宿主改动后要复算。
+- **P3/P4 延后项**：侧栏 tablist、文件树展开态跨页签、空文件夹提示（首屏余 27 B，需先省体积）。
+- **真实环境 UNVERIFIED**：HKCU 关联/打开方式/卸载、真人双击、系统对话框、真实 IME、文件占用/网络盘/中文长路径、AltGr、Alt+F4/注销关窗、只读目录草稿失败、localStorage 配额、真实最近列表、真实宿主源码保存字节、真实 WebView2 冷启动、离线 KaTeX chunk、打印路径、trash 手动恢复、并发删除、真实盘 `move()`/大小写/OneDrive、屏幕阅读器实录、旧最近记录 `FILE_GONE`、缓存迁移写失败。
+- **发布前**：仓库无 remote、CI `windows-host` 未首跑；隐私声明仍标「待产品负责人确认」；README/CHANGELOG 需最终一致性复核；`.md` 关联 opt-in 仍未做（待产品负责人）。
+- **体验**：首次使用/示例内容/引导、主题细化、Mermaid/自定义字体（可选）、自定义快捷键。
+- **工程**：`src/App.tsx` 约 3000 行；三处重复序列化/草稿写入；22 处字号无变量；性能与内存未系统测。
+- 密钥明文存 localStorage；6 MB 上限；500 toast 原始响应未进 title。
+- ADR-0004 载荷数每次宿主改动后要复算。
+
+## 下一轮怎么开始（给接手的调度器）
+
+1. 读本文件、`AGENTS.md`、最近一次 `docs/iteration/round-13/test.md`。
+2. 起 dev server（`node node_modules/vite/bin/vite.js`，写 `localhost:5173`），确认 200。
+3. 派 3 个新 finder（缺陷/体验/发布）只读侦察，报告写 `round-14/findings-*.md`；重点从上面待办池挑。
+4. 复用已有持久代理：`planner`、`critic`、`builder`、`builder2`、`tester`（用 send_message，别新建同名）。
+5. 按「侦察 → 计划 → 审计划 → 实施 → 验收」循环；根代理只在阶段之间分派、跑最终门禁、commit、更新本文件。
+6. 建议主题：round 14 性能与内存 / App.tsx 关键拆分；round 15 首次使用与 P3/P4；round 16 发布准备（隐私确认、CI 首跑、校验和）；round 17 主题细化；round 18 文档/贡献指南；round 19 1.0 RC；round 20 最终 QA。
 
 ## 决策记录
 
@@ -101,3 +110,4 @@
 - 2026-11-16 第 10 轮：未改动的表格整块复用原文（rich 5/7）；frontmatter 后空行保真；含引用式链接的文档载入即源码（source 7/7）；版本 0.23.0。
 - 2026-11-16 第 11 轮：KaTeX 惰性（alias + shim + 动态 CSS + 就绪订阅），首屏 364,960→282,809 B；265 KiB 不可达写进 ADR-0012；版本 0.24.0。
 - 2026-11-16 第 12 轮：文件树删除文件到 `.sidelight/trash/`（move 优先、SHA 回退）、删除后不复活、刷新重绑、树可访问性；首屏 284,134 B；版本 0.25.0。
+- 2026-11-16 第 13 轮：同目录安全重命名（目标存在拒绝、二次探测、无 copy 回退、缓存迁移、身份同步）、树缩进/选中可见、大纲 `aria-current`；首屏 284,973 B；版本 0.26.0。
