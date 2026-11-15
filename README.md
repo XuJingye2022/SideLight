@@ -60,7 +60,8 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 ## 现在不能做什么
 
 - 文件树只能删文件：不能移动、复制、重命名文件，也不能删目录；没有应用内「恢复」或 trash 浏览界面，恢复要在资源管理器里把文件挪回去。trash 只增不减，不自动清理，卸载也不删。
-- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。安装用 `release/Sidelight-0.29.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
+- 可访问性还有 P2 延后项：骨架的 `role="dialog"`/`aria-busy`、批注卡可聚焦并按 Enter 跳句、正文开头 Tab 回环删除，本轮不做。
+- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。安装用 `release/Sidelight-0.30.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
 - `.md` 默认不关联。安装时勾选「在「打开方式」中加入 Sidelight」后，右键 `.md` 的「打开方式」里会多一项；默认程序仍要在 Windows 设置里自己选，安装器不改它。
 - 密钥存在浏览器 localStorage，没有加密，也没有系统钥匙串。
 - 表格：没动过的表格整块写回原文（表内字节与 02 型单空行）；改过单元格、增删行列或改对齐的表格会重新排版，且不弹保存确认；表格前后 ≥2 空行会规范化成一个。引用式链接定义块默认源码打开，写回原文；切回富文本首次保存仍拦一次。
@@ -88,9 +89,9 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 - 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
 ## 依赖与体积
 
-首屏 gzip 从 364,960 B 降到 **283,826 B（−22.2%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 77 KB）按需加载，首屏不再包含；安装包内部预算 820,000 B（硬线 850,000 B 未调）。安装包、便携 zip 与 macOS zip 的字节和 SHA256 **见 Release 页的 `SHA256SUMS-0.29.0.txt`**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
+首屏 gzip 从 364,960 B 降到 **284,210 B（−22.1%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 77 KB）按需加载，首屏不再包含；安装包内部预算 820,000 B（硬线 850,000 B 未调）。安装包、便携 zip 与 macOS zip 的字节和 SHA256 **见 Release 页的 `SHA256SUMS-0.30.0.txt`**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
 
-**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 283,826 B（0.28.1），原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 1200`（主 chunk 约 883 KB）。
+**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 284,210 B（0.30.0），原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 1200`（主 chunk 约 883 KB）。
 
 运行时依赖只有两组，都不是为省几行代码引入的：
 
@@ -99,7 +100,7 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
 
-宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包与便携 zip 的字节和 SHA256 见 Release 页的 `SHA256SUMS-0.29.0.txt`（内部预算 820,000 B，硬线 850,000 B 不动），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
+宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包与便携 zip 的字节和 SHA256 见 Release 页的 `SHA256SUMS-0.30.0.txt`（内部预算 820,000 B，硬线 850,000 B 不动），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
 
 ## 跑起来
 

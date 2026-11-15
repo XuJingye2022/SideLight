@@ -342,6 +342,27 @@ if (last) {
 check('纯键盘 E2E 导出 HTML 含正文', e2eText.includes('键盘链路-KB'), e2eText ? last?.suggestedFilename() : 'no-download')
 check('页面没有脚本错误', errors.length === 0, errors.slice(0, 2).join(' | '))
 
+// T3：正文名称、错误 toast 单一 live region、aria-hidden 内无焦点
+const editorName = await page.evaluate(() => document.querySelector('.tiptap')?.getAttribute('aria-label') ?? '')
+check('正文编辑器有 aria-label', editorName.length > 0, editorName)
+await page.evaluate(() => {
+  window.showSaveFilePicker = async () => {
+    throw new DOMException('模拟保存失败', 'NotAllowedError')
+  }
+})
+await page.locator('.file-menu-trigger').click()
+await page.getByRole('menuitem', { name: /另存为/ }).click()
+await page.waitForTimeout(800)
+const toastA11y = await page.evaluate(() => ({
+  alert: document.querySelector('.toast [role="alert"]')?.textContent?.trim() ?? '',
+  liveCount: document.querySelectorAll('.toast [role="alert"], .toast [role="status"]').length,
+  hiddenFocusable: document.querySelectorAll('[aria-hidden="true"] button, [aria-hidden="true"] input, [aria-hidden="true"] a[href]').length,
+  group: Boolean(document.querySelector('.toast [role="group"]')),
+}))
+check('保存失败进入 role=alert 且含原因', toastA11y.alert.includes('保存失败'), JSON.stringify(toastA11y))
+check('一次 notice 只有一个 live region', toastA11y.liveCount === 1, String(toastA11y.liveCount))
+check('toast 按钮在 role=group 且 aria-hidden 内无焦点元素', toastA11y.group && toastA11y.hiddenFocusable === 0, JSON.stringify(toastA11y))
+
 console.log(`\n${results.filter((item) => item.ok).length}/${results.length} PASS`)
 await page.close()
 await context.close()

@@ -2,7 +2,7 @@ import { chromium } from 'playwright-core'
 
 const URL = process.env.SIDELIGHT_URL ?? 'http://localhost:5173'
 const CDP = process.env.SIDELIGHT_CDP ?? 'http://127.0.0.1:9222'
-const OUT = 'shots/round-14'
+const OUT = 'shots/round-16'
 
 const results = []
 const check = (label, ok, extra = '') => {
@@ -518,8 +518,8 @@ const sha = (page, path) => page.evaluate((value) => window.__fs.sha(value), pat
     count: document.querySelectorAll('[aria-live]').length,
     toast: document.querySelector('.toast')?.getAttribute('aria-hidden') ?? null,
   }))
-  check('常驻 polite live region 只有 1 个', live.count === 1, JSON.stringify(live))
-  check('视觉 toast 不再作为 live region', live.toast === null || live.toast === 'true', JSON.stringify(live))
+  check('常驻 live region 已移除', live.count === 0, JSON.stringify(live))
+  check('toast 不再整块 aria-hidden', live.toast === null, JSON.stringify(live))
 
   // 可延后项：首屏超线时按 plan 砍掉侧栏 tab 与大纲 aria-current，只保留核心可访问性
   check('可延后项：侧栏 tab 属性本轮未做（已记录）', true)
@@ -589,6 +589,49 @@ const sha = (page, path) => page.evaluate((value) => window.__fs.sha(value), pat
   check('切回文件后展开态仍保留、面板可见', back.hasTree && back.hidden === false, JSON.stringify(back))
   await page.screenshot({ path: `${OUT}/t3-tablist.png` })
   await page.screenshot({ path: `${OUT}/t3-outline-current.png` })
+  await context.close()
+}
+
+// ---------- T1 hidden + scrollTop ----------
+{
+  const files = {}
+  for (let index = 0; index < 40; index += 1) files[`note-${index}.md`] = `# note ${index}\n`
+  const { context, page } = await openPage(files)
+  const scrollInfo = await page.evaluate(() => {
+    const list = document.querySelector('[role="tree"]')
+    if (list) list.scrollTop = 148
+    return {
+      scrollHeight: list?.scrollHeight ?? -1,
+      clientHeight: list?.clientHeight ?? -1,
+      rows: document.querySelectorAll('[role="tree"] [role="treeitem"]').length,
+    }
+  })
+  await page.waitForTimeout(300)
+  const beforeScroll = await page.evaluate(() => document.querySelector('[role="tree"]')?.scrollTop ?? -1)
+  console.log('DEBUG scroll', JSON.stringify(scrollInfo), beforeScroll)
+  await page.getByRole('tab', { name: '大纲' }).click()
+  await page.waitForTimeout(400)
+  const hiddenInfo = await page.evaluate(() => {
+    const tree = document.querySelector('[role="tabpanel"][id="sidebar-files"]') ?? document.querySelector('.file-tree')
+    const outline = document.querySelector('.outline')
+    const treeRect = tree?.getBoundingClientRect()
+    return {
+      display: tree ? getComputedStyle(tree).display : '',
+      height: treeRect?.height ?? -1,
+      rows: document.querySelectorAll('[role="tree"] [role="treeitem"]').length,
+      outlineTop: outline?.getBoundingClientRect().top ?? -1,
+      tabsBottom: document.querySelector('.sidebar-tabs')?.getBoundingClientRect().bottom ?? -2,
+    }
+  })
+  check('切大纲后文件树 display:none、高度 0', hiddenInfo.display === 'none' && hiddenInfo.height === 0, JSON.stringify(hiddenInfo))
+  check('隐藏时树内容仍在 DOM', hiddenInfo.rows > 20, JSON.stringify(hiddenInfo))
+  check('大纲顶与页签底对齐', Math.abs(hiddenInfo.outlineTop - hiddenInfo.tabsBottom) < 8, JSON.stringify(hiddenInfo))
+  await page.screenshot({ path: `${OUT}/t1-outline-1024.png` })
+  await page.getByRole('tab', { name: '文件' }).click()
+  await page.waitForTimeout(500)
+  const afterScroll = await page.evaluate(() => document.querySelector('[role="tree"]')?.scrollTop ?? -1)
+  check('切回文件树 scrollTop 仍为 148', beforeScroll === 148 && afterScroll === 148, `${beforeScroll} -> ${afterScroll}`)
+  await page.screenshot({ path: `${OUT}/t1-scroll-back.png` })
   await context.close()
 }
 

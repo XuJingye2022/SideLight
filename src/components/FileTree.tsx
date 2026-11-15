@@ -2,6 +2,7 @@ import {
   lazy,
   Suspense,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -80,7 +81,23 @@ export function FileTree({
   const [renamePath, setRenamePath] = useState<string | null>(null)
   const [focusPath, setFocusPath] = useState<string | null>(activePath)
   const treeRef = useRef<HTMLDivElement | null>(null)
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const scrollTopRef = useRef(0)
+  const wasHiddenRef = useRef(false)
   const wasFocusedRef = useRef(false)
+
+  useLayoutEffect(() => {
+    if (hidden) {
+      wasHiddenRef.current = true
+      return
+    }
+    if (!wasHiddenRef.current || !listRef.current) return
+    wasHiddenRef.current = false
+    const frame = requestAnimationFrame(() => {
+      if (listRef.current) listRef.current.scrollTop = scrollTopRef.current
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [hidden])
 
   useEffect(() => {
     setFocusPath((previous) => previous ?? activePath)
@@ -411,10 +428,16 @@ export function FileTree({
         </div>
 
       <div
-        ref={treeRef}
+        ref={(node) => {
+          treeRef.current = node
+          listRef.current = node
+        }}
         className="file-tree-list"
         role="tree"
         aria-label="文件树"
+        onScroll={(event) => {
+          scrollTopRef.current = event.currentTarget.scrollTop
+        }}
         onKeyDown={onTreeKeyDown}
         onFocus={() => {
           wasFocusedRef.current = true

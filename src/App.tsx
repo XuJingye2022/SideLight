@@ -683,7 +683,7 @@ export default function App() {
     content: '',
     contentType: 'markdown',
     editorProps: {
-      attributes: { class: 'editor', spellcheck: 'false' },
+      attributes: { class: 'editor', spellcheck: 'false', 'aria-label': '正文编辑器' },
       handleDrop: (_view, event, _slice, moved) => {
         if (moved) return false
         const files = Array.from(event.dataTransfer?.files ?? []).filter((file) => file.type.startsWith('image/'))
@@ -3934,7 +3934,7 @@ export default function App() {
             </div>
           )}
           {hostDoc && hostDoc.writable === false && (
-            <div className="readonly-banner" role="status">
+            <div className="readonly-banner" role="region" aria-label="只读提示">
               <span>这个文件目前不能写回。保存会请你另选位置。</span>
               <button type="button" onClick={() => saveAsCopyRef.current()}>
                 另存为
@@ -3942,7 +3942,7 @@ export default function App() {
             </div>
           )}
           {risks.length > 0 && (
-            <div className="risk-banner" role="status">
+            <div className="risk-banner" role="region" aria-label="结构风险提示">
               <span>
                 这篇载入时就有会被改写的结构（{risks.length} 类）：{risks.join('；')}
               </span>
@@ -3957,7 +3957,7 @@ export default function App() {
 
           {sourceMode ? (
             <div className="doc-layout source-layout">
-              <div className="source-note" role="status">
+              <div className="source-note" role="region" aria-label="源码模式说明">
                 <span>
                   源码模式 · {dirty ? '你的改动 + 编辑器整理结果（不是文件原文）' : '文件原文'}
                 </span>
@@ -4037,27 +4037,34 @@ export default function App() {
         </main>
       </div>
 
-      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-        {notice && notice.kind !== 'error' ? notice.text : ''}
-      </div>
-
       {notice && (
-        <div className={`toast${notice.kind === 'error' ? ' is-error' : ''}`} aria-hidden="true">
-          <span className="toast-text">{notice.text}</span>
-          {notice.action && (
-            <button type="button" className="toast-action" onClick={notice.action.onClick}>
-              {notice.action.label}
-            </button>
-          )}
-          {notice.actions?.map((entry) => (
-            <button key={entry.label} type="button" className="toast-action" onClick={entry.onClick}>
-              {entry.label}
-            </button>
-          ))}
-          {notice.kind === 'error' && (
-            <button type="button" className="toast-close" aria-label="关闭提示" onClick={() => setNotice(null)}>
-              ×
-            </button>
+        <div className={`toast${notice.kind === 'error' ? ' is-error' : ''}`}>
+          <div
+            className="toast-live"
+            style={{ flex: 1, minWidth: 0 }}
+            role={notice.kind === 'error' ? 'alert' : 'status'}
+            aria-atomic="true"
+          >
+            <span className="toast-text">{notice.text}</span>
+          </div>
+          {(notice.action || notice.actions?.length || notice.kind === 'error') && (
+            <div role="group" aria-label="提示操作" style={{ display: 'flex', gap: 6 }}>
+              {notice.action && (
+                <button type="button" className="toast-action" onClick={notice.action.onClick}>
+                  {notice.action.label}
+                </button>
+              )}
+              {notice.actions?.map((entry) => (
+                <button key={entry.label} type="button" className="toast-action" onClick={entry.onClick}>
+                  {entry.label}
+                </button>
+              ))}
+              {notice.kind === 'error' && (
+                <button type="button" className="toast-close" aria-label="关闭提示" onClick={() => setNotice(null)}>
+                  ×
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

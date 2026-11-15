@@ -101,6 +101,60 @@ for (const [label, fg, bg] of darkContrasts) {
   check(`深色对比度 ${label} ≥4.5`, fg && bg ? ratio(fg, bg) >= 4.5 : false, fg && bg ? String(ratio(fg, bg)) : 'missing')
 }
 
+// T2：新 token 对比度（深色采纳/分析/错误/输入边界/焦点环）
+const tokenContrasts = await page.evaluate(() => {
+  const styles = getComputedStyle(document.documentElement)
+  const raw = (name) => styles.getPropertyValue(name).trim()
+  return {
+    onMark: raw('--on-mark'),
+    mark: raw('--mark'),
+    markStrong: raw('--mark-strong'),
+    onAccent: raw('--on-accent'),
+    accent: raw('--accent'),
+    accentInk: raw('--accent-ink'),
+    danger: raw('--danger'),
+    paper: raw('--paper'),
+    raised: raw('--paper-raised'),
+    lineInput: raw('--line-input'),
+    focus: raw('--focus-color'),
+  }
+})
+const darkPairs = [
+  ['采纳 on-mark/mark', tokenContrasts.onMark, tokenContrasts.mark, 4.5],
+  ['采纳 hover on-mark/mark-strong', tokenContrasts.onMark, tokenContrasts.markStrong, 4.5],
+  ['分析 on-accent/accent', tokenContrasts.onAccent, tokenContrasts.accent, 4.5],
+  ['分析 hover on-accent/accent-ink', tokenContrasts.onAccent, tokenContrasts.accentInk, 4.5],
+  ['danger/paper', tokenContrasts.danger, tokenContrasts.paper, 4.5],
+  ['danger/paper-raised', tokenContrasts.danger, tokenContrasts.raised, 4.5],
+  ['line-input/paper', tokenContrasts.lineInput, tokenContrasts.paper, 3],
+  ['focus-color/paper', tokenContrasts.focus, tokenContrasts.paper, 3],
+]
+for (const [label, fg, bg, min] of darkPairs) {
+  const value = ratio(hex(fg), hex(bg))
+  check(`深色 token ${label} ≥${min}`, value >= min, String(value))
+}
+
+// T2：源码框只有 inset 环；reduced-motion 生效
+const sourceRing = await page.evaluate(() => {
+  const node = document.createElement('textarea')
+  node.className = 'source-editor'
+  document.body.append(node)
+  node.focus()
+  const style = getComputedStyle(node)
+  const result = { outline: style.outlineStyle, shadow: style.boxShadow }
+  node.remove()
+  return result
+})
+check('源码框只用 inset 焦点环', sourceRing.outline === 'none' && sourceRing.shadow.includes('inset'), JSON.stringify(sourceRing))
+await page.emulateMedia({ reducedMotion: 'reduce' })
+const reduced = await page.evaluate(() => {
+  const node = document.querySelector('button') ?? document.body
+  const style = getComputedStyle(node)
+  return { transition: style.transitionDuration, animation: style.animationDuration }
+})
+check('reduced-motion 下时长 ≤0.01s', [reduced.transition, reduced.animation].every((value) => parseFloat(value) <= 0.01), JSON.stringify(reduced))
+await page.emulateMedia({ reducedMotion: 'no-preference' })
+
 // 白帧：CDP screencast 抓 reload 前 4 帧
 const frames = []
 client.on('Page.screencastFrame', async (event) => {
