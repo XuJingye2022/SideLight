@@ -45,7 +45,8 @@ enum SelfTest {
         // 就绪等待：10 × 0.2 s 轮询 GET /
         var ready = false
         for _ in 0..<10 {
-            if let (status, _, _) = get("/"), status == 200 {
+            let (readyStatus, _, _) = get("/")
+            if readyStatus == 200 {
                 ready = true
                 break
             }
@@ -73,14 +74,19 @@ enum SelfTest {
 
         let (docStatus, _, docBody) = get("/__doc")
         let docJSON = (try? JSONSerialization.jsonObject(with: Data(docBody.utf8))) as? [String: Any]
-        check("GET /__doc 200/404 且是 v=1 的 JSON", (docStatus == 200 || docStatus == 404) && docJSON?["v"] != nil, "status=\(docStatus)")
+        let docVersion = docJSON?["v"] as? Int
+        let docVersionText = docVersion.map { String($0) } ?? "-"
+        check("GET /__doc 200/404 且是 v=1 的 JSON", (docStatus == 200 || docStatus == 404) && docVersion == 1, "status=\(docStatus) v=\(docVersionText)")
         if docBody.contains("/Users/") {
             check("GET /__doc 不含完整路径", false)
         }
 
         let (recentStatus, _, recentBody) = get("/__recent")
         let recentJSON = (try? JSONSerialization.jsonObject(with: Data(recentBody.utf8))) as? [String: Any]
-        check("GET /__recent 200 且 v=1、items 数组", recentStatus == 200 && recentJSON?["v"] != nil && recentJSON?["items"] is [Any], "status=\(recentStatus)")
+        let recentVersion = recentJSON?["v"] as? Int
+        let recentItems = recentJSON?["items"] as? [Any]
+        let recentVersionText = recentVersion.map { String($0) } ?? "-"
+        check("GET /__recent 200 且 v=1、items 数组", recentStatus == 200 && recentVersion == 1 && recentItems != nil, "status=\(recentStatus) v=\(recentVersionText)")
 
         let (missingStatus, _, _) = get("/no-such-path-\(UUID().uuidString)")
         check("未知路径 404", missingStatus == 404, "status=\(missingStatus)")

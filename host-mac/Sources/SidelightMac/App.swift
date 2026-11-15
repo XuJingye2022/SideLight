@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import WebKit
 
 final class DropWebView: WKWebView {
@@ -185,7 +186,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
     private func openPath(_ path: String) {
         do {
             try store.open(path: path)
-            window.title = "\(store.docJSON()?["fileName"] as? String ?? "Sidelight") — Sidelight"
+            let docName = (store.docJSON()?["fileName"] as? String) ?? "Sidelight"
+            window.title = "\(docName) — Sidelight"
             rebuildRecentMenu()
             webView.reload()
         } catch let error as HostError {

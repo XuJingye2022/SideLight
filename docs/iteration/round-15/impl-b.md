@@ -73,3 +73,17 @@ Info.plist CFBundleIconFile=1；packaging/macos-README.txt 存在；ADR-0015 存
 1. 真实 Intel Mac、Rosetta、真实签名/公证、图标显示、⌘C/⌘V/⌘Z 全 **UNVERIFIED**（本机无 macOS/证书）。
 2. CHANGELOG 0.29.0 的体积与 SHA `[TBD]`，等 root 出包回填（或写「见 Release `SHA256SUMS-0.29.0.txt`」）。
 3. `--triple` 交叉编译与 `--arch` 备选未在本机验证。
+
+---
+
+## CI 首次编译失败的修复（SelfTest）
+
+- `SelfTest.swift:48`：`if let (status, _, _) = get("/")` → `let (readyStatus, _, _) = get("/")` + `if readyStatus == 200`（`get` 返回非 Optional 元组，不能 `if let`）。
+- 同类 Optional 判断一并改：
+  - `docJSON?["v"] != nil` → `let docVersion = docJSON?["v"] as? Int` + `docVersion == 1`；
+  - `recentJSON?["items"] is [Any]` → `let recentItems = recentJSON?["items"] as? [Any]` + `recentItems != nil`；
+  - `docVersion.map(String.init)` / `recentVersion.map(String.init)` → 先算 `docVersionText` / `recentVersionText` 局部变量，避免 `map(String.init)` 重载歧义与插值里嵌闭包。
+- `App.swift`：窗口标题里的 `store.docJSON()?["fileName"] as? String ?? "Sidelight"` 抽成 `let docName`，避免插值里嵌套引号与 `??`。
+- 全文件扫描：`if let (` / `guard let (` / `] is [` / `String.init` 均 0；剩余 `?[` 都是 `as?` 断言。
+- `bash -n` 对 `build.sh` / `verify.sh` / `sign.sh` 通过。
+- 仍无法本机编译 Swift；下一轮 CI 若再报错，优先看 `Network`/`AppKit` 调用签名（本机只能静态审查）。
