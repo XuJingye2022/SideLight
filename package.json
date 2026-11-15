@@ -1,0 +1,40 @@
+{
+  "name": "sidelight",
+  "private": true,
+  "version": "0.16.3",
+  "type": "module",
+  "description": "Sidelight · Your writing. AI in the margin.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types src/lib/context.test.ts && node --experimental-strip-types src/lib/annotations.test.ts && node --experimental-strip-types src/lib/outline.test.ts && node --experimental-strip-types src/lib/wordcount.test.ts && node --experimental-strip-types src/lib/frontmatter.test.ts && node --experimental-strip-types src/lib/diff.test.ts && node --experimental-strip-types src/lib/asset.test.ts && node --experimental-strip-types src/lib/find.test.ts && node --experimental-strip-types src/lib/footnotes.test.ts && node --experimental-strip-types src/lib/html.test.ts && node --experimental-strip-types src/lib/escapes.test.ts && node --experimental-strip-types src/lib/export.test.ts && node --experimental-strip-types src/lib/math.test.ts && node --experimental-strip-types src/lib/cache.test.ts && node --experimental-strip-types src/lib/search.test.ts",
+    "roundtrip": "node --experimental-strip-types scripts/roundtrip.mjs",
+    "acceptance": "node scripts/acceptance.mjs",
+    "shot": "node scripts/shot.mjs"
+  },
+  "dependencies": {
+    "@tiptap/core": "^3.34.0",
+    "@tiptap/extension-image": "^3.34.0",
+    "@tiptap/extension-mathematics": "^3.34.0",
+    "@tiptap/extension-table": "^3.34.0",
+    "@tiptap/extension-task-item": "^3.34.0",
+    "@tiptap/extension-task-list": "^3.34.0",
+    "@tiptap/markdown": "^3.34.0",
+    "@tiptap/pm": "^3.34.0",
+    "@tiptap/react": "^3.34.0",
+    "@tiptap/starter-kit": "^3.34.0",
+    "katex": "^0.18.10",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "playwright-core": "^1.65.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}
