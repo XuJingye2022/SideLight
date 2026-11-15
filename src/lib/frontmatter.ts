@@ -55,11 +55,25 @@ export function splitFrontmatter(text: string): SplitResult {
 }
 
 /**
+ * 正文开头连续换行（空行）的个数。独立函数：不改 SplitResult，避免既有 deepEqual 断言全红。
+ */
+export function leadingNewlines(text: string): number {
+  const match = /^(?:\r?\n)+/.exec(text)
+  return match ? (match[0].match(/\n/g)?.length ?? 0) : 0
+}
+
+/**
  * 把 frontmatter 与正文拼回完整文本，与 splitFrontmatter 互逆。
  * 没有 frontmatter 时原样返回正文；frontmatter 缺结尾换行时补一个，避免分隔符粘住正文。
+ * leading 给出时按它补正文开头的空行（解析器会吞掉 1 个空行）；body 为空不补。
  */
-export function joinFrontmatter(frontmatter: string, body: string): string {
+export function joinFrontmatter(frontmatter: string, body: string, leading?: number): string {
   if (frontmatter.length === 0) return body
-  if (frontmatter.endsWith('\n')) return frontmatter + body
-  return frontmatter + newlineOf(frontmatter) + body
+  let head = frontmatter
+  if (!head.endsWith('\n')) head += newlineOf(frontmatter)
+  if (body.length > 0 && typeof leading === 'number') {
+    const current = leadingNewlines(body)
+    if (current < leading) head += newlineOf(frontmatter).repeat(leading - current)
+  }
+  return head + body
 }

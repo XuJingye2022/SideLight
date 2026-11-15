@@ -42,12 +42,13 @@ import { cacheKey, legacyKeyFor, readCache, removeCache, writeCache } from './li
 import { buildChunkContext, buildContext, splitSelection, type Block, type ContextPayload } from './lib/context.ts'
 import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } from './lib/decorations.ts'
 import { MathInputRules } from './lib/mathInput.ts'
-import { activeLosses, baselineLosses, lossLabels, type Loss } from './lib/risk.ts'
+import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDefinitions, lossLabels, type Loss } from './lib/risk.ts'
 import { repairCalloutMarkers } from './lib/escapes.ts'
 import { buildHtmlDocument, buildPlainText, exportName } from './lib/export.ts'
 import { findAll, type Match } from './lib/find.ts'
 import { extractFootnotes, joinFootnotes, repairFootnoteRefs } from './lib/footnotes.ts'
-import { joinFrontmatter, splitFrontmatter } from './lib/frontmatter.ts'
+import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontmatter.ts'
+import { serializeDocument, serializeDocumentBody } from './lib/serializeDocument.ts'
 import { repairHtml, escapeHtmlForParse } from './lib/html.ts'
 import { protectMathPairs, repairMath } from './lib/math.ts'
 import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline.ts'
@@ -73,7 +74,7 @@ import { assetFileName, writeAsset } from './lib/asset.ts'
 declare global {
   interface Window {
     /** 宿主与验收脚本读的脏标记与文档名；round-02 跨组契约，随 [dirty, docName] 更新 */
-    __slState?: { dirty: boolean; name: string; readOnly?: boolean }
+    __slState?: { dirty: boolean; name: string; readOnly?: boolean; viewMode?: 'edit' | 'source' | 'preview' }
     /** WebView2 宿主桥：只在宿主里存在；浏览器里是 undefined */
     chrome?: {
       webview?: {
@@ -97,6 +98,21 @@ const DEMO_DOC_NAME = '示例 · 未命名.md'
 const StrikeShortcut = Strike.extend({
   addKeyboardShortcuts() {
     return { 'Mod-Shift-x': () => this.editor.commands.toggleStrike() }
+  },
+})
+
+/**
+ * 表格序列化去掉首尾换行：Tiptap 的表格 renderMarkdown 自带前后 `\n`，
+ * 和文档级 `\n\n` 叠加会每存一次多两行。实测 MarkdownManager 用的是这里注册的扩展。
+ */
+const ReusableTable = Table.extend({
+  renderMarkdown(node, helpers) {
+    // 用运行时 parent 调原实现：Tiptap 的 this 类型带 name/options/storage，这里只取 parent
+    const parent = (this as unknown as { parent: (node: unknown, helpers: unknown) => string }).parent
+    return parent
+      .call(this, node, helpers)
+      .replace(/^\n+/, '')
+      .replace(/\n+$/, '')
   },
 })
 
@@ -144,9 +160,9 @@ function reasonOf(error: unknown): string {
   return '原因未知'
 }
 
-/** 编辑器正文 → 与保存一致的 Markdown（frontmatter / 脚注由调用方拼） */
-function serializeBody(current: Editor): string {
-  return repairCalloutMarkers(repairHtml(repairMath(repairFootnoteRefs(current.getMarkdown()))))
+/** 编辑器正文 → 与保存一致的 Markdown（只出正文；frontmatter / 脚注由调用方拼） */
+function serializeBody(current: Editor, original?: string | null): string {
+  return serializeDocumentBody(current, original)
 }
 
 /** 文档位置 → 文本下标（buildTextIndex 的 text 与文档位置不是同一坐标系） */
@@ -324,6 +340,8 @@ export default function App() {
   const [outline, setOutline] = useState<OutlineItem[]>([])
   const [activeOutline, setActiveOutline] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'edit' | 'source' | 'preview'>('edit')
+  const [sourceConfirm, setSourceConfirm] = useState<'restore' | 'exit' | null>(null)
+  const [sourceRefCount, setSourceRefCount] = useState(0)
   const sourceMode = viewMode === 'source'
   const previewMode = viewMode === 'preview'
   const [sourceText, setSourceText] = useState('')
@@ -438,6 +456,18 @@ export default function App() {
   const analyzeRef = useRef<() => void>(() => {})
   const typewriterRef = useRef<() => void>(() => {})
   const sourceBaselineRef = useRef('')
+  /** 载入后直接进源码（原文件）：未编辑时不能被富文本序列化基线判成 dirty */
+  const sourceOriginalEntryRef = useRef(false)
+
+  /** 进源码模式的唯一入口：seed 源码框与基线，再切视图（漏 seed 会让 Ctrl+S 写空文件） */
+  const enterSourceFor = useCallback((text: string, fromLoad = false) => {
+    setSourceText(text)
+    sourceBaselineRef.current = text
+    sourceOriginalEntryRef.current = fromLoad
+    setViewMode('source')
+    setFocusMode(false)
+    setTypewriterMode(false)
+  }, [])
   /** 保存基线：当前正文与它不等才算脏；载入、保存成功、草稿恢复时更新 */
   const baselineRef = useRef<string | null>(null)
   /** 另存为拿到的落点：第二次保存直接写它，不再弹选择器 */
@@ -552,8 +582,8 @@ export default function App() {
 
   // 跨组契约：宿主与验收脚本从这里读脏标记，不看编辑器内部状态
   useEffect(() => {
-    window.__slState = { dirty, name: docName, readOnly }
-  }, [dirty, docName, readOnly])
+    window.__slState = { dirty, name: docName, readOnly, viewMode }
+  }, [dirty, docName, readOnly, viewMode])
 
   // 主题：设置变化时同步到 <html data-theme>；取消对话框也靠这里还原到已保存值
   useEffect(() => {
@@ -614,7 +644,7 @@ export default function App() {
           onClick: (_node, position) => mathEditRef.current(position),
         },
       }),
-      Table,
+      ReusableTable,
       TableRow,
       TableHeader,
       TableCell,
@@ -677,7 +707,12 @@ export default function App() {
       setStats(countText(current.state.doc.textContent))
 
       const body = repairCalloutMarkers(repairHtml(repairMath(repairFootnoteRefs(current.getMarkdown()))))
-      const draft = joinFrontmatter(frontmatterRef.current, joinFootnotes(body, footnotesRef.current))
+      const original = rawTextRef.current
+      const draft = joinFrontmatter(
+        frontmatterRef.current,
+        joinFootnotes(body, footnotesRef.current),
+        original ? leadingNewlines(splitFrontmatter(original).body) : undefined,
+      )
 
       // 宿主文档不写 localStorage：大文件会撑爆配额，正文由宿主保管
       if (!hostModeRef.current) {
@@ -757,10 +792,11 @@ export default function App() {
     if (!editor) return
     setMarkdown(initial.text)
     // 保存基线取「序列化后的正文」而不是原始文本：撤销回初始内容时必须刚好等于基线
-    baselineRef.current = joinFrontmatter(
-      initial.frontmatter,
-      joinFootnotes(serializeBody(editor), initial.footnotes),
-    ).replace(/\r\n/g, '\n')
+    baselineRef.current = serializeDocument(editor, {
+      frontmatter: initial.frontmatter,
+      footnotes: initial.footnotes,
+      original: initial.text,
+    }).replace(/\r\n/g, '\n')
     saveTargetRef.current = null
     setDirty(false)
     const { from, to } = editor.state.selection
@@ -799,7 +835,11 @@ export default function App() {
       // 载入即存在的结构损失才算基线；之后只拦仍命中同一结构位置的
       baselineLossesRef.current = baselineLosses(
         data.text,
-        joinFrontmatter(split.frontmatter, joinFootnotes(serializeBody(editor), footnoteSplit.footnotes)),
+        serializeDocument(editor, {
+          frontmatter: split.frontmatter,
+          footnotes: footnoteSplit.footnotes,
+          original: data.text,
+        }),
       )
       setRisks(lossLabels(baselineLossesRef.current))
       setDocName(data.fileName ?? docNameRef.current)
@@ -831,11 +871,14 @@ export default function App() {
         // 草稿坏了不影响宿主正文
       }
       syncDocInfo(editor)
+      setSourceRefCount(countReferenceDefinitions(data.text))
+      if (hasReferenceDefinitions(data.text)) enterSourceFor(data.text, true)
+      else setViewMode('edit')
       const { from, to } = editor.state.selection
       const context = buildContext(readBlocks(editor), from, to)
       setSelection({ chars: context.selection.length, from, to, source: context.source })
     },
-    [editor, setMarkdown, syncDocInfo],
+    [editor, enterSourceFor, setMarkdown, syncDocInfo],
   )
 
   /**
@@ -1366,7 +1409,12 @@ export default function App() {
   // 源码模式：脏按保存基线算；改动仍要写草稿，否则退出前保存会丢
   useEffect(() => {
     if (!sourceMode) return
-    if (baselineRef.current !== null) setDirty(sourceText.replace(/\r\n/g, '\n') !== baselineRef.current)
+    if (sourceText !== sourceBaselineRef.current) sourceOriginalEntryRef.current = false
+    if (sourceOriginalEntryRef.current && sourceText === sourceBaselineRef.current) {
+      setDirty(false)
+    } else if (baselineRef.current !== null) {
+      setDirty(sourceText.replace(/\r\n/g, '\n') !== baselineRef.current)
+    }
     if (sourceText === sourceBaselineRef.current) return
     try {
       localStorage.setItem(DOC_KEY, JSON.stringify({ text: sourceText, name: docNameRef.current, savedAt: Date.now() }))
@@ -1500,15 +1548,20 @@ export default function App() {
         text.length > 0
           ? baselineLosses(
               text,
-              joinFrontmatter(split.frontmatter, joinFootnotes(serializeBody(editor), footnoteSplit.footnotes)),
+              serializeDocument(editor, {
+                frontmatter: split.frontmatter,
+                footnotes: footnoteSplit.footnotes,
+                original: text,
+              }),
             )
           : []
       setRisks(lossLabels(baselineLossesRef.current))
       // 基线用序列化结果：撤销回到载入态时应当刚好等于它
-      baselineRef.current = joinFrontmatter(
-        split.frontmatter,
-        joinFootnotes(serializeBody(editor), footnoteSplit.footnotes),
-      ).replace(/\r\n/g, '\n')
+      baselineRef.current = serializeDocument(editor, {
+        frontmatter: split.frontmatter,
+        footnotes: footnoteSplit.footnotes,
+        original: text,
+      }).replace(/\r\n/g, '\n')
       setDocName(name)
       setActiveFile(file)
       // 换文档：停掉自动保存与草稿计时，旧文档的回包不能写进新文档
@@ -1537,12 +1590,14 @@ export default function App() {
       setUnresolved(0)
       setNotice(null)
       setDirty(false)
-      setViewMode('edit')
+      setSourceRefCount(countReferenceDefinitions(text))
+      if (text.length > 0 && hasReferenceDefinitions(text)) enterSourceFor(text, true)
+      else setViewMode('edit')
       localStorage.setItem(DOC_KEY, JSON.stringify({ text, name, savedAt: Date.now() }))
       syncDocInfo(editor)
       void restoreAnnotationsFor(file)
     },
-    [editor, setMarkdown, restoreAnnotationsFor, syncDocInfo],
+    [editor, enterSourceFor, setMarkdown, restoreAnnotationsFor, syncDocInfo],
   )
 
   // 切换文档前先拦住未保存的改动
@@ -1683,7 +1738,7 @@ export default function App() {
 
   /** 保存成功后的统一收尾：新句柄就是文档身份，基线更新，提示留下不消失 */
   const finishSaved = useCallback(
-    (name: string, target: FileWriteTarget, normalized: string, withEol: string) => {
+    (name: string, target: FileWriteTarget, normalized: string, withEol: string, keepLosses = false) => {
       const oldName = docNameRef.current
       saveTargetRef.current = target
       baselineRef.current = normalized
@@ -1701,8 +1756,11 @@ export default function App() {
       setOriginalText(withEol)
       rawTextRef.current = withEol
       // 刚写入的内容就是新基线：不再有已知结构损失
-      baselineLossesRef.current = []
-      setRisks([])
+      // 源码模式保存的是原文：保留载入时的结构损失基线，切回富文本后仍要拦
+      if (!keepLosses) {
+        baselineLossesRef.current = []
+        setRisks([])
+      }
       setDraftRestored(false)
       setDraftShown(false)
       setDirty(false)
@@ -1738,7 +1796,7 @@ export default function App() {
 
   /** 真正写盘：有句柄写句柄，没有就弹保存位置；调用前已经过差异门 */
   const performCommit = useCallback(
-    async (normalized: string, withEol: string) => {
+    async (normalized: string, withEol: string, keepLosses = false) => {
       setDraftShown(false)
       const target =
         saveTargetRef.current ??
@@ -1747,7 +1805,7 @@ export default function App() {
       try {
         if (target) {
           await writeNode({ kind: 'file', name: target.name, path: activeFile?.path ?? target.name, handle: target.handle }, withEol)
-          finishSaved(target.name, target, normalized, withEol)
+          finishSaved(target.name, target, normalized, withEol, keepLosses)
           return true
         }
 
@@ -1780,9 +1838,13 @@ export default function App() {
   const currentMarkdown = useCallback(() => {
     if (sourceMode) return sourceText
     if (!editor) return ''
-    const body = repairCalloutMarkers(repairHtml(repairMath(repairFootnoteRefs(editor.getMarkdown()))))
-    return joinFrontmatter(frontmatterRef.current, joinFootnotes(body, footnotesRef.current))
-  }, [editor, sourceMode, sourceText])
+    const original = rawTextRef.current ?? originalText
+    return serializeDocument(editor, {
+      frontmatter: frontmatterRef.current,
+      footnotes: footnotesRef.current,
+      original,
+    })
+  }, [editor, sourceMode, sourceText, originalText])
 
   // onUpdate 里拿不到这个 useCallback（声明在后面），用 ref 转一手
   useEffect(() => {
@@ -1851,12 +1913,12 @@ export default function App() {
         sendHostSaveRef.current(pending.normalized)
         return
       }
-      const ok = await performCommit(pending.normalized, pending.withEol)
+      const ok = await performCommit(pending.normalized, pending.withEol, sourceMode)
       if (!ok) return
       if (pending.target === 'switch') performSwitch()
       else pending.after?.()
     },
-    [hostDoc, performSaveAs, performCommit, performSwitch],
+    [hostDoc, performSaveAs, performCommit, performSwitch, sourceMode],
   )
 
   /** 四条保存路径的唯一入口：先过差异门，确认后才真正写 */
@@ -2101,6 +2163,8 @@ export default function App() {
     setMarkdown(footnoteSplit.body)
     setDirty(true)
     setDraftRestored(true)
+    // 草稿恢复不进源码模式：用户要看到恢复的草稿正文
+    setViewMode('edit')
     setHostDraftPrompt(null)
     hostPayloadRef.current = null
   }, [applyHostPayload, hostDraftPrompt, setMarkdown])
@@ -2507,6 +2571,10 @@ export default function App() {
           setPendingConfirm(null)
           return
         }
+        if (sourceConfirm !== null) {
+          setSourceConfirm(null)
+          return
+        }
         if (pendingSwitch !== null) {
           cancelSwitch()
           return
@@ -2727,16 +2795,42 @@ export default function App() {
     switchView(sourceMode ? 'edit' : 'source')
   }, [switchView, sourceMode])
 
-  /** 从横幅/确认框进源码：强制显示文件原文，不显示编辑器的整理结果 */
+  /** 源码里「回到富文本编辑」：dirty 时先确认，不静默覆盖 */
+  const backToRich = useCallback(() => {
+    if (!sourceMode) return
+    if (dirty) {
+      setSourceConfirm('exit')
+      return
+    }
+    switchView('edit')
+  }, [dirty, sourceMode, switchView])
+
+  /** 从横幅/按钮进源码：编辑视图里按原文 seed；已在源码则等于「回到富文本编辑」 */
   const openSourceOriginal = useCallback(() => {
     if (!editor) return
-    const text = rawTextRef.current ?? originalText ?? currentMarkdown()
-    sourceBaselineRef.current = text
-    setSourceText(text)
-    setFocusMode(false)
-    setTypewriterMode(false)
-    setViewMode('source')
-  }, [editor, originalText, currentMarkdown])
+    if (sourceMode) {
+      backToRich()
+      return
+    }
+    const text = rawTextRef.current ?? originalText
+    if (text === null) return
+    if (dirty) {
+      setSourceConfirm('restore')
+      return
+    }
+    enterSourceFor(text)
+  }, [editor, sourceMode, backToRich, dirty, originalText, enterSourceFor])
+
+  const resolveSourceConfirm = useCallback(() => {
+    const action = sourceConfirm
+    setSourceConfirm(null)
+    if (action === 'restore') {
+      const text = rawTextRef.current ?? originalText
+      if (text !== null) enterSourceFor(text)
+      return
+    }
+    if (action === 'exit') switchView('edit')
+  }, [sourceConfirm, originalText, enterSourceFor, switchView])
 
   const togglePreview = useCallback(() => {
     switchView(previewMode ? 'edit' : 'preview')
@@ -3472,7 +3566,7 @@ export default function App() {
                 这篇载入时就有会被改写的结构（{risks.length} 类）：{risks.join('；')}
               </span>
               <button type="button" onClick={openSourceOriginal}>
-                在源码模式打开原文
+                {sourceMode ? '回到富文本编辑' : '在源码模式打开原文'}
               </button>
               <button type="button" className="risk-dismiss" onClick={() => setRisks([])}>
                 知道了
@@ -3482,11 +3576,19 @@ export default function App() {
 
           {sourceMode ? (
             <div className="doc-layout source-layout">
-              {dirty && (
-                <p className="source-hint">
-                  源码里是你的改动 + 编辑器整理结果，不是文件原文；点顶部「在源码模式打开原文」可恢复原文。
-                </p>
-              )}
+              <div className="source-note" role="status">
+                <span>
+                  源码模式 · {dirty ? '你的改动 + 编辑器整理结果（不是文件原文）' : '文件原文'}
+                </span>
+                {sourceRefCount > 0 && (
+                  <span>
+                    这篇有 {sourceRefCount} 条引用式链接定义，富文本编辑保存时会删掉定义
+                  </span>
+                )}
+                <button type="button" onClick={backToRich}>
+                  回到富文本编辑
+                </button>
+              </div>
               <textarea
                 className="source-editor"
                 value={sourceText}
@@ -3633,6 +3735,33 @@ export default function App() {
           openSourceOriginal()
         }}
       />
+
+      {sourceConfirm && (
+        <div className="overlay" role="presentation" onMouseDown={() => setSourceConfirm(null)}>
+          <div
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="源码与原文确认"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2>{sourceConfirm === 'exit' ? '切回富文本编辑？' : '打开源码原文？'}</h2>
+            <p className="dialog-note">
+              {sourceConfirm === 'exit'
+                ? '源码里有未保存的改动。切回富文本会把这些改动写进正文，确定继续？'
+                : '当前有未保存的改动，打开源码原文会丢掉它们，确定继续？'}
+            </p>
+            <div className="dialog-actions">
+              <button type="button" onClick={() => setSourceConfirm(null)}>
+                取消
+              </button>
+              <button type="button" className="primary" onClick={resolveSourceConfirm}>
+                继续
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {hostDraftPrompt && (
         <div className="overlay" role="presentation" onMouseDown={discardHostDraft}>

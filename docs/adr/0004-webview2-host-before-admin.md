@@ -1,4 +1,4 @@
-﻿# 发布路径：C#/.NET Framework + WebView2 宿主（0.17.0 已发布），Tauri 2 只是条件选项
+# 发布路径：C#/.NET Framework + WebView2 宿主（0.17.0 已发布），Tauri 2 只是条件选项
 
 本机没有管理员权限、没有 Rust、没有 MSVC。Tauri 2 的官方 Windows 前提是 MSVC Build Tools，官方也只支持 MSVC target。这条路不是工作量大，是环境不允许。第 01 轮先用一个 spike 验证另一条路，到 0.17.0 它已经是正式发布路径（宿主 + per-user NSIS 安装包 + 便携 zip 都已交付）；Tauri 2 只在文末触发条件满足时才重评估。当时验证的做法：系统自带 `csc.exe`（.NET Framework 4.8，C# 5）编一个 WinForms 窗口，装 WebView2 控件，加载现有前端 `dist`。
 
@@ -42,9 +42,9 @@
 (Get-ChildItem host\bin -File | Where-Object Name -in 'Sidelight.exe','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll','Sidelight.exe.config' | Measure-Object Length -Sum).Sum + (Get-ChildItem host\bin\www -Recurse -File | Measure-Object Length -Sum).Sum
 ```
 
-2026-11-16 第 09 轮（0.22.0）收尾实测 **2,425,221 B**（可执行文件与 SDK 程序集 1,020,452 B + `www/` 1,404,769 B；第 08 轮为 2,406,836 B，第 07 轮 2,391,387 B，第 06 轮 2,384,318 B，第 05 轮 2,365,470 B，第 04 轮 2,398,413 B，第 03 轮 2,389,352 B，第 02 轮 2,379,631 B）。
+2026-11-16 第 10 轮（0.23.0）收尾实测 **2,429,318 B**（可执行文件与 SDK 程序集 1,020,452 B + `www/` 1,408,866 B；第 08 轮为 2,406,836 B，第 07 轮 2,391,387 B，第 06 轮 2,384,318 B，第 05 轮 2,365,470 B，第 04 轮 2,398,413 B，第 03 轮 2,389,352 B，第 02 轮 2,379,631 B）。
 
-工作目录 `host\bin` 里还有 `webview2-data`（同一时刻 19,530,501 B，随运行增长）与 `host.log`。**这两样不进发布包**：便携 zip 由 `packaging/portable.ps1` 打，staging 会断言它们不存在；NSIS 安装包由 `packaging/installer.ps1` 打，载荷同源。第 09 轮（0.22.0）实测：便携 zip 887,922 B，SHA256 `A31D7FDA68E9A16AB630BC6FA3823AEC08E775413DCB8254F1613DD2FB3ED25E`；setup.exe 809,542 B，SHA256 `0F8579D374D58897C91E4D3E26D6E5A428AA174586EAD7119DB1EEE74FA1DF42`。产物体积与校验和以本轮实测为准。
+工作目录 `host\bin` 里还有 `webview2-data`（同一时刻 19,541,722 B，随运行增长）与 `host.log`。**这两样不进发布包**：便携 zip 由 `packaging/portable.ps1` 打，staging 会断言它们不存在；NSIS 安装包由 `packaging/installer.ps1` 打，载荷同源。第 10 轮（0.23.0）实测：便携 zip 889,108 B，SHA256 `4208F677A618C8CC3A993947609171388B3AF478CF042EC6FF16C91670039C79`；setup.exe 810,456 B，SHA256 `11E37B5E72C905C6788FD4189768905423B68D4ACE7681C73593141233A1E4D1`。产物体积与校验和以本轮实测为准。
 
 ## 偏离与缺口
 

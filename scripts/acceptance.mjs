@@ -12,7 +12,20 @@ page.on('console', (message) => {
   if (message.type() === 'error' && !message.text().includes('favicon')) errors.push(message.text())
 })
 page.on('pageerror', (error) => errors.push(String(error)))
-page.on('dialog', (dialog) => void dialog.accept('a^2+b^2=c^2'))
+// 本机 CDP 的 prompt 对话框 accept 会报「No dialog is showing」；测试里用 stub 回答公式/链接提示
+await page.addInitScript(() => {
+  const original = window.prompt.bind(window)
+  window.prompt = (message) => {
+    if (typeof message === 'string' && message.includes('LaTeX')) return 'a^2+b^2=c^2'
+    if (typeof message === 'string' && message.includes('链接')) return 'https://example.com'
+    return original(message)
+  }
+})
+// 只在对话框真的触发时回应；beforeunload 等其它类型不能传 prompt 文本
+page.on('dialog', (dialog) => {
+  const reply = dialog.type() === 'prompt' ? dialog.accept('a^2+b^2=c^2') : dialog.accept()
+  void reply.catch(() => {})
+})
 
 const check = (label, ok, extra = '') => console.log(`${ok ? 'PASS' : 'FAIL'} ${label}${extra ? ` (${extra})` : ''}`)
 

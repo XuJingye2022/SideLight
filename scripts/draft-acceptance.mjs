@@ -127,7 +127,7 @@ const openPage = async ({ doc = null, draft = null, settings = null, viewport = 
     if (value) localStorage.setItem('sidelight.settings.v1', JSON.stringify(value))
   }, settings)
   await page.reload({ waitUntil: 'networkidle' })
-  await page.waitForSelector('.editor', { timeout: 15000 })
+  await page.waitForSelector('.editor, .source-editor', { timeout: 15000 })
   await page.waitForTimeout(500)
   return { context, page }
 }
@@ -145,7 +145,7 @@ const state = (page) =>
     messages: window.__io.messages,
     writes: window.__io.writes,
     attempts: window.__io.attempts,
-    editor: document.querySelector('.editor')?.textContent ?? '',
+    editor: document.querySelector('.editor')?.textContent ?? document.querySelector('.source-editor')?.value ?? '',
     active: document.activeElement?.textContent?.trim() ?? '',
   }))
 const draftMessages = (messages, type) => messages.filter((message) => message.type === type)
@@ -328,8 +328,8 @@ await mkdirp(OUT)
 
   const refs = await openPage()
   await refs.page.evaluate(() => {
-    window.__setFile('04-reference-links.md', '# 引用式链接\n\n参考 [Tiptap][t]。\n\n[t]: https://tiptap.dev\n')
-    window.__nextOpen = window.__handle('04-reference-links.md')
+    window.__setFile('autolink.md', '# 自动保存\n\n见 <https://example.com/a> 说明。\n')
+    window.__nextOpen = window.__handle('autolink.md')
   })
   await refs.page.keyboard.press('Control+Alt+O')
   await refs.page.waitForTimeout(700)
@@ -344,8 +344,8 @@ await mkdirp(OUT)
   // 排队后变脏 + pendingConfirm 打开
   const pending = await openPage()
   await pending.page.evaluate(() => {
-    window.__setFile('04-reference-links.md', '# 引用式链接\n\n参考 [Tiptap][t]。\n\n[t]: https://tiptap.dev\n')
-    window.__nextOpen = window.__handle('04-reference-links.md')
+    window.__setFile('autolink.md', '# 自动保存\n\n见 <https://example.com/a> 说明。\n')
+    window.__nextOpen = window.__handle('autolink.md')
   })
   await pending.page.keyboard.press('Control+Alt+O')
   await pending.page.waitForTimeout(700)

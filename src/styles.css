@@ -1272,6 +1272,30 @@ main.doc-scroll:focus {
   color: var(--ink);
 }
 
+.source-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-raised);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.source-note span:first-child {
+  color: var(--ink);
+}
+
+.source-note button {
+  margin-left: auto;
+  flex: none;
+}
+
 .source-editor {
   width: 100%;
   min-height: 72vh;

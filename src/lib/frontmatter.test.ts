@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { joinFrontmatter, splitFrontmatter } from './frontmatter.ts'
+import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './frontmatter.ts'
 
 const BOM = '\uFEFF'
 
@@ -91,4 +91,34 @@ test('拆分再拼回逐字节不变', () => {
     const { frontmatter, body } = splitFrontmatter(sample)
     assert.equal(joinFrontmatter(frontmatter, body), sample)
   }
+})
+
+/* ---------- frontmatter 与正文之间的空行（第 10 轮） ---------- */
+
+test('leadingNewlines 数正文开头的空行：0/1/2/3', () => {
+  assert.equal(leadingNewlines('正文\n'), 0)
+  assert.equal(leadingNewlines('\n正文\n'), 1)
+  assert.equal(leadingNewlines('\n\n正文\n'), 2)
+  assert.equal(leadingNewlines('\n\n\n正文\n'), 3)
+  assert.equal(leadingNewlines('\r\n\r\n正文'), 2)
+  assert.equal(leadingNewlines(''), 0)
+})
+
+test('frontmatter 后 0/1/2/3 个空行 split→join 逐字节往返', () => {
+  const frontmatter = '---\ntitle: 笔记\n---\n'
+  for (const blank of [0, 1, 2, 3]) {
+    const text = `${frontmatter}${'\n'.repeat(blank)}正文\n`
+    const split = splitFrontmatter(text)
+    assert.equal(leadingNewlines(split.body), blank)
+    assert.equal(joinFrontmatter(split.frontmatter, split.body, blank), text)
+  }
+})
+
+test('leading 只在正文非空时补，空正文不多出换行', () => {
+  assert.equal(joinFrontmatter('---\n---\n', '', 2), '---\n---\n')
+})
+
+test('不传 leading 时 joinFrontmatter 行为与旧版逐字节相同', () => {
+  assert.equal(joinFrontmatter('---\n---\n', '\n正文'), '---\n---\n\n正文')
+  assert.equal(joinFrontmatter('---\n---', '正文'), '---\n---\n正文')
 })

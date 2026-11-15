@@ -28,21 +28,21 @@
 - 表格：光标进入表格时出现工具条，可增删行列、删整表。
 - 数学公式：行内 `$E=mc^2$` 与块级 `$$…$$` 用 KaTeX 渲染；内侧不能是空白的成对 `$` 才当公式，`$5 到 $10` 在打字与载入两条路径上都保留为文字（无空格写法 `$5-$10` 仍会被当公式）。
 - 字号：设置里调 12–26，`Ctrl + =` 放大、`Ctrl + -` 缩小、`Ctrl + 0` 复位。
-- 打开文档时 Sidelight 先做一次往返比对。如果这篇文档在富文本模式下会被改写（引用式链接、表格对齐、多行脚注等），顶部会出现提示条，说明会变的差异类别，并可一键转到源码模式。
+- 打开文档时先做一次往返比对：含引用式链接定义块（`[id]: url`）的文档直接进源码模式并说明原因；其他会被改写的写法（多行脚注等）在顶部提示差异类别，可一键转到源码模式。
 - 新建与另存为：顶栏「文件」菜单有新建、另存为、打开文件、打开文件夹；文件树头有「＋ 新建文件」。没有文件句柄时保存走系统保存对话框，保存成功有持久提示。
 - 双击 `.md` 由宿主打开时可以直接写回原文件：宿主提供正文与编码元数据，保存是原子替换，BOM、换行与编码不变。
 - 宿主文档有草稿兜底：编辑时写到文档同目录 `.sidelight/drafts/`，关窗时有未保存改动会问「取消 / 存草稿 / 丢弃」。草稿只存本机，不发网络；卸载不删文档目录里的 `.sidelight`。
 - 最近打开：桌面版（宿主）记住最近 8 篇，可清除与撤销；浏览器里不显示。宿主模式里用「打开文件…」经页面文件选择器打开的文件不进最近列表。
-- 保存：`Ctrl + S`。富文本模式下，如果保存会改写引用式链接、表格对齐、多行脚注等写法，保存会被拦下并列出差异类别、要求确认：选「改用源码模式保存」写原文，或取消。正常编辑（改值、删行）不弹。双击打开的文档也走这道拦截。
+- 保存：`Ctrl + S`。富文本模式下，如果保存会改写多行脚注等写法，保存会被拦下并列出差异类别、要求确认：选「改用源码模式保存」写原文，或取消。含引用式链接定义的文档切回富文本后，首次保存仍拦一次。正常编辑（改值、删行）不弹。双击打开的文档也走这道拦截。
 - 草稿与批注存在文档同级（打开文件夹时在工作区根目录）的 `.sidelight/` 里：`drafts/<名字>.md` 与 `annotations/<名字>.json`；保存成功后删草稿，重开文档恢复批注（有磁盘句柄时，未验证）。没有磁盘句柄（示例文件）时退回浏览器本地存储。
 - 设置里填接口地址、API Key、模型名，走 OpenAI 兼容协议。没填时走模拟流。
 
 ## 现在不能做什么
 
-- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。安装用 `release/Sidelight-0.22.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
+- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。安装用 `release/Sidelight-0.23.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
 - `.md` 默认不关联。安装时勾选「在「打开方式」中加入 Sidelight」后，右键 `.md` 的「打开方式」里会多一项；默认程序仍要在 Windows 设置里自己选，安装器不改它。
 - 密钥存在浏览器 localStorage，没有加密，也没有系统钥匙串。
-- 富文本模式会改写引用式链接、表格对齐、多行脚注等写法，但不会静默改写：打开时提示，保存前要求确认。要原样保存，用源码模式。
+- 表格：没动过的表格整块写回原文（表内字节与 02 型单空行）；改过单元格、增删行列或改对齐的表格会重新排版，且不弹保存确认；表格前后 ≥2 空行会规范化成一个。引用式链接定义块默认源码打开，写回原文；切回富文本首次保存仍拦一次。
 - 行内 HTML 只保真不渲染：正文里看到的是 `<kbd>` 文字，不是键盘样式。
 - 图片在没打开文件夹时只能内联，不进 `assets/`。
 - 还没有 Mermaid 图表；字号只能调大小，不能换字体。
@@ -63,7 +63,7 @@
 - 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
 ## 依赖与体积
 
-打包产物约 1.34 MiB（1,404,769 B）：JS 1.1 MB、KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联成 data URI）、其余是 HTML 与 CSS。
+体积见 CHANGELOG 0.23.0（[docs/CHANGELOG.md](docs/CHANGELOG.md)）。两条软线：JS 主 chunk ≤ 1,153,000 B（gzip 约 355 KB）；安装包预计 ≤ 820,000 B，实际以 `packaging/installer.ps1` 出包为准，安装包硬线仍是 850,000 B。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
 
 **为什么不拆 KaTeX**：`@tiptap/extension-mathematics` 顶层静态 `import katex`，扩展在编辑器首帧就要注册，拆包必须换惰性 shim 并异步化三处渲染，0.18.0 不做；构建用 `chunkSizeWarningLimit: 1200` 显式设告警线（主 chunk 约 1.10 MB 是首屏必需，1200 留约 100 kB 余量）。
 
@@ -74,14 +74,14 @@
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
 
-宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 809,542 B（SHA256 `0F8579D374D58897C91E4D3E26D6E5A428AA174586EAD7119DB1EEE74FA1DF42`）、便携 zip 887,922 B（SHA256 `A31D7FDA68E9A16AB630BC6FA3823AEC08E775413DCB8254F1613DD2FB3ED25E`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
+宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 810,456 B（SHA256 `11E37B5E72C905C6788FD4189768905423B68D4ACE7681C73593141233A1E4D1`）、便携 zip 889,108 B（SHA256 `4208F677A618C8CC3A993947609171388B3AF478CF042EC6FF16C91670039C79`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
 
 ## 跑起来
 
 ```bash
 npm install
 npm run dev       # http://localhost:5173
-npm test          # 16 个文件、192 条断言
+npm test          # 16 个文件、205 条断言
 npm run roundtrip # Markdown 往返损失测量，写 docs/roundtrip-report.md
 npm run build     # 类型检查 + 打包
 npm run shot      # 无头浏览器跑流程并截图（需先起 dev；默认写 .tmp/shots/shot.png，--out 指定路径）
@@ -113,7 +113,7 @@ host/                     C# WebView2 宿主（Program.cs、build.ps1、冒烟�
 packaging/                NSIS 安装器、便携包、图标生成、安装/便携验收脚本
 scripts/                  截图、验收、缺陷探测、往返测量、字体裁剪
 fixtures/markdown/        7 个真实 .md 样本
-docs/adr/                 架构决策记录（0001–0007）
+docs/adr/                 架构决策记录（0001–0011）
 docs/iteration/           每轮简报、发现、计划、实施、验收
 release/                  安装包与便携 zip，不进版本控制
 ```
@@ -129,12 +129,16 @@ release/                  安装包与便携 zip，不进版本控制
 - 宿主 origin：固定回环 `http://127.0.0.1:47821`，端口被占就报错退出，不换端口。见 [ADR 0005](docs/adr/0005-loopback-fixed-origin.md)。
 - 写回：宿主是唯一写者，页面从 `/__doc` 拿正文与编码元数据、拿不到路径；保存走 `postMessage`，宿主用同目录临时文件 + 原子替换。见 [ADR 0006](docs/adr/0006-argv-writeback.md)。
 - `.md` 关联：只加「打开方式」候选，opt-in、默认不勾、不改默认程序，只写 HKCU。见 [ADR 0007](docs/adr/0007-markdown-association.md)。
+- 宿主草稿：`draft-save` 写文档同目录 `.sidelight/drafts/`，关窗问「取消 / 存草稿 / 丢弃」。见 [ADR 0008](docs/adr/0008-host-draft-and-close-guard.md)。
+- 最近打开：宿主记 8 篇，`/__recent` 只回哈希 id；日志只记 basename。见 [ADR 0009](docs/adr/0009-recent-files.md)。
+- 表格：签名未变的表格整块写回原文，改过的表格按编辑器规范排版。见 [ADR 0010](docs/adr/0010-table-block-reuse.md)。
+- 引用式链接：含定义块的文档载入后默认源码模式，切回富文本首次保存仍拦一次。见 [ADR 0011](docs/adr/0011-source-mode-for-reference-links.md)。
 
 ## 已知的重要问题：Markdown 往返损失
 
-`npm run roundtrip` 把 7 个真实样本读进编辑器内核再写回，逐行对比。当前结果：3 / 7 完全保真；02（表格）与 04（引用式链接）会被保存门拦下，不静默改写（改值、删行这类正常编辑不弹）。
+`npm run roundtrip` 把 7 个真实样本读进编辑器内核再写回，逐行对比。三条路径分开报：富文本 **5 / 7** 完全保真、源码路径 **7 / 7** 等值（未编辑）、富文本首次保存仍拦截 **1 / 7**（04 引用式链接）。逐样本表见 [docs/roundtrip-report.md](docs/roundtrip-report.md)。
 
-frontmatter、脚注定义、行内 HTML 与公式逐字节保真。引用式链接与表格对齐在富文本模式下仍会被改写：这类文档在保存时会被拦下并要求确认，改用源码模式保存可以原样写回。差异见 [docs/roundtrip-report.md](docs/roundtrip-report.md)。
+frontmatter、脚注定义、行内 HTML 与公式逐字节保真。表格只在「没动过」时整块写回原文；引用式链接定义块默认源码打开。差异见 [docs/roundtrip-report.md](docs/roundtrip-report.md)。
 
 三个兜底已经落地：未编辑不写盘、frontmatter 与 HTML 块按原文保留、保存前把格式变化给用户看。
 

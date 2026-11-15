@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import { diffLines, type DiffLine } from './diff.ts'
 import { activeLosses, baselineLosses, classify, type Loss } from './risk.ts'
+import { collectTables, reuseTables, splitCells } from './tableReuse.ts'
 
 /** 把差异压成「状态:行」的数组，断言起来一目了然 */
 function shape(lines: DiffLine[]): string[] {
@@ -156,4 +157,67 @@ test('用户删整段不报结构损失', () => {
   const before = '第一段。\n\n[tiptap]: https://tiptap.dev\n\n第二段。\n'
   const after = '第一段。\n'
   assert.deepEqual(classify(before, after).filter((loss) => loss.blocking), [])
+})
+
+/* ---------- 表格整块复用（第 10 轮） ---------- */
+
+const ORIGINAL_TABLE = '| 项目 | 一月 | 二月 |\n|:-----|-----:|:----:|\n| 房租 | 3200 | 3200 |\n| 书  | 180  | 240  |\n'
+const SERIALIZED_TABLE = '| 项目  | 一月   | 二月   |\n| :--- | ----: | :----: |\n| 房租  | 3200 | 3200 |\n| 书   | 180  | 240  |\n'
+
+test('未改动的表格整块换回原文（分隔行/列宽/对齐逐字节）', () => {
+  assert.equal(reuseTables(ORIGINAL_TABLE, SERIALIZED_TABLE), ORIGINAL_TABLE)
+})
+
+test('改单元格值：签名不命中，保留规范输出', () => {
+  const edited = SERIALIZED_TABLE.replace('| 房租  | 3200', '| 房租  | 3300')
+  assert.equal(reuseTables(ORIGINAL_TABLE, edited), edited)
+})
+
+test('加列：列数变化，不重用', () => {
+  const edited = '| 项目 | 一月 | 二月 | 三月 |\n| :--- | ----: | :----: | --- |\n| 房租 | 3200 | 3200 | 0 |\n'
+  assert.equal(reuseTables(ORIGINAL_TABLE, edited), edited)
+})
+
+test('删一行：数据单元格变化，不重用', () => {
+  const edited = '| 项目 | 一月 | 二月 |\n| :--- | ----: | :----: |\n| 房租 | 3200 | 3200 |\n'
+  assert.equal(reuseTables(ORIGINAL_TABLE, edited), edited)
+})
+
+test('改对齐：对齐三元组变化，不重用', () => {
+  const edited = SERIALIZED_TABLE.replace('| :--- | ----: | :----: |', '| :--- | :---: | :---: |')
+  assert.equal(reuseTables(ORIGINAL_TABLE, edited), edited)
+})
+
+test('围栏里的假表格不算表格', () => {
+  const fenced = '```md\n| a | b |\n| --- | --- |\n| 1 | 2 |\n```\n'
+  assert.equal(collectTables(fenced).length, 0)
+  assert.equal(reuseTables(fenced, fenced), fenced)
+})
+
+test('多张同表头表格按出现序号配对', () => {
+  const before = `${ORIGINAL_TABLE}\n第二张：\n\n${ORIGINAL_TABLE.replace('房租', '水电')}`
+  const after = `${SERIALIZED_TABLE}\n第二张：\n\n${SERIALIZED_TABLE.replace('房租', '水电')}`
+  const reused = reuseTables(before, after)
+  // 两张都命中：第一张换原文，第二张也换原文
+  assert.equal(reused, before)
+  // 只改第二张的单元格：第一张仍复用原文，第二张保留规范输出
+  const secondChanged = after.replace('| 水电  | 3200', '| 水电  | 9999')
+  const mixed = reuseTables(before, secondChanged)
+  assert.ok(mixed.startsWith(ORIGINAL_TABLE))
+  assert.ok(mixed.includes('| 水电  | 9999'))
+  assert.ok(!mixed.includes('| 水电  | 3200 |\n| 书   | 180  | 240  |\n\n'))
+})
+
+test('splitCells 支持 \\| 转义，不把转义符当列分隔', () => {
+  assert.deepEqual(splitCells('| 管道 \\| 字符 | 1 |'), ['管道 | 字符', '1'])
+})
+
+test('表格前后空行不属于表格块，复用只换表格行', () => {
+  const before = '前文\n\n\n' + ORIGINAL_TABLE + '\n\n\n后文\n'
+  const after = '前文\n\n\n' + SERIALIZED_TABLE + '\n\n\n后文\n'
+  const reused = reuseTables(before, after)
+  assert.equal(reused, before)
+  const tables = collectTables(before)
+  assert.equal(tables.length, 1)
+  assert.equal(tables[0].lines.length, 4)
 })

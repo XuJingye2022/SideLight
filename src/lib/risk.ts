@@ -31,7 +31,7 @@ export type Loss = {
 type FenceState = { line: string; fenced: boolean }
 
 /** 逐行标注是否在 ``` / ~~~ 代码块内：代码块里的“引用式链接”不是链接 */
-function fenceMap(text: string): FenceState[] {
+export function fenceMap(text: string): FenceState[] {
   let marker: string | null = null
   return text.replace(/\r\n?/g, '\n').split('\n').map((line) => {
     const match = /^\s*(`{3,}|~{3,})/.exec(line)
@@ -44,7 +44,7 @@ function fenceMap(text: string): FenceState[] {
 }
 
 const REF_DEFINITION = /^\[([^\]^][^\]]*)\]:\s*(\S.*)$/
-const TABLE_SEPARATOR = /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-*:?\s*\|?\s*$/
+export const TABLE_SEPARATOR = /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-*:?\s*\|?\s*$/
 const AUTOLINK = /<(https?:\/\/[^>\s]+)>/
 const HTML_COMMENT = /<!--([\s\S]*?)-->/g
 
@@ -115,7 +115,7 @@ function tableLosses(beforeText: string, afterText: string): Loss[] {
       kind: 'table-separator',
       key: `table:${key}`,
       label: '表格分隔行会被重排（列宽与对齐写法变化，单元格内容不动）',
-      blocking: true,
+      blocking: false,
       before: [table.separator],
       after: [current.separator],
       count: 1,
@@ -248,6 +248,16 @@ function hardBreakLosses(beforeText: string, afterText: string): Loss[] {
     })
   }
   return losses
+}
+
+/** 含引用式链接定义（代码围栏内不算）：决定载入后是否默认进源码模式 */
+export function hasReferenceDefinitions(text: string): boolean {
+  return countReferenceDefinitions(text) > 0
+}
+
+/** 引用式链接定义条数（代码围栏内不算） */
+export function countReferenceDefinitions(text: string): number {
+  return fenceMap(text).filter(({ line, fenced }) => !fenced && REF_DEFINITION.test(line)).length
 }
 
 /** 分类一段「原文 → 当前文本」里丢了什么；纯函数，可单测 */
