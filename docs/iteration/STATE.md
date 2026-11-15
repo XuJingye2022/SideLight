@@ -49,11 +49,11 @@
 
 ## 当前版本与体积
 
-- v0.23.0。`dist` 1,408,866 B（1.34 MiB）；JS 1,137,183 B（gzip 351,668）、CSS 56,524 B、KaTeX 字体 213,664 B / 15 个 woff2。
-- 便携 zip：889,108 B；NSIS per-user 安装包：810,456 B（硬线 850,000）。
+- v0.24.0。`dist` 1,413,750 B；首屏 JS+CSS gzip **282,809 B**（KaTeX 惰性），KaTeX chunk gzip 77,660。
+- 便携 zip：891,471 B；NSIS per-user 安装包：811,756 B（硬线 850,000）。
 - 宿主冷启动 FCP 304 ms；最近文件 8 篇；草稿/关窗/自动保存已具备。
-- 往返：rich 5/7、source 7/7、首次保存仍拦截 1/7（04 引用式链接）。
-- 已知：KaTeX 仍全量进首屏；06 列表间空行不保真（已写明）。
+- 往返：rich 5/7、source 7/7、首次保存仍拦截 1/7（04）。
+- 已知：265 KiB 目标不可达（下限 281,471，ADR-0012）；06 列表间空行不保真。
 
 ## 轮次记录
 
@@ -69,18 +69,18 @@
 | 8 | 草稿兜底 + 关窗保护 + 自动保存 | round-08/plan.md | PASS-WITH-UNVERIFIED：宿主草稿/恢复、关窗三选一、自动保存安全子集、0.21.0 | 47e5602 |
 | 9 | 最近文件 + 日志脱敏 + CI | round-09/plan.md | PASS-WITH-UNVERIFIED：宿主最近 8 篇、`/__recent` 无路径、日志只记 basename、CI 目录修复、0.22.0 | fa06aa1 |
 | 10 | 表格/空行/引用式链接 | round-10/plan.md | PASS-WITH-UNVERIFIED：表格整块复用、01 空行、04 默认源码、rich 5/7 source 7/7、0.23.0 | 4878030 |
+| 11 | KaTeX 惰性 + 首屏预算 | round-11/plan.md | PASS-WITH-UNVERIFIED：首屏 364,960→282,809 B、alias/shim/导出/占位全过、0.24.0 | 6bd6831 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
-- **KaTeX 全量首屏**：tiptap 静态 import；惰性 alias spike 未做，目标首屏 gzip ≤265 KiB，风险高。
-- **文件树操作**：只有新建文件；没有删除、新建文件夹、刷新；FSA 无 rename API。
-- **可访问性**：无屏幕阅读器实录；13 处 11–11.5px 小字；部分图标按钮缺 `aria-label`。
-- **真实环境 UNVERIFIED**：HKCU 关联/打开方式/卸载、真人双击、系统对话框、真实 IME、文件占用/网络盘/中文长路径、AltGr、Alt+F4/注销关窗、只读目录草稿失败、localStorage 配额、真实最近列表、真实宿主源码保存字节、3 个空行解析上限。
-- `src/App.tsx` 约 2700 行；三处重复序列化 / 草稿写入；22 处字号无变量。
+- **文件树操作**：只有新建文件；没有新建文件夹、删除（可做「移到 .sidelight/trash」）、刷新；FSA 无 rename API。
+- **可访问性**：无屏幕阅读器实录；13 处 11–11.5px 小字；部分图标按钮缺 `aria-label`；树/大纲缺 `role`。
+- **真实环境 UNVERIFIED**：HKCU 关联/打开方式/卸载、真人双击、系统对话框、真实 IME、文件占用/网络盘/中文长路径、AltGr、Alt+F4/注销关窗、只读目录草稿失败、localStorage 配额、真实最近列表、真实宿主源码保存字节、真实 WebView2 冷启动、离线 KaTeX chunk、打印路径。
+- `src/App.tsx` 约 2800 行；三处重复序列化 / 草稿写入；22 处字号无变量。
 - 无 Mermaid、字体不可换、无自定义快捷键。
 - 密钥明文存 localStorage；CI `windows-host` 未在 GitHub 首跑。
 - 6 MB 上限（marked 8 MB 爆栈）；更大文件需换解析器。
-- 500 toast 原始响应未进 `title`；ADR-0004 载荷数每次宿主改动后要复算。
+- 500 toast 原始响应未进 `title`；ADR-0004 载荷数每次宿主改动后要复算；ADR-0012 子值 276,401 vs 实测 276,413（非阻断）。
 
 ## 决策记录
 
@@ -98,3 +98,4 @@
 - 2026-11-15 第 8 轮：宿主草稿写 `.sidelight/drafts/`、关窗三选一、自动保存 2 s 防抖且不绕过差异门；浏览器草稿键兼容旧键；版本 0.21.0。
 - 2026-11-16 第 9 轮：宿主最近 8 篇（`%LOCALAPPDATA%\Sidelight\recent.json`），`/__recent` 不暴露完整路径；日志只记 basename 并轮转；CI 补 `.tmp`/`release` 目录；版本 0.22.0。
 - 2026-11-16 第 10 轮：未改动的表格整块复用原文（rich 5/7）；frontmatter 后空行保真；含引用式链接的文档载入即源码（source 7/7）；版本 0.23.0。
+- 2026-11-16 第 11 轮：KaTeX 惰性（alias + shim + 动态 CSS + 就绪订阅），首屏 364,960→282,809 B；265 KiB 不可达写进 ADR-0012；版本 0.24.0。
