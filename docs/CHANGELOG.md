@@ -12,7 +12,7 @@ macOS 改为 Universal 包，签名/公证可选，self-test 与发布流程加�
 - 发布流程：`release.yml` 的 `workflow_dispatch` 增加必填 `tag`；preflight 校验 `v<version>`；release job 先断言 3 个资产、用显式文件名生成 `SHA256SUMS-<版本>.txt`、再断言 4 个文件并 `sha256sum -c`；同 tag 重跑删除旧的 arm64 资产（`overwrite_files`）。
 - Edit 菜单：撤销/重做/剪切/拷贝/粘贴/全选，全部 `target = nil` 走 first responder（`undo:`/`redo:` 由 WKWebView 的 `undoManager` 处理）。
 - zip 内多一份 `README.txt`（Gatekeeper 三档、签名三态、Intel、数据位置、校验方式）。
-- 测试 16 个文件 205 条；首屏 gzip 仍 283,826 B（≤285,000，余 1,174 B）；体积与 SHA256 `[TBD]`（出包后回填，或见 Release `SHA256SUMS-0.29.0.txt`）。
+- 测试 16 个文件 205 条；首屏 gzip 仍 283,826 B（≤285,000，余 1,174 B）。体积：Windows 安装包 **817,994 B**、Windows 便携 zip **901,920 B**、macOS Universal zip **889,644 B**（fat 头两片：x86_64 0x1000007 / arm64 0x100000c，zip 内含 `README.txt`）；SHA256 校验和见 Release 页的 `SHA256SUMS-0.29.0.txt`。
 - 未验：真实 Intel Mac 与 Rosetta、真实签名/公证（本机无证书）、图标真机显示、WKWebView 的 ⌘C/⌘V/⌘Z、`--triple` 交叉编译 x86_64（CI 首次实跑）。
 ## 0.28.1 — 2026-11-16
 
