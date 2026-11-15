@@ -9,8 +9,12 @@
 - macOS 原生宿主（Swift + AppKit + WKWebView + Network.framework，arm64）：`host-mac/` 提供 `/__doc`、`/__draft`、`/__recent` 与同一套 `save`/`draft-*`/`recent-*`/`close-answer` 协议，编码（BOM/UTF-8/GB18030）、EOL、原子写、草稿与最近记录、关窗三选一与 Windows 宿主对等。
 - 宿主桥抽成 WebView2 / WKWebView 双通道：页面只依赖 `postMessage` 语义，Windows 走 `window.chrome.webview`，macOS 走 `window.webkit.messageHandlers.sidelight` 与 `sidelight-host` 事件。
 - Windows 仍是 per-user NSIS 安装包 + 便携 zip，行为不变。
-- macOS 包**未签名、未公证**（ad-hoc 签名）：首次打开需右键「打开」或 `xattr -dr com.apple.quarantine`。Intel Mac 暂未构建。
-- 测试 16 个文件 205 条；体积 `[TBD]`（Windows 安装包/zip 与 macOS zip 的字节与 SHA256 由 root 出包后回填）。
+- Intel Mac 暂未构建（只在 arm64 runner 上出包）。
+- 首屏 gzip **284,973 B**（≤285,000，余 27 B）。
+- 测试 16 个文件 205 条；版本 0.27.0。
+- 产物：Windows 安装包 **817,242 B**（SHA256 `974A035701AFEE5D75048D6ACB2C5D3B592809C2B5331BBE31C5CE9BAE2D4704`）、Windows 便携 zip **899,986 B**（SHA256 `0CEC9036C0C586E71D2DD7DBA9EF46A4B236F90376CF5E4A015EFE59DBF44C95`）、macOS arm64 zip **770,783 B**（SHA256 `259ADDF217695D77805B724F5C03170EF9BC7D7A4EBF1348E8B6870610D8557B`）。
+- macOS 包**未签名、未公证**，仅 arm64，要求 macOS 13+；首次打开需右键「打开」或 `xattr -dr com.apple.quarantine`。
+
 ## 0.26.0 — 2026-11-16
 
 
