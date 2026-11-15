@@ -2,6 +2,14 @@
 const PAIR = /\$([^$\n]+)\$/g
 
 /**
+ * 成对 `$` 之间是否像公式：内侧不能是空白。
+ * 载入（protectMathPairs）与打字（mathInput 的输入规则）共用这一条，两条路径才不会分叉。
+ */
+export function isMathBody(body: string): boolean {
+  return !/^\s/.test(body) && !/\s$/.test(body)
+}
+
+/**
  * 数学公式按 `$…$` 解析，但「价格 $5 到 $10」也会被吃成公式。
  * 按 KaTeX 的通行规则判断：开头的 `$` 后不能是空白、结尾的 `$` 前不能是空白，
  * 不满足的成对美元符号转成 `\$`，让解析器当普通文字。
@@ -9,8 +17,7 @@ const PAIR = /\$([^$\n]+)\$/g
  */
 export function protectMathPairs(markdown: string): string {
   return markdown.replace(PAIR, (match, body: string) => {
-    const looksLikeMath = !/^\s/.test(body) && !/\s$/.test(body)
-    return looksLikeMath ? match : match.replace(/\$/g, '\\$')
+    return isMathBody(body) ? match : match.replace(/\$/g, '\\$')
   })
 }
 

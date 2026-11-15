@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { protectMathPairs, repairMath } from './math.ts'
+import { isMathBody, protectMathPairs, repairMath } from './math.ts'
 
 test('真正的公式不动', () => {
   assert.equal(protectMathPairs('行内 $E=mc^2$ 结束。'), '行内 $E=mc^2$ 结束。')
@@ -42,4 +42,17 @@ test('行内公式里的反斜杠还原', () => {
 
 test('公式外部的反斜杠不动', () => {
   assert.equal(repairMath('正文里的 \\\\ 不动。'), '正文里的 \\\\ 不动。')
+})
+
+// 打字路径（mathInput 的输入规则）与载入路径共用这一条判断
+test('货币内侧有空白，不是公式体', () => {
+  assert.equal(isMathBody('5 到 '), false)
+})
+
+test('真正的公式体没有空白', () => {
+  assert.equal(isMathBody('E=mc^2'), true)
+})
+
+test('两侧都是空白的不是公式体', () => {
+  assert.equal(isMathBody(' x '), false)
 })

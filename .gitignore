@@ -6,3 +6,5 @@ dist
 .edge-profile*
 .npm-cache
 .tmp/
+host/bin/
+*.zip

@@ -25,7 +25,8 @@ await page.getByRole('button', { name: '插入 ▾' }).click()
 await page.waitForTimeout(200)
 await page.getByRole('button', { name: '公式', exact: true }).click()
 await page.waitForTimeout(600)
-console.log('katex nodes:', await page.locator('.editor .katex').count())
+const before = await page.locator('.editor .katex').count()
+console.log('katex nodes:', before)
 console.log('cursor in math:', await page.locator('.Tiptap-mathematics-render, .tiptap-mathematics-render').count())
 
 // 2. 直接把光标放到末尾，敲一段货币文字，确认没有多出公式
@@ -33,9 +34,11 @@ await page.locator('.editor').click()
 await page.keyboard.press('Control+End')
 await page.keyboard.type(' 价格 $5 到 $10 之间。')
 await page.waitForTimeout(500)
-console.log('katex after currency:', await page.locator('.editor .katex').count())
+const after = await page.locator('.editor .katex').count()
+console.log('katex after currency:', after)
+console.log('katex delta:', after - before)
 console.log('editor text tail:', (await page.locator('.editor').innerText()).slice(-40).replace(/\n/g, ' '))
-await page.screenshot({ path: 'shots/math.png' })
+await page.screenshot({ path: 'shots/round-01/t1-currency.png' })
 
 // 3. 源码模式里公式语法原样
 await page.getByRole('button', { name: '源码', exact: true }).click()

@@ -1,5 +1,7 @@
 import { Extension, InputRule } from '@tiptap/core'
 
+import { isMathBody } from './math.ts'
+
 type Options = {
   /** 新建块级公式后回调，用来立刻打开就地编辑 */
   onBlockCreated?: (position: number) => void
@@ -31,7 +33,10 @@ export const MathInputRules = Extension.create<Options>({
         find: /\$([^$\n]+)\$$/,
         handler: ({ state, range, match }) => {
           if (this.storage.draft) return
-          const latex = match[1].trim()
+          const body = match[1]
+          // 与载入路径共用「内侧不能是空白」：`$5 到 $` 是货币，不是公式
+          if (!body.trim() || !isMathBody(body)) return
+          const latex = body.trim()
           const type = state.schema.nodes.inlineMath
           if (!latex || !type) return
           state.tr.replaceWith(range.from, range.to, type.create({ latex }))

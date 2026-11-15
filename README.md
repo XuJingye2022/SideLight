@@ -27,17 +27,16 @@
 - 行内 HTML 与 Obsidian callout：标签和 `[!note]` 按原文保留，保存时还原。
 - 导出：HTML（样式内联，单文件可直接发）、Markdown、纯文本、打印存 PDF。
 - 表格：光标进入表格时出现工具条，可增删行列、删整表。
-- 数学公式：行内 `$E=mc^2$` 与块级 `$$…$$` 用 KaTeX 渲染；货币写法（`$5 到 $10`）不会被误判成公式。
+- 数学公式：行内 `$E=mc^2$` 与块级 `$$…$$` 用 KaTeX 渲染；内侧不能是空白的成对 `$` 才当公式，`$5 到 $10` 在打字与载入两条路径上都保留为文字（无空格写法 `$5-$10` 仍会被当公式）。
 - 字号：设置里调 12–26，`Ctrl + =` 放大、`Ctrl + -` 缩小、`Ctrl + 0` 复位。
 - 打开用到引用式链接的文档时，顶部提示编辑器读不全，可一键转源码模式。
 - 保存：`Ctrl + S`，有文件句柄时写回磁盘，否则下载。第一次保存会把被规范化的行列出来，你确认后才写。
-- 草稿与批注存在文档同级（打开文件夹时在工作区根目录）的 `.sidelight/` 里：`drafts/<名字>.md` 与 `annotations/<名字>.json`；保存成功后删草稿，重开文档恢复批注。没有磁盘句柄（示例文件）时退回浏览器本地存储。
+- 草稿与批注存在文档同级（打开文件夹时在工作区根目录）的 `.sidelight/` 里：`drafts/<名字>.md` 与 `annotations/<名字>.json`；保存成功后删草稿，重开文档恢复批注（有磁盘句柄时，未验证）。没有磁盘句柄（示例文件）时退回浏览器本地存储。
 - 设置里填接口地址、API Key、模型名，走 OpenAI 兼容协议。没填时走模拟流。
 
 ## 现在不能做什么
 
 - 没有 Tauri 壳，没有安装包，没有自动更新。
-- 批注不持久化：刷新或切换文件就没了。
 - 密钥存在浏览器 localStorage，没有加密，也没有系统钥匙串。
 - 引用式链接打开再保存会被改写成行内链接；打开时提示，保存前把受影响的行摆出来给你确认。
 - 行内 HTML 只保真不渲染：正文里看到的是 `<kbd>` 文字，不是键盘样式。
@@ -49,7 +48,7 @@
 
 ## 依赖与体积
 
-打包产物约 2.1 MB：JS 1.0 MB、KaTeX 字体 546 KB（39 个文件）、其余是 HTML 与 CSS。
+打包产物约 1.33 MiB（1,392,880 B）：JS 1.0 MB、KaTeX 字体 256,168 B（19 个文件，只发 woff2）、其余是 HTML 与 CSS。
 
 运行时依赖只有两组，都不是为省几行代码引入的：
 
@@ -58,17 +57,19 @@
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
 
+宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。窗口、单实例、argv 打开文件、真实文件夹读写都已跑通；安装包尚未制作，见 [ADR-0004](docs/adr/0004-webview2-host-before-admin.md)。
+
 ## 跑起来
 
 ```bash
 npm install
 npm run dev       # http://localhost:5173
-npm test          # 上下文组装 + 批注解析，共 19 个
+npm test          # 15 个文件、165 条断言
 npm run roundtrip # Markdown 往返损失测量，写 docs/roundtrip-report.md
 npm run build     # 类型检查 + 打包
 npm run shot      # 用无头浏览器跑一遍流程并截图到 shots/（需先起 dev）
-npm run acceptance # 九项验收：草稿、查找、公式、表格、导出、三处保真（需先起 dev + 无头浏览器）
-node scripts/qa.mjs  # 缺陷探测：切换文档、设置、字号、批注漂移、空文档、专注模式（另有 qa2/qa3/qa4）
+npm run acceptance # 11 项验收：草稿、货币、查找、公式、字体、表格、导出、三处保真（需先起 dev + 无头浏览器）
+node scripts/qa.mjs  # 缺陷探测：切换文档、设置、字号、批注漂移、空文档、专注模式（qa7、qa9–qa18 是单项探测）
 ```
 
 ## 目录
@@ -84,7 +85,7 @@ src/
   lib/prompt.ts           批注员的系统提示词
   lib/ai.ts               OpenAI 兼容流式客户端 + 模拟流
   lib/workspace.ts        文件夹读取、文件读写、示例工作区
-fixtures/markdown/        6 个真实 .md 样本
+fixtures/markdown/        7 个真实 .md 样本
 docs/adr/                 架构决策记录
 ```
 
@@ -98,7 +99,7 @@ docs/adr/                 架构决策记录
 
 ## 已知的重要问题：Markdown 往返损失
 
-`npm run roundtrip` 把 6 个真实样本读进编辑器内核再写回，逐行对比。当前结果：0 / 6 完全保真。
+`npm run roundtrip` 把 7 个真实样本读进编辑器内核再写回，逐行对比。当前结果：3 / 7 完全保真。
 
 三类内容是真的被改坏：YAML frontmatter 被当成标题分隔线、行内 HTML 被转义成 `&lt;div&gt;`、脚注定义被删而引用改成行内链接。差异见 [docs/roundtrip-report.md](docs/roundtrip-report.md)。
 

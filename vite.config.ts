@@ -1,13 +1,22 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+import { woff2Only } from './scripts/vite-woff2-only.mjs'
+
 export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
     watch: {
-      ignored: ['**/.edge-profile/**', '**/.npm-cache/**', '**/node_modules/**', '**/*.tmpdir/**'],
+      // 浏览器配置目录别让 Vite 监听：几千个文件会刷 EBUSY，还会误触发整页刷新
+      ignored: [
+        '**/.edge-profile*/**',
+        '**/.tmp/**',
+        '**/.npm-cache/**',
+        '**/node_modules/**',
+        '**/*.tmpdir/**',
+      ],
     },
   },
-  plugins: [react()],
+  plugins: [react(), woff2Only()],
 })

@@ -34,6 +34,24 @@ await page.waitForTimeout(500)
 const afterReload = await page.locator('.editor').innerText()
 check('草稿恢复', afterReload.includes('草稿验收一行。') && beforeReload.includes('草稿验收一行。'))
 
+// 1b. 货币写法：打字路径不能吞成公式，源码原样（B1 回归）
+await page.locator('.editor').click()
+await page.keyboard.press('Control+End')
+const katexBefore = await page.locator('.editor .katex').count()
+await page.keyboard.type(' 价格 $5 到 $10 之间。')
+await page.waitForTimeout(400)
+const katexAfter = await page.locator('.editor .katex').count()
+await page.getByRole('button', { name: '源码', exact: true }).click()
+await page.waitForTimeout(400)
+const currencySource = await page.locator('.source-editor').inputValue()
+await page.getByRole('button', { name: '源码', exact: true }).click()
+await page.waitForTimeout(300)
+check(
+  '货币不吞字',
+  katexAfter === katexBefore && currencySource.includes('$5 到 $10'),
+  `katex ${katexBefore} -> ${katexAfter}`,
+)
+
 // 2. 查找替换
 await page.keyboard.press('Control+f')
 await page.waitForTimeout(250)
@@ -50,6 +68,18 @@ await page.waitForTimeout(200)
 await page.getByRole('button', { name: '公式', exact: true }).click()
 await page.waitForTimeout(500)
 check('公式渲染', (await page.locator('.editor .katex').count()) > 0)
+
+// 3b. 字体：只发 woff2 后公式字体仍能真加载（.katex 节点数不能证明字体加载）
+const fonts = await page.evaluate(async () => {
+  await document.fonts.ready
+  const katex = [...document.fonts].filter((font) => /KaTeX/.test(font.family))
+  return {
+    main: document.fonts.check('16px KaTeX_Main'),
+    faces: katex.length,
+    loaded: katex.filter((font) => font.status === 'loaded').length,
+  }
+})
+check('字体已加载', fonts.main && fonts.faces === 20 && fonts.loaded >= 1, `faces=${fonts.faces} loaded=${fonts.loaded}`)
 
 // 4. 表格工具条
 await page.getByRole('button', { name: '插入 ▾' }).click()

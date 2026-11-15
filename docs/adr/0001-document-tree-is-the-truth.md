@@ -8,13 +8,13 @@ Sidelight 左侧编辑器基于 Tiptap（ProseMirror）。编辑器内部的文�
 
 - 未经编辑的文档不写盘，打开不产生保存。
 - frontmatter 与解析不了的块原样保留，不转成普通段落。
-- 往返损失用 6 个真实样本做 golden 测试量化，不靠感觉。
+- 往返损失用 7 个真实样本做 golden 测试量化，不靠感觉。
 
 如果发布后保真成为主要投诉，退出方案是 CodeMirror 6，代价是重写整个编辑层。
 
 ## 测量结果（2026-11-15）
 
-`npm run roundtrip` 用 6 个真实样本测了一次，结果写进 `docs/roundtrip-report.md`：
+`npm run roundtrip` 用 7 个真实样本测了一次，当前结果 3 / 7 完全保真，写进 `docs/roundtrip-report.md`（下面两条是当时 6 个样本的历史记录）：
 
 - 仅 StarterKit：0 / 6 完全保真。
 - 补上表格与任务列表：0 / 6 完全保真。表格从「整块丢失」变成「对齐被重排」，任务列表只多一个空行。
