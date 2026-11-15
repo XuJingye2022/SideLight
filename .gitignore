@@ -7,4 +7,5 @@ dist
 .npm-cache
 .tmp/
 host/bin/
+release/
 *.zip

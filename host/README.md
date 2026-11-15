@@ -41,7 +41,16 @@ host\bin\Sidelight.exe                  # 空白编辑器
 host\bin\Sidelight.exe .tmp\some.md     # 把该文件内容装进编辑器
 ```
 
-宿主把 `host\bin\www` 映射到虚拟主机 `https://sidelight.local/`，再导航 `index.html`。必须用虚拟主机而不是 `file://`：File System Access API 只在安全上下文可用。
+宿主在固定回环端口起一个只读 HTTP 服务（`TcpListener`，`http://127.0.0.1:47821/`）服务 `host\bin\www`，再导航 `index.html`。必须用 `http://127.0.0.1`（安全上下文）而不是 `file://`：File System Access API 只在安全上下文可用。
+
+## 回环 origin（固定端口 47821）
+
+- 为什么不用 `SetVirtualHostNameToFolderMapping`：同一个 WebView2 里实测映射主机 DCL 2,011 ms / FCP 2,040 ms，回环 HTTP DCL 28 ms / FCP 60 ms，`WebResourceRequested` 方案 FCP 2,392 ms。三组读数与决策见 `docs/adr/0005-loopback-fixed-origin.md`。
+- 端口固定为 **47821**：origin 每次启动都一样，`localStorage`（API Key、草稿）才能跨启动保留。端口被占用时写 `loopback port busy 47821`，弹「端口 47821 被占用，请关闭占用它的程序后重开」并 `exit 1`；**不换端口、不回退虚拟主机**。
+- `SIDELIGHT_PORT` 环境变量只用于测试时覆盖端口，正常启动不要设。
+- 服务只处理 `GET`/`HEAD`（其余 405），响应带 `Content-Type`、`Content-Length`、`Connection: close`、`Cache-Control: no-store`。MIME 白名单：`.html .css .js .woff2 .svg .png .ico .json`。
+- 目录穿越：拒绝含 `..`、反斜杠、盘符冒号、`//` 开头的路径；`Uri.UnescapeDataString` 失败回 400；`Path.GetFullPath` 后必须落在 `www` 目录内，否则 403；扩展名不在白名单回 404。每次拒绝写 `loopback refused path=… reason=…`。
+- **旧 origin 的一次性代价**：`https://sidelight.local` 上的 `sidelight.settings.v1` 与 `sidelight.doc.v1` 不会迁移到新 origin，升级后用户会丢一次设置与草稿。这是首次公开发布前接受的代价（ADR-0005），本轮不做跨 origin 迁移。
 
 其他行为：
 

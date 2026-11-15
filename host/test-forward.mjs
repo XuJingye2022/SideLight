@@ -242,24 +242,48 @@ async function caseReloadRace() {
   await new Promise((resolve) => second.on('exit', resolve))
   const clean = await waitLog(/forward dirty=0/, mark, 20000)
   const navStart = await waitLog(/navigation starting/, mark, 20000)
-  if (!clean || !navStart) {
-    check('reload-race：第一次转发触发 reload', false, `dirty0=${Boolean(clean)} navStart=${Boolean(navStart)}`)
-    await browser.close().catch(() => {})
-    await killHosts()
-    return
-  }
 
-  // reload 正在飞：这时再发第三个路径，应进队列并在导航完成后重放。
+  // reload 进行中再发第三个路径。回环下 reload 只要约 30 ms，第三个请求可能落在旧页面的
+  // 导航窗口里（进队列），也可能落进新页面（直接应用）——两种都是正确行为，所以这里
+  // 不断言中间态，只看最终状态与不变量。
   const third = startHost([FILES.third])
   const thirdCode = await new Promise((resolve) => third.on('exit', (code) => resolve(code)))
-  const queued = await waitLog(/forward queued/, mark, 15000)
-  const drained = await waitLog(/forward drained/, mark, 20000)
+
   const store = await waitStore(page, (s) => s.name === 'third.md' && s.text.includes('THIRD-ONLY'), 30000)
+
+  // 等最终文档真正稳定：同一 timeOrigin 下已经画出 THIRD-ONLY，且 argv 守卫只跑过一次。
+  let stable = false
+  let runs = null
+  for (let i = 0; i < 40; i++) {
+    try {
+      const t0 = await page.evaluate(() => performance.timeOrigin)
+      await sleep(400)
+      const snap = await page.evaluate(
+        (t) => ({
+          same: performance.timeOrigin === t,
+          runs: sessionStorage.getItem('sl:argv-runs'),
+          body: document.body.innerText,
+        }),
+        t0,
+      )
+      runs = snap.runs
+      if (snap.same && snap.body.includes('THIRD-ONLY') && snap.runs === '1') {
+        stable = true
+        break
+      }
+    } catch {
+      // 导航中
+    }
+    await sleep(200)
+  }
+
   const text = logText().slice(mark)
+  const queuedSeen = /forward queued/.test(text)
+  const drainedSeen = /forward drained/.test(text)
   check(
-    'reload-race：reload 期间转发进队列并最终生效',
-    Boolean(queued) && Boolean(drained) && Boolean(store) && !/forward failed/.test(text),
-    `queued=${Boolean(queued)} drained=${Boolean(drained)} final=${store && store.name} failed=${/forward failed/.test(text)}`,
+    'reload-race：最终内容正确、守卫只生效一次、无 failed（不看中间态）',
+    Boolean(clean) && Boolean(navStart) && Boolean(store) && !/forward failed/.test(text) && runs === '1' && stable,
+    `final=${store && store.name} queuedSeen=${queuedSeen} drainedSeen=${drainedSeen} runs=${runs} stable=${stable} failed=${/forward failed/.test(text)}`,
   )
   check('reload-race：第三进程 exit 0', thirdCode === 0, `exit=${thirdCode}`)
   await browser.close().catch(() => {})

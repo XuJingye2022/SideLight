@@ -2,7 +2,7 @@
 
 你的写作，AI 在页边。左侧写作，右侧按需补光。
 
-发布目标：面向所有中文写作者的桌面 Markdown 编辑器，Windows 首发。现有 **C# WebView2 宿主**（`host/`）与便携 zip（`packaging/`），没有安装器。
+发布目标：面向所有中文写作者的桌面 Markdown 编辑器，Windows 首发。现有 **C# WebView2 宿主**（`host/`）、per-user 安装包与便携 zip（`release/`，打包脚本在 `packaging/`）。
 
 ## 现在能做什么
 
@@ -36,7 +36,7 @@
 
 ## 现在不能做什么
 
-- 没有安装器；便携 zip 见 `packaging/`。没有自动更新、没有代码签名。
+- 还没有自动更新、没有代码签名。安装用 `release/Sidelight-0.17.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
 - 密钥存在浏览器 localStorage，没有加密，也没有系统钥匙串。
 - 引用式链接打开再保存会被改写成行内链接；打开时提示，保存前把受影响的行摆出来给你确认。
 - 行内 HTML 只保真不渲染：正文里看到的是 `<kbd>` 文字，不是键盘样式。
@@ -48,7 +48,7 @@
 
 ## 依赖与体积
 
-打包产物约 1.33 MiB（1,395,531 B）：JS 1.0 MB、KaTeX 字体 256,168 B（19 个文件，只发 woff2）、其余是 HTML 与 CSS。
+打包产物约 1.34 MiB（1,400,644 B）：JS 1.0 MB、KaTeX 字体 256,168 B（19 个文件，只发 woff2）、其余是 HTML 与 CSS。
 
 运行时依赖只有两组，都不是为省几行代码引入的：
 
@@ -57,14 +57,14 @@
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
 
-宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。窗口、单实例、argv 打开文件、真实文件夹读写都已跑通；安装包尚未制作，见 [ADR-0004](docs/adr/0004-webview2-host-before-admin.md)。
+宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 296 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 827,198 B，卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
 
 ## 跑起来
 
 ```bash
 npm install
 npm run dev       # http://localhost:5173
-npm test          # 15 个文件、165 条断言
+npm test          # 16 个文件、171 条断言
 npm run roundtrip # Markdown 往返损失测量，写 docs/roundtrip-report.md
 npm run build     # 类型检查 + 打包
 npm run shot      # 用无头浏览器跑一遍流程并截图到 shots/（需先起 dev）

@@ -36,21 +36,21 @@
 - 单实例用 `Global\Sidelight` Mutex（被拒时退回 `Local\Sidelight`），第二实例经命名管道把文件路径转给第一实例后 exit 0。
 - argv 文件不拼 JS 字符串：读字节转 base64，注入脚本解码后写 `localStorage['sidelight.doc.v1']`，再重载一次。重载靠 `sessionStorage` 守卫只生效一次。
 
-## 载荷体积（第 02 轮实测，取数命令原样可复跑）
+## 载荷体积（第 03 轮实测，取数命令原样可复跑）
 
 ```powershell
 (Get-ChildItem host\bin -File | Where-Object Name -in 'Sidelight.exe','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll','Sidelight.exe.config' | Measure-Object Length -Sum).Sum + (Get-ChildItem host\bin\www -Recurse -File | Measure-Object Length -Sum).Sum
 ```
 
-2026-11-15 第 02 轮收尾实测 **2,379,631 B**（可执行文件与 SDK 程序集 984,100 B + `www/` 1,395,531 B）。
+2026-11-15 第 03 轮收尾实测 **2,389,352 B**（可执行文件与 SDK 程序集 988,708 B + `www/` 1,400,644 B；第 02 轮为 2,379,631 B）。
 
-工作目录 `host\bin` 里还有 `webview2-data`（同一时刻 14,284,436 B，随运行增长）与 `host.log`。**这两样不进发布包**：便携 zip 由 `packaging/portable.ps1` 打，staging 会断言它们不存在（zip 实测 900,752 B，SHA256 `63DA8F372D4EFC156E16AF21E42B390680C387BE2B55BF4EF62B620B2C58DFCC`）。
+工作目录 `host\bin` 里还有 `webview2-data`（同一时刻 15,188,740 B，随运行增长）与 `host.log`。**这两样不进发布包**：便携 zip 由 `packaging/portable.ps1` 打，staging 会断言它们不存在；NSIS 安装包由 `packaging/installer.ps1` 打，载荷同源。第 03 轮实测：便携 zip 904,736 B，SHA256 `6EE283D36FCA075062C045DAD62C1D3815E9327CE99676E77E2D6E6A8C90ECA3`；setup.exe 827,198 B，SHA256 `251FB3BDA666158EB57DFA4EBA2ADBFFFEE41F8A66630EB8A4A72232E92762E4`（第 02 轮的 zip 为 900,752 B / `63DA8F37…`，仅作历史对照）。
 
 ## 偏离与缺口
 
 - SDK 1.0.4314.35 的 .NET 投影没有 `RemoveScriptToExecuteOnDocumentCreated` 的 Async 包装（查过 dll 字符串表，只有 `AddScriptToExecuteOnDocumentCreatedAsync`）。一次性注入改由注入脚本的 `sessionStorage` 守卫保证，验收用 `sl:argv-runs=1` 与 `framenavigated=2` 证明。
 - `%LOCALAPPDATA%\Sidelight\WebView2` 在本机代理沙箱里写入被拒，宿主自动退回 `host\bin\webview2-data`。正式安装包要换成安装器给的可写目录。
-- 无 `.md` 关联、无卸载、无签名、无自动更新。中文输入法、中文路径、大文件、冷启动对比未测；长路径已测（309/313 字符，带与不带 `\\?\` 前缀都能打开，见 `host/test-failure.mjs`）。
+- 无 `.md` 关联、无签名、无自动更新。卸载程序会删安装目录并把快捷方式、卸载项清掉，但保留 `%LOCALAPPDATA%\Sidelight` 里的用户数据。中文输入法、中文路径、大文件、冷启动对比未测；长路径已测（309/313 字符，带与不带 `\\?\` 前缀都能打开，见 `host/test-failure.mjs`）。
 - 未签名 exe 会触发 SmartScreen。三条发布路径都有这个代价。
 
 ## 换 Tauri 2 的触发条件

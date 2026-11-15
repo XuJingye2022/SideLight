@@ -107,6 +107,11 @@ check('导出 HTML', exported.endsWith('.html'), exported)
 // 6. Markdown 保真：frontmatter / 脚注 / 行内 HTML
 await page.getByRole('button', { name: '试用示例' }).first().click()
 await page.waitForTimeout(300)
+// 「试用示例」现在会直接打开第一篇；当前文档有改动时会先弹切换确认，选放弃
+if (await page.locator('.dialog[aria-label="切换文档"]').count()) {
+  await page.locator('.dialog[aria-label="切换文档"] button', { hasText: '放弃改动' }).click()
+  await page.waitForTimeout(500)
+}
 await page.locator('.tree-file').nth(3).click()
 await page.waitForTimeout(400)
 // 当前文档有改动时会先弹切换确认，选放弃

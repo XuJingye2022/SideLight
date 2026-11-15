@@ -27,6 +27,70 @@ export function messageOf(error: unknown): string {
   return '请求失败，原因未知。'
 }
 
+export type ModelErrorKind = 'auth' | 'rate' | 'network' | 'server' | 'unknown'
+
+/** 模型请求失败：kind 决定给用户看的话，status / detail 只作调试信息 */
+export class ModelRequestError extends Error {
+  readonly kind: ModelErrorKind
+  readonly status?: number
+  readonly detail?: string
+
+  constructor(kind: ModelErrorKind, message: string, status?: number, detail?: string) {
+    super(message)
+    this.name = 'ModelRequestError'
+    this.kind = kind
+    this.status = status
+    this.detail = detail
+  }
+}
+
+export type ErrorCopy = { text: string; action?: 'settings' | 'retry' }
+
+function kindOfStatus(status: number): ModelErrorKind {
+  if (status === 401 || status === 403) return 'auth'
+  if (status === 429) return 'rate'
+  if (status >= 500) return 'server'
+  return 'unknown'
+}
+
+function looksLikeNetwork(error: unknown): boolean {
+  if (error instanceof TypeError) return true
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  return /Failed to fetch|NetworkError|fetch failed|network|连不上/i.test(message)
+}
+
+/**
+ * 把错误翻成「原因 + 下一步」的纯函数（不碰 DOM，可单测）。
+ * action 表示该给用户哪个按钮：打开设置，或重试。
+ */
+export function errorCopy(error: unknown): ErrorCopy {
+  const kind = error instanceof ModelRequestError ? error.kind : looksLikeNetwork(error) ? 'network' : 'unknown'
+  const status = error instanceof ModelRequestError ? error.status : undefined
+  if (kind === 'auth') {
+    return { text: 'API Key 无效或没有权限。下一步：打开设置检查 Key 和接口地址。', action: 'settings' }
+  }
+  if (kind === 'rate') {
+    return { text: '请求被限流了。下一步：等一会儿再重试，或换个模型。', action: 'retry' }
+  }
+  if (kind === 'network') {
+    return { text: '连不上接口地址。下一步：检查网络，或确认设置里的「接口地址」没填错。', action: 'settings' }
+  }
+  if (kind === 'server') {
+    return { text: `模型接口返回 ${status ?? '错误'}。下一步：稍后重试；还不行就换模型或接口地址。`, action: 'retry' }
+  }
+  return { text: '操作没成功。下一步：再试一次；还不行请把这句话发给开发者。', action: 'retry' }
+}
+
+async function requestChat(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    throw new ModelRequestError('network', '连不上接口地址', undefined, messageOf(error))
+  }
+}
+
+
 /**
  * 一次批注请求。没有填 API Key 时走模拟流，返回形状与真模型一致（JSON Lines）。
  */
@@ -40,7 +104,7 @@ export async function streamAnnotations(options: StreamOptions): Promise<void> {
 
 async function remoteStream({ settings, context, onDelta, signal }: StreamOptions): Promise<void> {
   const url = `${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`
-  const response = await fetch(url, {
+  const response = await requestChat(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -62,7 +126,12 @@ async function remoteStream({ settings, context, onDelta, signal }: StreamOption
 async function readSse(response: Response, onDelta: (delta: string) => void): Promise<void> {
   if (!response.ok || !response.body) {
     const detail = await response.text().catch(() => '')
-    throw new Error(`模型接口返回 ${response.status}${detail ? `：${detail.slice(0, 200)}` : ''}`)
+    throw new ModelRequestError(
+      kindOfStatus(response.status),
+      `模型接口返回 ${response.status}`,
+      response.status,
+      detail.slice(0, 300),
+    )
   }
 
   const reader = response.body.getReader()
@@ -70,7 +139,14 @@ async function readSse(response: Response, onDelta: (delta: string) => void): Pr
   let buffer = ''
 
   for (;;) {
-    const { done, value } = await reader.read()
+    let chunk: ReadableStreamReadResult<Uint8Array>
+    try {
+      chunk = await reader.read()
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error
+      throw new ModelRequestError('network', '连不上接口地址', undefined, messageOf(error))
+    }
+    const { done, value } = chunk
     if (done) break
     buffer += decoder.decode(value, { stream: true })
 
@@ -111,7 +187,7 @@ export async function streamChat({ settings, messages, onDelta, signal }: ChatOp
   }
 
   const url = `${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`
-  const response = await fetch(url, {
+  const response = await requestChat(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

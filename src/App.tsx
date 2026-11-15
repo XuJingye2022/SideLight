@@ -25,7 +25,7 @@ import { SaveDialog } from './components/SaveDialog.tsx'
 import { SettingsDialog } from './components/SettingsDialog.tsx'
 import { StatusBar } from './components/StatusBar.tsx'
 import { useDialogFocus } from './components/useDialogFocus.ts'
-import { messageOf, streamAnnotations, streamChat, type ChatMessage } from './lib/ai.ts'
+import { errorCopy, messageOf, streamAnnotations, streamChat, type ChatMessage } from './lib/ai.ts'
 import {
   buildTextIndex,
   findRange,
@@ -53,6 +53,7 @@ import { hasKey, loadSettings, saveSettings, type Settings } from './lib/setting
 import { countText, type TextStats } from './lib/wordcount.ts'
 import {
   demoWorkspace,
+  flattenFiles,
   parentDirectory,
   pickFile,
   pickWorkspace,
@@ -71,6 +72,9 @@ declare global {
 }
 
 const DOC_KEY = 'sidelight.doc.v1'
+
+/** 第一次打开时正文就是示例，文档名也说明这一点，别让三处说法互相矛盾 */
+const DEMO_DOC_NAME = '示例 · 未命名.md'
 
 const SAMPLE = `# 侧灯
 
@@ -115,6 +119,12 @@ function findRiskySyntax(text: string): string[] {
   return found
 }
 
+/** 失败原因：优先用错误自带的 message，没有就给一句通用的 */
+function reasonOf(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  return '原因未知'
+}
+
 /** 文档位置 → 文本下标（buildTextIndex 的 text 与文档位置不是同一坐标系） */
 function offsetForPosition(index: { positions: number[] }, position: number): number {
   let low = 0
@@ -139,6 +149,14 @@ type SelectionState = {
   source: 'selection' | 'paragraph'
 }
 
+/** 全局提示：错误带原因与下一步，且不自动消失 */
+type Notice = {
+  text: string
+  kind: 'info' | 'error'
+  action?: { label: string; onClick: () => void }
+}
+
+
 export default function App() {
   const [settings, setSettings] = useState<Settings>(() => loadSettings())
   // 没配 Key 时走本地模拟流，界面必须明说，否则用户会以为模型读过文章
@@ -147,6 +165,8 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [activeFile, setActiveFile] = useState<WorkspaceFileNode | null>(null)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
+  /** 窄窗时页边栏变抽屉：顶栏「批注」开关它 */
+  const [railOpen, setRailOpen] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<'files' | 'outline'>('files')
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [analyzing, setAnalyzing] = useState(false)
@@ -154,13 +174,24 @@ export default function App() {
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
   const [analysisGoal, setAnalysisGoal] = useState('')
   const [unresolved, setUnresolved] = useState(0)
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState<Notice | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [selection, setSelection] = useState<SelectionState>({ chars: 0, from: 0, to: 0, source: 'paragraph' })
   const [tops, setTops] = useState<Record<string, number>>({})
   const [bubble, setBubble] = useState<{ top: number; left: number } | null>(null)
   const [tick, setTick] = useState(0)
   const [dirty, setDirty] = useState(false)
+
+  /** 普通提示：6 秒后自动消失 */
+  const show = useCallback((text: string) => setNotice({ text, kind: 'info' }), [])
+  /** 错误提示：中文原因 + 下一步，不自动消失；401/断网给「打开设置」 */
+  const fail = useCallback((error: unknown, retry?: () => void) => {
+    const copy = errorCopy(error)
+    let action: Notice['action']
+    if (copy.action === 'settings') action = { label: '打开设置', onClick: () => setSettingsOpen(true) }
+    else if (retry) action = { label: '重试', onClick: retry }
+    setNotice({ text: copy.text, kind: 'error', action })
+  }, [])
   const [outline, setOutline] = useState<OutlineItem[]>([])
   const [activeOutline, setActiveOutline] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'edit' | 'source' | 'preview'>('edit')
@@ -197,7 +228,7 @@ export default function App() {
 
   // 草稿、文档名、frontmatter 一起恢复，避免刷新后元数据与文件名丢失
   const [initial] = useState(() => {
-    const fallback = { text: SAMPLE, frontmatter: '', footnotes: '', name: '未命名.md', savedAt: 0 }
+    const fallback = { text: SAMPLE, frontmatter: '', footnotes: '', name: DEMO_DOC_NAME, savedAt: 0 }
     try {
       const raw = localStorage.getItem(DOC_KEY)
       if (!raw) {
@@ -213,7 +244,7 @@ export default function App() {
         text: footnoteSplit.body,
         frontmatter: split.frontmatter,
         footnotes: footnoteSplit.footnotes,
-        name: parsed.name ?? '未命名.md',
+        name: parsed.name ?? DEMO_DOC_NAME,
         savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : 0,
       }
     } catch {
@@ -245,6 +276,7 @@ export default function App() {
   const toggleSourceRef = useRef<() => void>(() => {})
   const togglePreviewRef = useRef<() => void>(() => {})
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const railToggleRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
     fileRef.current = activeFile
@@ -287,6 +319,18 @@ export default function App() {
 
   // 切换文档的确认框与另外两个对话框共用一套焦点逻辑
   useDialogFocus(pendingSwitch !== null, switchDialogRef)
+
+  /** 关上窄窗抽屉，并把焦点还给顶栏「批注」按钮 */
+  const closeRail = useCallback(() => {
+    setRailOpen(false)
+    railToggleRef.current?.focus()
+  }, [])
+
+  const openRail = useCallback(() => {
+    setRailOpen(true)
+    // 抽屉渲染出来再把焦点送进去，键盘用户才不会掉在背景里
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('.rail-close')?.focus())
+  }, [])
 
   const shortcutExtension = useMemo(
     () =>
@@ -450,11 +494,11 @@ export default function App() {
     const blocks = readBlocks(editor)
     const context = buildContext(blocks, from, to)
     if (!context.selection.trim()) {
-      setNotice('先选中一段文字，再按 Ctrl + Enter。')
+      show('先选中一段文字，再按 Ctrl + Enter。')
       return
     }
 
-    setNotice('')
+    setNotice(null)
     setUnresolved(0)
     setAnalysisGoal('')
     setAnalyzing(true)
@@ -528,14 +572,14 @@ export default function App() {
       }
 
       if (!goalSeen && !controller.signal.aborted) {
-        setNotice('模型没按约定格式回，重试一次看看。')
+        show('模型没按约定格式回，重试一次看看。')
       }
       if (chunks.length > 1 && completed > 1) {
-        setNotice(`长文分成 ${chunks.length} 段分析，已处理 ${completed} 段。`)
+        show(`长文分成 ${chunks.length} 段分析，已处理 ${completed} 段。`)
       }
     } catch (error) {
       const aborted = error instanceof DOMException && error.name === 'AbortError'
-      if (!aborted) setNotice(messageOf(error))
+      if (!aborted) fail(error, () => analyzeRef.current())
     } finally {
       if (abortRef.current === controller) abortRef.current = null
       setAnalyzing(false)
@@ -553,7 +597,7 @@ export default function App() {
       const provider = settings.searchProvider
       const apiKey = settings.searchApiKey.trim()
       if (provider === 'off' || apiKey.length === 0) {
-        setNotice('先在设置里选一个搜索服务并填 Key。')
+        show('先在设置里选一个搜索服务并填 Key。')
         return
       }
 
@@ -564,9 +608,9 @@ export default function App() {
         setAnnotations((previous) =>
           previous.map((item) => (item.id === annotation.id ? { ...item, sources } : item)),
         )
-        setNotice(sources.length > 0 ? `找到 ${sources.length} 条出处` : '没有找到可用的出处')
+        show(sources.length > 0 ? `找到 ${sources.length} 条出处` : '没有找到可用的出处')
       } catch (error) {
-        setNotice(messageOf(error))
+        setNotice({ text: messageOf(error), kind: 'error' })
       } finally {
         setVerifyingId(null)
       }
@@ -629,7 +673,7 @@ export default function App() {
         })
       } catch (error) {
         const aborted = error instanceof DOMException && error.name === 'AbortError'
-        if (!aborted) setNotice(messageOf(error))
+        if (!aborted) fail(error)
       } finally {
         if (chatAbortRef.current === controller) chatAbortRef.current = null
         setDiscussingId(null)
@@ -652,7 +696,7 @@ export default function App() {
       }
 
       if (!range) {
-        setNotice('这条批注指向的位置已经变了，请重新分析这一段。')
+        show('这条批注指向的位置已经变了，请重新分析这一段。')
         return
       }
 
@@ -833,10 +877,10 @@ export default function App() {
     }
   }, [editor, typewriterMode])
 
-  // 提示显示在全局，源码模式下也看得见；六秒后自动消失
+  // 普通提示六秒后自动消失；错误留着，等用户处理
   useEffect(() => {
-    if (!notice) return
-    const timer = setTimeout(() => setNotice(''), 6000)
+    if (!notice || notice.kind === 'error') return
+    const timer = setTimeout(() => setNotice(null), 6000)
     return () => clearTimeout(timer)
   }, [notice])
 
@@ -946,7 +990,7 @@ export default function App() {
         }
         if (restored.length > 0) {
           setAnnotations(restored)
-          setNotice(`从 .sidelight 恢复了 ${restored.length} 条批注`)
+          show(`从 .sidelight 恢复了 ${restored.length} 条批注`)
         }
       } catch {
         // 缓存坏了就当没有
@@ -977,7 +1021,7 @@ export default function App() {
       setActiveFile(file)
       setAnnotations([])
       setUnresolved(0)
-      setNotice('')
+      setNotice(null)
       setDirty(false)
       setViewMode('edit')
       localStorage.setItem(DOC_KEY, JSON.stringify({ text, name, savedAt: Date.now() }))
@@ -1005,10 +1049,10 @@ export default function App() {
       if (next) {
         setWorkspace(next)
         setSidebarTab('files')
-        setNotice('')
+        setNotice(null)
       }
     } catch (error) {
-      setNotice(messageOf(error))
+      setNotice({ text: messageOf(error), kind: 'error' })
     }
   }, [])
 
@@ -1023,7 +1067,7 @@ export default function App() {
         handle: picked.handle,
       })
     } catch (error) {
-      setNotice(messageOf(error))
+      setNotice({ text: messageOf(error), kind: 'error' })
     }
   }, [requestLoad])
 
@@ -1033,11 +1077,25 @@ export default function App() {
         const text = await readNode(file)
         requestLoad(text, file.name, file)
       } catch (error) {
-        setNotice(messageOf(error))
+        setNotice({ text: messageOf(error), kind: 'error' })
       }
     },
     [requestLoad],
   )
+
+  /** Blob + a.download；失败就抛给调用方，让用户看到「保存 / 导出失败」 */
+  const saveBlob = useCallback((name: string, content: string, type: string) => {
+    const blob = new Blob([content], { type })
+    const url = URL.createObjectURL(blob)
+    try {
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = name
+      anchor.click()
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  }, [])
 
   const commitSave = useCallback(
     async (text: string) => {
@@ -1055,28 +1113,29 @@ export default function App() {
           await writeNode(activeFile, withEol)
           setOriginalText(withEol)
           setDirty(false)
-          setNotice('')
+          setNotice(null)
           const dir = await cacheDirFor()
           if (dir) await removeCache(dir, 'draft', cacheKey(activeFile.name))
         } catch (error) {
-          setNotice(messageOf(error))
+          setNotice({ text: `保存失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
         }
         return
       }
 
-      const blob = new Blob([withEol], { type: 'text/markdown;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = docName
-      anchor.click()
-      URL.revokeObjectURL(url)
-      setOriginalText(withEol)
-      // 没有磁盘句柄时只是下载了一份副本，原文件没动，所以仍然算未保存
-      setDirty(true)
-      setNotice('这篇没有磁盘句柄，已下载一份副本；要写回原文件，请用「打开文件夹」打开它所在的目录。')
+      try {
+        saveBlob(docName, withEol, 'text/markdown;charset=utf-8')
+        setOriginalText(withEol)
+        // 没有磁盘句柄时只是下载了一份副本，原文件没动，所以仍然算未保存
+        setDirty(true)
+        setNotice({
+          text: '这篇还没有磁盘路径。副本已下载到「下载」文件夹；要写回原文件，先用「打开文件夹」打开它所在目录。',
+          kind: 'info',
+        })
+      } catch (error) {
+        setNotice({ text: `保存失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
+      }
     },
-    [activeFile, docName, cacheDirFor],
+    [activeFile, docName, cacheDirFor, saveBlob],
   )
 
   const currentMarkdown = useCallback(() => {
@@ -1126,6 +1185,11 @@ export default function App() {
       const dialogOpen = settingsOpen || pendingSave !== null || pendingSwitch !== null
 
       if (event.key === 'Escape') {
+        if (railOpen) {
+          setRailOpen(false)
+          railToggleRef.current?.focus()
+          return
+        }
         if (findOpen) {
           setFindOpen(false)
           return
@@ -1210,6 +1274,7 @@ export default function App() {
     setFontSize,
     sourceMode,
     previewMode,
+    railOpen,
   ])
 
   // 点菜单外面关掉菜单
@@ -1232,7 +1297,7 @@ export default function App() {
     setSettingsOpen(false)
     // 提示词被改没了输出格式，模型多半会不按约定回；不阻止，但先提醒
     if (!/json/i.test(safe.analysisPrompt)) {
-      setNotice('提示词里没提 JSON 格式，模型可能不按约定回；已保存，可在设置里恢复默认。')
+      show('提示词里没提 JSON 格式，模型可能不按约定回；已保存，可在设置里恢复默认。')
     }
   }, [])
 
@@ -1312,38 +1377,38 @@ export default function App() {
     [editor],
   )
 
-  const downloadFile = useCallback((name: string, content: string, type: string) => {
-    const blob = new Blob([content], { type })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = name
-    anchor.click()
-    URL.revokeObjectURL(url)
-  }, [])
-
   const exportAs = useCallback(
     (kind: 'html' | 'markdown' | 'text') => {
       if (!editor) return
       setExportOpen(false)
-      if (kind === 'markdown') {
-        downloadFile(exportName(docName, 'md'), currentMarkdown(), 'text/markdown;charset=utf-8')
-        return
+      try {
+        if (kind === 'markdown') {
+          const name = exportName(docName, 'md')
+          saveBlob(name, currentMarkdown(), 'text/markdown;charset=utf-8')
+          show(`已导出 ${name}`)
+          return
+        }
+        if (kind === 'html') {
+          const html = buildHtmlDocument({
+            title: docName,
+            bodyHtml: editor.getHTML(),
+            fontSize: settings.fontSize,
+            frontmatter: frontmatterRef.current,
+            footnotes: footnotesRef.current,
+          })
+          const name = exportName(docName, 'html')
+          saveBlob(name, html, 'text/html;charset=utf-8')
+          show(`已导出 ${name}`)
+          return
+        }
+        const name = exportName(docName, 'txt')
+        saveBlob(name, editor.getText(), 'text/plain;charset=utf-8')
+        show(`已导出 ${name}`)
+      } catch (error) {
+        setNotice({ text: `导出失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
       }
-      if (kind === 'html') {
-        const html = buildHtmlDocument({
-          title: docName,
-          bodyHtml: editor.getHTML(),
-          fontSize: settings.fontSize,
-          frontmatter: frontmatterRef.current,
-          footnotes: footnotesRef.current,
-        })
-        downloadFile(exportName(docName, 'html'), html, 'text/html;charset=utf-8')
-        return
-      }
-      downloadFile(exportName(docName, 'txt'), editor.getText(), 'text/plain;charset=utf-8')
     },
-    [editor, docName, currentMarkdown, settings.fontSize, downloadFile],
+    [editor, docName, currentMarkdown, settings.fontSize, saveBlob, show],
   )
 
   const insertImageFile = useCallback(
@@ -1360,16 +1425,16 @@ export default function App() {
           editor.chain().focus().setImage({ src: relative, alt: file.name }).run()
           return
         } catch (error) {
-          setNotice(messageOf(error))
+          setNotice({ text: messageOf(error), kind: 'error' })
         }
       }
 
       try {
         const dataUrl = await fileToDataUrl(file)
         editor.chain().focus().setImage({ src: dataUrl, alt: file.name }).run()
-        setNotice('图片暂时内联在正文里；打开文件夹后再拖入，才会存成 assets 相对路径。')
+        show('图片暂时内联在正文里；打开文件夹后再拖入，才会存成 assets 相对路径。')
       } catch (error) {
-        setNotice(messageOf(error))
+        setNotice({ text: messageOf(error), kind: 'error' })
       }
     },
     [editor, workspace, activeFile, docName],
@@ -1621,7 +1686,7 @@ export default function App() {
   }, [editor, linkEdit])
 
   return (
-    <div className={`app${focusMode ? ' focus-mode' : ''}`}>
+    <div className={`app${focusMode ? ' focus-mode' : ''}${railOpen ? ' rail-open' : ''}`}>
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true" />
@@ -1681,6 +1746,16 @@ export default function App() {
         </button>
         <button type="button" onClick={() => setSettingsOpen(true)}>
           设置
+        </button>
+        <button
+          ref={railToggleRef}
+          type="button"
+          className="rail-toggle"
+          aria-expanded={railOpen}
+          aria-controls="margin-rail"
+          onClick={() => (railOpen ? closeRail() : openRail())}
+        >
+          批注
         </button>
       </header>
 
@@ -1889,8 +1964,13 @@ export default function App() {
               onOpenFolder={openFolder}
               onOpenSingleFile={openSingleFile}
               onOpenDemo={() => {
-                setWorkspace(demoWorkspace())
-                setNotice('')
+                const demo = demoWorkspace()
+                setWorkspace(demo)
+                setSidebarTab('files')
+                setNotice(null)
+                // 只取一次示例，并把同一个对象里的第一篇真的打开——只换树不换正文，用户会以为没反应
+                const first = flattenFiles(demo.root)[0]
+                if (first) void openWorkspaceFile(first)
               }}
               onOpenFile={openWorkspaceFile}
             />
@@ -1939,6 +2019,7 @@ export default function App() {
                 analyzing={analyzing}
                 unresolved={unresolved}
                 simulated={simulated}
+                onClose={closeRail}
                 goal={analysisGoal}
                 onGoalRetry={() => {
                   setAnalysisGoal('')
@@ -1982,8 +2063,18 @@ export default function App() {
       </div>
 
       {notice && (
-        <div className={`toast${/失败|错误|无法|不能/.test(notice) ? ' is-error' : ''}`} role="status">
-          {notice}
+        <div className={`toast${notice.kind === 'error' ? ' is-error' : ''}`} role={notice.kind === 'error' ? 'alert' : 'status'}>
+          <span className="toast-text">{notice.text}</span>
+          {notice.action && (
+            <button type="button" className="toast-action" onClick={notice.action.onClick}>
+              {notice.action.label}
+            </button>
+          )}
+          {notice.kind === 'error' && (
+            <button type="button" className="toast-close" aria-label="关闭提示" onClick={() => setNotice(null)}>
+              ×
+            </button>
+          )}
         </div>
       )}
 
@@ -2011,6 +2102,10 @@ export default function App() {
             : undefined
         }
       />
+
+      {railOpen && (
+        <button type="button" className="rail-backdrop" aria-label="关闭批注" onClick={closeRail} />
+      )}
 
       <SaveDialog
         open={pendingSave !== null}

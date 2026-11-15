@@ -10,6 +10,7 @@ import { chromium } from 'playwright-core'
 
 const PORT = 9333
 const EXE = 'host/bin/Sidelight.exe'
+const HOST_LOG = 'host/bin/host.log'
 const SHOTS = 'shots/round-01'
 const ARGV_FILE = '.tmp/host-argv.md'
 const FSA_DIR = '.tmp/host-fs'
@@ -107,6 +108,12 @@ async function main() {
 
   const host = spawnHost([ARGV_FILE])
   const hostExit = new Promise((resolve) => host.on('exit', (code) => resolve(code)))
+  let logMark = 0
+  try {
+    logMark = readFileSync(HOST_LOG, 'utf8').length
+  } catch {
+    logMark = 0
+  }
   await new Promise((r) => setTimeout(r, 1200))
   if (host.exitCode !== null) {
     check('窗口：宿主以主实例启动', false, `启动即退出（exit ${host.exitCode}），说明还有别的实例在跑`)
@@ -155,10 +162,28 @@ async function main() {
     body: document.body.innerText,
   }))
   const markerOk = argv.body.includes('T3-MARKER') && argv.body.includes('单引号') && argv.body.includes('第二行')
+  // 「恰好重载一次」的强断言放在宿主侧：host.log 里本次启动的 `navigation starting` 必须恰好 2 条
+  //（初始导航 + argv 注入触发的 1 次 reload）。它不依赖 Playwright 的接入时机——回环 origin 下
+  // 页面约 30–300 ms 就加载完，framenavigated 常常数不到，只作参考。页面侧再补三条不变量：
+  // 守卫只跑一次（sl:argv-runs=1）、当前文档是 reload、1.2 s 内 timeOrigin 不变（没有无限重载）。
+  let navStarts = -1
+  try {
+    navStarts = (readFileSync(HOST_LOG, 'utf8').slice(logMark).match(/navigation starting/g) || []).length
+  } catch {
+    navStarts = -1
+  }
+  const timeOriginBefore = await page.evaluate(() => performance.timeOrigin)
+  await page.waitForTimeout(1200)
+  const stable = await page.evaluate((t) => performance.timeOrigin === t, timeOriginBefore)
   check(
-    'argv：标记行进正文、脚本只注入一次（framenavigated=2）',
-    markerOk && argv.runs === '1' && argv.done === '1' && argv.navType === 'reload' && navCount === 2,
-    `marker=${markerOk} runs=${argv.runs} done=${argv.done} navType=${argv.navType} framenavigated=${navCount}`,
+    'argv：标记行进正文、恰好重载一次、页面稳定',
+    markerOk &&
+      argv.runs === '1' &&
+      argv.done === '1' &&
+      argv.navType === 'reload' &&
+      stable &&
+      navStarts === 2,
+    `marker=${markerOk} runs=${argv.runs} done=${argv.done} navType=${argv.navType} navStarts=${navStarts} stable=${stable} framenavigated=${navCount}`,
   )
 
   await page.screenshot({ path: `${SHOTS}/t3-window.png` })

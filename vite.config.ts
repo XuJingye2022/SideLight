@@ -15,6 +15,9 @@ export default defineConfig({
         '**/.npm-cache/**',
         '**/node_modules/**',
         '**/*.tmpdir/**',
+        // B 组反复重建 host/bin 与打包 release/，别让它们触发整页刷新
+        '**/host/bin/**',
+        '**/release/**',
       ],
     },
   },

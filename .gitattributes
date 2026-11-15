@@ -3,3 +3,6 @@
 fixtures/** -text
 *.png binary
 *.ico binary
+*.webp binary
+*.jpg binary
+*.exe binary

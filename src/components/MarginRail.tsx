@@ -11,6 +11,8 @@ type Props = {
   unresolved: number
   /** 没配 API Key，批注是本地模拟生成的 */
   simulated: boolean
+  /** 窄窗抽屉的关闭按钮；宽窗不传就不显示 */
+  onClose?: () => void
   goal: string
   discussingId: string | null
   verifyingId: string | null
@@ -35,6 +37,7 @@ export function MarginRail({
   analyzing,
   unresolved,
   simulated,
+  onClose,
   goal,
   discussingId,
   verifyingId,
@@ -56,12 +59,17 @@ export function MarginRail({
   const [draft, setDraft] = useState('')
 
   return (
-    <aside className="margin-rail" ref={railRef} aria-label="页边批注">
+    <aside className="margin-rail" id="margin-rail" ref={railRef} aria-label="页边批注">
       <div className="rail-head">
         <span className="rail-light" aria-hidden="true" />
         <span className="rail-title">侧灯</span>
         {analyzing && <span className="rail-busy">正在读</span>}
         {!analyzing && pending.length > 0 && <span className="rail-count">{pending.length} 条</span>}
+        {onClose && (
+          <button type="button" className="rail-close" onClick={onClose} aria-label="关闭批注">
+            ×
+          </button>
+        )}
       </div>
 
       {goal && (

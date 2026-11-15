@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.IO.Pipes;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,9 +15,12 @@ using Microsoft.Web.WebView2.WinForms;
 static class Program
 {
     const string PIPE_NAME = "Sidelight.argv";
-    const string APP_URL = "https://sidelight.local/index.html";
+    const int DEFAULT_PORT = 47821;
     const string DOC_KEY = "sidelight.doc.v1";
 
+    static int port = DEFAULT_PORT;
+    static string wwwRoot;
+    static TcpListener listener;
     static string baseDir = AppDomain.CurrentDomain.BaseDirectory;
     static string logPath = Path.Combine(baseDir, "host.log");
     static Form form;
@@ -81,6 +86,8 @@ static class Program
             return;
         }
 
+        StartLoopback(www);
+
         string dataDir = ResolveUserDataDir();
         if (dataDir == null)
         {
@@ -134,6 +141,186 @@ static class Program
         return full;
     }
 
+    static readonly Dictionary<string, string> MimeMap = BuildMimeMap();
+
+    static Dictionary<string, string> BuildMimeMap()
+    {
+        Dictionary<string, string> map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        map[".html"] = "text/html; charset=utf-8";
+        map[".css"] = "text/css; charset=utf-8";
+        map[".js"] = "text/javascript; charset=utf-8";
+        map[".woff2"] = "font/woff2";
+        map[".svg"] = "image/svg+xml";
+        map[".png"] = "image/png";
+        map[".ico"] = "image/x-icon";
+        map[".json"] = "application/json; charset=utf-8";
+        return map;
+    }
+
+    // 固定回环端口：origin 恒定，localStorage 才能跨启动保留；端口被占就失败，不换端口、不回退虚拟主机。
+    static void StartLoopback(string wwwPath)
+    {
+        wwwRoot = wwwPath;
+        string overridePort = Environment.GetEnvironmentVariable("SIDELIGHT_PORT");
+        int parsed;
+        if (!string.IsNullOrEmpty(overridePort) && int.TryParse(overridePort, out parsed) && parsed > 0 && parsed < 65536)
+        {
+            port = parsed;
+            Log("loopback port override " + port);
+        }
+        try
+        {
+            listener = new TcpListener(IPAddress.Loopback, port);
+            listener.Start();
+        }
+        catch (Exception ex)
+        {
+            Log("loopback port busy " + port + " " + ex.Message);
+            RunErrorForm("端口 " + port + " 被占用，请关闭占用它的程序后重开。日志：" + logPath);
+            return;
+        }
+        Thread thread = new Thread(AcceptLoop);
+        thread.IsBackground = true;
+        thread.Start();
+        Log("loopback listening http://127.0.0.1:" + port + "/ www=" + wwwRoot);
+    }
+
+    static void AcceptLoop()
+    {
+        while (true)
+        {
+            try
+            {
+                TcpClient client = listener.AcceptTcpClient();
+                ThreadPool.QueueUserWorkItem(delegate(object state) { HandleClient((TcpClient)state); }, client);
+            }
+            catch (Exception ex)
+            {
+                Log("loopback accept failed " + ex.Message);
+                Thread.Sleep(200);
+            }
+        }
+    }
+
+    static void HandleClient(TcpClient client)
+    {
+        try
+        {
+            using (client)
+            using (NetworkStream stream = client.GetStream())
+            {
+                client.ReceiveTimeout = 5000;
+                StreamReader reader = new StreamReader(stream, Encoding.ASCII, false, 1024, true);
+                string requestLine = reader.ReadLine();
+                if (string.IsNullOrEmpty(requestLine)) return;
+                int guard = 0;
+                string headerLine;
+                while (guard++ < 100 && !string.IsNullOrEmpty(headerLine = reader.ReadLine())) { }
+
+                string[] parts = requestLine.Split(' ');
+                if (parts.Length < 2)
+                {
+                    WriteResponse(stream, 400, null, null, false);
+                    return;
+                }
+                string method = parts[0].ToUpperInvariant();
+                string target = parts[1];
+                bool head = method == "HEAD";
+                if (method != "GET" && !head)
+                {
+                    Log("loopback refused path=" + target + " reason=method");
+                    WriteResponse(stream, 405, null, null, head);
+                    return;
+                }
+
+                int query = target.IndexOf('?');
+                if (query >= 0) target = target.Substring(0, query);
+                if (target.Length == 0 || target == "/") target = "/index.html";
+
+                string decoded;
+                try { decoded = Uri.UnescapeDataString(target); }
+                catch (Exception)
+                {
+                    Log("loopback refused path=" + target + " reason=bad-escape");
+                    WriteResponse(stream, 400, null, null, head);
+                    return;
+                }
+
+                string reason = null;
+                if (decoded.IndexOf('\\') >= 0) reason = "backslash";
+                else if (decoded.IndexOf("..", StringComparison.Ordinal) >= 0) reason = "dotdot";
+                else if (decoded.IndexOf(':') >= 0) reason = "drive-or-colon";
+                else if (decoded.StartsWith("//")) reason = "unc";
+                if (reason != null)
+                {
+                    Log("loopback refused path=" + target + " reason=" + reason);
+                    WriteResponse(stream, 403, null, null, head);
+                    return;
+                }
+
+                string rel = decoded.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+                string full;
+                try { full = Path.GetFullPath(Path.Combine(wwwRoot, rel)); }
+                catch (Exception)
+                {
+                    Log("loopback refused path=" + target + " reason=bad-path");
+                    WriteResponse(stream, 400, null, null, head);
+                    return;
+                }
+                string rootFull = Path.GetFullPath(wwwRoot);
+                string prefix = rootFull.EndsWith(Path.DirectorySeparatorChar.ToString())
+                    ? rootFull
+                    : rootFull + Path.DirectorySeparatorChar;
+                if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log("loopback refused path=" + target + " reason=outside-root");
+                    WriteResponse(stream, 403, null, null, head);
+                    return;
+                }
+
+                string mime;
+                if (!MimeMap.TryGetValue(Path.GetExtension(full), out mime))
+                {
+                    Log("loopback refused path=" + target + " reason=extension");
+                    WriteResponse(stream, 404, null, null, head);
+                    return;
+                }
+                if (!File.Exists(full))
+                {
+                    WriteResponse(stream, 404, null, null, head);
+                    return;
+                }
+
+                byte[] body = File.ReadAllBytes(full);
+                WriteResponse(stream, 200, mime, body, head);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("loopback handler failed " + ex.Message);
+        }
+    }
+
+    static void WriteResponse(NetworkStream stream, int status, string mime, byte[] body, bool headOnly)
+    {
+        string reason = "Error";
+        if (status == 200) reason = "OK";
+        else if (status == 400) reason = "Bad Request";
+        else if (status == 403) reason = "Forbidden";
+        else if (status == 404) reason = "Not Found";
+        else if (status == 405) reason = "Method Not Allowed";
+        StringBuilder sb = new StringBuilder();
+        sb.Append("HTTP/1.1 " + status + " " + reason + "\r\n");
+        if (mime != null) sb.Append("Content-Type: " + mime + "\r\n");
+        sb.Append("Content-Length: " + (body == null ? 0 : body.Length) + "\r\n");
+        sb.Append("Connection: close\r\n");
+        sb.Append("Cache-Control: no-store\r\n");
+        sb.Append("\r\n");
+        byte[] head = Encoding.ASCII.GetBytes(sb.ToString());
+        stream.Write(head, 0, head.Length);
+        if (!headOnly && body != null && body.Length > 0) stream.Write(body, 0, body.Length);
+        stream.Flush();
+    }
     static string TryDataDir(string dir)
     {
         string probe = null;
@@ -243,9 +430,7 @@ static class Program
             };
 
 
-            core.SetVirtualHostNameToFolderMapping(
-                "sidelight.local", www, CoreWebView2HostResourceAccessKind.Allow);
-            Log("mapping " + www);
+
 
             if (pendingFile != null && File.Exists(pendingFile))
             {
@@ -260,8 +445,9 @@ static class Program
                 form.Text = "Sidelight — 打不开：" + SafeFileName(pendingFile);
             }
 
-            core.Navigate(APP_URL);
-            Log("navigate " + APP_URL);
+            string appUrl = "http://127.0.0.1:" + port + "/index.html";
+            core.Navigate(appUrl);
+            Log("navigate " + appUrl);
         }
         catch (Exception ex)
         {

@@ -35,7 +35,7 @@ Sidelight：面向中文写作者的桌面 Markdown 编辑器。左边写，右�
 
 ```bash
 npm run build      # 类型检查 + 打包
-npm test           # 15 个测试文件，共 165 个：上下文、批注、大纲、字数、frontmatter、行差分、图片命名、查找、脚注、HTML、callout、导出、公式、缓存、搜索
+npm test           # 16 个测试文件，共 171 个：上下文、批注、大纲、字数、frontmatter、行差分、图片命名、查找、脚注、HTML、callout、导出、公式、缓存、搜索、错误文案
 npm run roundtrip  # 只在改动编辑器或 markdown 序列化时跑
 ```
 

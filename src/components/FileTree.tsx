@@ -31,6 +31,7 @@ function TreeBranch({ nodes, expanded, activePath, onToggleDir, onOpenFile }: Br
               key={node.path}
               type="button"
               className={node.path === activePath ? 'tree-file is-active' : 'tree-file'}
+              aria-current={node.path === activePath ? 'true' : undefined}
               title={node.path}
               onClick={() => onOpenFile(node)}
             >
@@ -112,7 +113,8 @@ export function FileTree({
     return (
       <aside className="file-tree" aria-label="文件树">
         <div className="file-tree-empty">
-          <p>还没有打开文件夹</p>
+          <p className="file-tree-empty-title">现在打开的是示例</p>
+          <p className="file-tree-empty-sub">当前是示例，可以直接改</p>
           <div className="file-tree-actions">
             <button type="button" onClick={onOpenFolder}>
               打开文件夹
