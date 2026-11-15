@@ -11,6 +11,9 @@ import {
 import type { Workspace, WorkspaceFileNode, WorkspaceNode } from '../lib/workspace.ts'
 
 const TreeActions = lazy(() => import('./TreeActions.tsx'))
+const RenameInput = lazy(() =>
+  import('./TreeActions.tsx').then((module) => ({ default: module.RenameInput })),
+)
 
 type Props = {
   workspace: Workspace | null
@@ -25,6 +28,8 @@ type Props = {
   onNewFolder: () => void
   onRefresh: () => void
   onDeleteFile: (file: WorkspaceFileNode) => void
+  onBeforeRename: () => Promise<void>
+  onRenameFile: (file: WorkspaceFileNode, newName: string) => void
 }
 
 type Row = { node: WorkspaceNode; level: number }
@@ -58,12 +63,15 @@ export function FileTree({
   onNewFolder,
   onRefresh,
   onDeleteFile,
+  onBeforeRename,
+  onRenameFile,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [newMenuOpen, setNewMenuOpen] = useState(false)
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [rowMenu, setRowMenu] = useState<{ node: WorkspaceNode; x: number; y: number } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceFileNode | null>(null)
+  const [renamePath, setRenamePath] = useState<string | null>(null)
   const [focusPath, setFocusPath] = useState<string | null>(activePath)
   const treeRef = useRef<HTMLDivElement | null>(null)
   const wasFocusedRef = useRef(false)
@@ -83,8 +91,36 @@ export function FileTree({
 
   const nodes = workspace ? rootNodes(workspace) : []
   const rows = visibleRows(nodes, expanded)
-  const selectedPath = activePath ?? rows[0]?.node.path ?? null
-  const tabbablePath = focusPath && rows.some((row) => row.node.path === focusPath) ? focusPath : selectedPath
+  const visiblePaths = new Set(rows.map((row) => row.node.path))
+  const focusVisible = focusPath && visiblePaths.has(focusPath) ? focusPath : null
+  const activeVisible = activePath && visiblePaths.has(activePath) ? activePath : null
+  // 折叠祖先后：activePath 不可见时回退到最近可见祖先，再不行用第一行，保证树始终有一个 tab 站
+  const nearestAncestor = ((): string | null => {
+    if (!activePath) return null
+    const parts = activePath.split('/')
+    while (parts.length > 0) {
+      parts.pop()
+      const candidate = parts.join('/')
+      if (candidate && visiblePaths.has(candidate)) return candidate
+    }
+    return null
+  })()
+  const tabbablePath = focusVisible ?? activeVisible ?? nearestAncestor ?? rows[0]?.node.path ?? null
+
+  // 当前文件换路径（打开/刷新/改名）时逐级展开祖先，保证选中行可见
+  useEffect(() => {
+    if (!activePath) return
+    const parts = activePath.split('/')
+    if (parts.length <= 1) return
+    const ancestors: string[] = []
+    for (let index = 1; index < parts.length; index += 1) ancestors.push(parts.slice(0, index).join('/'))
+    setExpanded((current) => {
+      if (ancestors.every((path) => current.has(path))) return current
+      const next = new Set(current)
+      for (const path of ancestors) next.add(path)
+      return next
+    })
+  }, [activePath])
 
   const toggleDir = (path: string) => {
     setExpanded((current) => {
@@ -138,10 +174,14 @@ export function FileTree({
       event.preventDefault()
       if (row.node.kind === 'dir') toggleDir(row.node.path)
       else onOpenFile(row.node)
-    } else if (event.key === 'Delete' || (event.key === 'F10' && event.shiftKey)) {
+    } else if (event.key === 'Delete' || event.key === 'F2' || (event.key === 'F10' && event.shiftKey)) {
       event.preventDefault()
       event.stopPropagation()
       if (row.node.kind === 'dir') return
+      if (event.key === 'F2') {
+        if (workspace?.rootHandle) setRenamePath(row.node.path)
+        return
+      }
       if (event.key === 'Delete') setDeleteTarget(row.node)
       else setRowMenu({ node: row.node, x: 32, y: 120 })
     } else if (event.key === 'ContextMenu') {
@@ -187,9 +227,16 @@ export function FileTree({
       'aria-level': level,
       'data-path': node.path,
       tabIndex,
+      style: { paddingLeft: 6 + (level - 1) * 14 },
       className: `${node.kind === 'file' ? 'tree-file' : 'tree-dir-name'}${active ? ' is-active' : ''}`,
       onFocus: () => setFocusPath(node.path),
       onKeyDown: (event: ReactKeyboardEvent) => {
+        if (event.key === 'F2') {
+          event.preventDefault()
+          event.stopPropagation()
+          if (node.kind === 'file' && workspace?.rootHandle) setRenamePath(node.path)
+          return
+        }
         if (event.key === 'Delete' || (event.key === 'F10' && event.shiftKey)) {
           event.preventDefault()
           event.stopPropagation()
@@ -212,13 +259,31 @@ export function FileTree({
           <div
             {...common}
             aria-selected={active}
-            title={node.path}
+            title={node.name}
             onClick={() => {
               wasFocusedRef.current = true
               onOpenFile(node)
             }}
           >
-            {node.name}
+            {renamePath === node.path && workspace?.rootHandle ? (
+              <Suspense fallback={node.name}>
+                <RenameInput
+                  file={node}
+                  rootHandle={workspace.rootHandle}
+                  onBeforeRename={onBeforeRename}
+                  onCancel={() => setRenamePath(null)}
+                  onDone={(newName) => {
+                    const cut = node.path.lastIndexOf('/')
+                    const newPath = cut >= 0 ? `${node.path.slice(0, cut)}/${newName}` : newName
+                    setRenamePath(null)
+                    setFocusPath(newPath)
+                    onRenameFile(node, newName)
+                  }}
+                />
+              </Suspense>
+            ) : (
+              node.name
+            )}
           </div>
           <button
             type="button"
@@ -354,6 +419,9 @@ export function FileTree({
             setMoreMenuOpen(false)
           }}
           onCloseMenu={() => setRowMenu(null)}
+          onRename={(file) => {
+            if (workspace?.rootHandle) setRenamePath(file.path)
+          }}
           onAskDelete={(file) => setDeleteTarget(file)}
           onCancelDelete={() => setDeleteTarget(null)}
           onConfirmDelete={(file) => {

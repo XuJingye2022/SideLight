@@ -2,7 +2,7 @@ import { chromium } from 'playwright-core'
 
 const URL = process.env.SIDELIGHT_URL ?? 'http://localhost:5173'
 const CDP = process.env.SIDELIGHT_CDP ?? 'http://127.0.0.1:9222'
-const OUT = 'shots/round-12'
+const OUT = 'shots/round-13'
 
 const results = []
 const check = (label, ok, extra = '') => {
@@ -538,6 +538,39 @@ const sha = (page, path) => page.evaluate((value) => window.__fs.sha(value), pat
   )
   check('FindBar 三个按钮有 aria-label', labels.length === 3 && labels.every(Boolean), JSON.stringify(labels))
   await page.screenshot({ path: `${OUT}/t3-tree-a11y.png` })
+  await context.close()
+}
+
+// ---------- T2 缩进 / tab 停点；T3 大纲 aria-current ----------
+{
+  const { context, page } = await openPage({ '项目/章节/深章.md': '# 深章\n', 'a.md': '# A\n' })
+  await page.locator('[role="treeitem"]', { hasText: '项目' }).click()
+  await page.waitForTimeout(200)
+  await page.locator('[role="treeitem"]', { hasText: '章节' }).click()
+  await page.waitForTimeout(200)
+  await page.locator('[role="treeitem"]', { hasText: '深章.md' }).click()
+  await page.waitForTimeout(400)
+  const metrics = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('[role="treeitem"]')].find((node) => node.textContent?.includes('深章.md'))
+    const level = Number(row?.getAttribute('aria-level') ?? 0)
+    return {
+      level,
+      padding: row ? getComputedStyle(row).paddingLeft : '',
+      selected: row?.getAttribute('aria-selected'),
+      tabbable: document.querySelectorAll('[role="tree"] [tabindex="0"]').length,
+    }
+  })
+  check('深文件按 6+(level-1)*14 缩进且选中可见', metrics.level === 3 && metrics.padding === '34px' && metrics.selected === 'true', JSON.stringify(metrics))
+  await page.locator('[role="treeitem"]', { hasText: '项目' }).click()
+  await page.waitForTimeout(300)
+  check('折叠祖先仍只有 1 个 tab 站', (await page.evaluate(() => document.querySelectorAll('[role="tree"] [tabindex="0"]').length)) === 1)
+  await page.screenshot({ path: `${OUT}/t2-indent.png` })
+
+  await page.getByRole('button', { name: '大纲', exact: true }).click()
+  await page.waitForTimeout(500)
+  const current = await page.locator('.outline-item[aria-current="location"]').count()
+  check('大纲活动项 aria-current="location"', current >= 1, String(current))
+  await page.screenshot({ path: `${OUT}/t3-outline-current.png` })
   await context.close()
 }
 

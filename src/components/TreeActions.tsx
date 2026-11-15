@@ -1,5 +1,6 @@
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 
+import { renameFile, validateRename } from '../lib/rename.ts'
 import type { WorkspaceFileNode, WorkspaceNode } from '../lib/workspace.ts'
 import { useDialogFocus } from './useDialogFocus.ts'
 
@@ -43,6 +44,97 @@ type Props = {
   onOpenFolder: () => void
   onRefresh: () => void
   onCloseHeaderMenu: () => void
+  onRename: (file: WorkspaceFileNode) => void
+}
+
+/** 行内重命名输入框：懒加载 chunk 内完成校验、两道探测与 move，成功后交给 App 同步身份 */
+export function RenameInput({
+  file,
+  rootHandle,
+  onBeforeRename,
+  onDone,
+  onCancel,
+}: {
+  file: WorkspaceFileNode
+  rootHandle: FileSystemDirectoryHandle
+  onBeforeRename: () => Promise<void>
+  onDone: (newName: string) => void
+  onCancel: () => void
+}) {
+  const [value, setValue] = useState(file.name)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const busyRef = useRef(false)
+
+  useEffect(() => {
+    const input = inputRef.current
+    if (!input) return
+    input.focus()
+    const dot = file.name.lastIndexOf('.')
+    input.setSelectionRange(0, dot > 0 ? dot : file.name.length)
+  }, [file.name])
+
+  const commit = async () => {
+    if (busyRef.current) return
+    const validation = validateRename(value, file.name)
+    if (!validation.ok) {
+      setError(validation.error)
+      return
+    }
+    busyRef.current = true
+    setBusy(true)
+    setError(null)
+    try {
+      const parts = file.path.split('/').filter(Boolean)
+      if (parts[0] === rootHandle.name) parts.shift()
+      parts.pop()
+      let parent = rootHandle
+      for (const part of parts) parent = await parent.getDirectoryHandle(part)
+      await onBeforeRename()
+      const result = await renameFile(parent, file.handle!, file.name, validation.name)
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      onDone(result.name)
+    } catch (failure) {
+      setError(`改名失败：${failure instanceof Error && failure.message ? failure.message : '未知错误'}。`)
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
+
+  return (
+    <span className="tree-rename">
+      <input
+        ref={inputRef}
+        className="tree-rename-input"
+        value={value}
+        disabled={busy}
+        aria-label={`重命名 ${file.name}`}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          event.stopPropagation()
+          if (event.key === 'Enter') {
+            if (event.nativeEvent.isComposing) return
+            event.preventDefault()
+            void commit()
+          } else if (event.key === 'Escape') {
+            event.preventDefault()
+            onCancel()
+          }
+        }}
+        onBlur={() => {
+          if (!busyRef.current) onCancel()
+        }}
+        onClick={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+      />
+      {error && <span className="tree-rename-error">{error}</span>}
+    </span>
+  )
 }
 
 /** 行菜单、删除确认与树头下拉只在用户操作时才加载，避免占首屏 */
@@ -60,6 +152,7 @@ export default function TreeActions({
   onOpenFolder,
   onRefresh,
   onCloseHeaderMenu,
+  onRename,
 }: Props) {
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const cancelRef = useRef<HTMLButtonElement | null>(null)
@@ -131,6 +224,19 @@ export default function TreeActions({
 
       {menu && (
         <div className="tree-row-menu" style={{ ...ROW_MENU_STYLE, left: menu.x, top: menu.y }} role="menu">
+          {menu.node.kind === 'file' && (
+            <button
+              type="button"
+              role="menuitem"
+              style={ITEM_STYLE}
+              onClick={() => {
+                onRename(menu.node as WorkspaceFileNode)
+                onCloseMenu()
+              }}
+            >
+              重命名
+            </button>
+          )}
           <button type="button" role="menuitem" style={ITEM_STYLE} onClick={() => {
             if (menu.node.kind === 'file') onAskDelete(menu.node)
             onCloseMenu()

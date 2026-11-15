@@ -27,6 +27,7 @@ export function Outline({ items, activeId, onJump }: Props) {
             key={item.id}
             type="button"
             className={item.id === activeId ? 'outline-item is-active' : 'outline-item'}
+            aria-current={item.id === activeId ? 'location' : undefined}
             style={{ paddingLeft: `${(item.level - 1) * 10}px` }}
             title={item.text}
             onClick={() => onJump(item)}

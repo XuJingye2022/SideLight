@@ -506,6 +506,8 @@ export default function App() {
   const deletingRef = useRef(false)
   const refreshingRef = useRef(false)
   const autoSaveGenerationRef = useRef(0)
+  /** 切换文档请求的序号：等在飞保存期间又发生改名/再次切换时，旧请求作废 */
+  const loadEpochRef = useRef(0)
   const performingCommitRef = useRef<Promise<unknown> | null>(null)
   /** 最近打开：请求 id → resolve；同一行在飞时忽略重复点击 */
   const recentRequestsRef = useRef(new Map<string, (data: { ok?: boolean; error?: string }) => void>())
@@ -1587,7 +1589,6 @@ export default function App() {
       }).replace(/\r\n/g, '\n')
       setDocName(name)
       setActiveFile(file)
-      // 换文档：停掉自动保存与草稿计时，旧文档的回包不能写进新文档
       cancelAutoSaveRef.current()
       setAutoSaveState('idle')
       setAutoSavedAt(null)
@@ -1627,8 +1628,10 @@ export default function App() {
   const requestLoad = useCallback(
     (text: string, name: string, file: WorkspaceFileNode | null) => {
       void (async () => {
+        const epoch = ++loadEpochRef.current
         // 宿主写回还在飞：先等它结束（或超时），别让旧回包改到新文档
         await waitForHostSave()
+        if (epoch !== loadEpochRef.current) return
         if (dirty) {
           setPendingSwitch({ text, name, file })
           return
@@ -1689,7 +1692,8 @@ export default function App() {
   )
 
   /** 刷新文件树：重读目录、按 path 重绑句柄；找不到就清掉可写句柄 */
-  const refreshTree = useCallback(async (): Promise<Workspace | null> => {
+  const refreshTree = useCallback(
+    async (options?: { skipPath?: string }): Promise<Workspace | null> => {
     const space = workspaceRef.current
     if (!space || space.demo || !space.rootHandle) return null
     if (refreshingRef.current) return null
@@ -1708,7 +1712,7 @@ export default function App() {
       setWorkspace(next)
       let missingName: string | null = null
       if (activeFile && !deletingRef.current) {
-        const rebound = afterByPath.get(activeFile.path)
+        const rebound = afterByPath.get(activeFile.path) ?? (options?.skipPath ? afterByPath.get(options.skipPath) : undefined)
         if (rebound) {
           setActiveFile(rebound)
           saveTargetRef.current = rebound.handle ? { handle: rebound.handle, name: rebound.name } : null
@@ -1734,7 +1738,78 @@ export default function App() {
     }
   }, [activeFile, show])
 
-  /** 新建文件夹：先探测重名，不静默成功 */
+  /** 重命名提交前：等在飞保存、停草稿计时、递增两套 generation */
+  const prepareRename = useCallback(async () => {
+    await waitForCommit()
+    deletingRef.current = true
+    autoSaveGenerationRef.current += 1
+    draftGenerationRef.current += 1
+    cancelAutoSaveRef.current()
+    if (draftTimerRef.current) {
+      clearTimeout(draftTimerRef.current)
+      draftTimerRef.current = null
+    }
+    deletingRef.current = false
+  }, [waitForCommit])
+
+  /** 改名成功后一次性同步身份、保存目标、标题、本地草稿名与缓存键 */
+  const handleRenamedFile = useCallback(
+    async (oldFile: WorkspaceFileNode, newName: string) => {
+      const cut = oldFile.path.lastIndexOf('/')
+      const newPath = cut >= 0 ? `${oldFile.path.slice(0, cut)}/${newName}` : newName
+      const wasActive = activeFile?.path === oldFile.path
+      loadEpochRef.current += 1
+      if (wasActive) {
+        const renamed: WorkspaceFileNode = { ...oldFile, name: newName, path: newPath }
+        setActiveFile(renamed)
+        fileRef.current = renamed
+        docNameRef.current = newName
+        setDocName(newName)
+        saveTargetRef.current = renamed.handle ? { handle: renamed.handle, name: newName } : null
+        document.title = `${newName} — Sidelight`
+        try {
+          const raw = localStorage.getItem(DOC_KEY)
+          if (raw) {
+            const parsed = JSON.parse(raw) as Record<string, unknown>
+            parsed.name = newName
+            localStorage.setItem(DOC_KEY, JSON.stringify(parsed))
+          }
+        } catch {
+          // 草稿名同步失败不影响磁盘改名
+        }
+      }
+
+      const space = workspaceRef.current
+      if (space && !space.demo && oldFile.name !== newName && cacheKey(oldFile.name) !== cacheKey(newName)) {
+        try {
+          const dir = await parentDirectory(space, oldFile.path)
+          if (dir) {
+            for (const kind of ['draft', 'annotations'] as const) {
+              const legacy = legacyKeyFor(oldFile.name)
+              const text = await readCache(dir, kind, cacheKey(oldFile.name), legacy)
+              if (text === null) continue
+              const written = await writeCache(dir, kind, cacheKey(newName), text)
+              if (written) {
+                await removeCache(dir, kind, cacheKey(oldFile.name))
+                if (legacy) await removeCache(dir, kind, legacy)
+              } else {
+                setNotice({
+                  text: '旧草稿/批注仍在，未自动迁移（可在 .sidelight 手动处理）。',
+                  kind: 'error',
+                })
+              }
+            }
+          }
+        } catch {
+          setNotice({ text: '缓存迁移失败，旧草稿/批注仍在。', kind: 'error' })
+        }
+      }
+
+      await refreshTree({ skipPath: newPath })
+    },
+    [activeFile, refreshTree],
+  )
+
   const createFolder = useCallback(async () => {
     const space = workspaceRef.current
     const root = space && !space.demo ? space.rootHandle : null
@@ -3766,6 +3841,8 @@ export default function App() {
               onDeleteFile={(file) => void removeFile(file)}
               trashReason={trashReason}
               refreshing={treeRefreshing}
+              onBeforeRename={prepareRename}
+              onRenameFile={(file, newName) => void handleRenamedFile(file, newName)}
               onOpenFile={openWorkspaceFile}
             />
           ) : (
