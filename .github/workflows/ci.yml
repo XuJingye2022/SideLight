@@ -1,6 +1,9 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -8,6 +11,12 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  # 本机实测的固定版本与哈希，取法见 host/build.ps1 与 packaging/installer.ps1
+  WV2_VERSION: 1.0.4314.35
+  WV2_SHA256: 90778DEB1B77E36292828B4B5833C9255C27533F40E0DDD55891AE718944EDC4
+  NSIS_SHA256: C7D27F780DDB6CFFB4730138CD1591E841F4B7EDB155856901CDF5F214394FA1
 
 jobs:
   gate:
@@ -22,3 +31,113 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+      # 改动编辑器或 Markdown 序列化时再开这一行（AGENTS §3）
+      # - run: npm run roundtrip
+
+  windows-host:
+    # 固定 2022：2026 年 windows-latest 迁到 VS 2026 / Server 2025，csc 路径与镜像都在变
+    runs-on: windows-2022
+    timeout-minutes: 25
+    # 首次接入不阻塞主流程；连续 3 次绿后删掉这一行，改为阻断
+    continue-on-error: true
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      - name: Cache WebView2 SDK / NSIS
+        uses: actions/cache@v4
+        with:
+          path: |
+            .tmp/wv2
+            .tmp/nsis
+          key: tools-wv2-${{ env.WV2_VERSION }}-nsis-3.11
+
+      - name: Fetch WebView2 SDK (pinned)
+        run: |
+          if (-not (Test-Path .tmp/wv2/lib/net462/Microsoft.Web.WebView2.Core.dll)) {
+            Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/$env:WV2_VERSION" -OutFile .tmp/wv2.zip -UseBasicParsing
+            $h = (Get-FileHash .tmp/wv2.zip -Algorithm SHA256).Hash
+            if ($h -ne $env:WV2_SHA256) { throw "WebView2 SDK hash mismatch: $h" }
+            Expand-Archive .tmp/wv2.zip .tmp/wv2 -Force
+          }
+
+      - name: Fetch NSIS 3.11 (pinned)
+        run: |
+          if (-not (Test-Path .tmp/nsis/nsis-3.11.zip)) {
+            New-Item -ItemType Directory -Force .tmp/nsis | Out-Null
+            Invoke-WebRequest -Uri 'https://prdownloads.sourceforge.net/nsis/nsis-3.11.zip' -OutFile .tmp/nsis/nsis-3.11.zip -UseBasicParsing
+          }
+          $h = (Get-FileHash .tmp/nsis/nsis-3.11.zip -Algorithm SHA256).Hash
+          if ($h -ne $env:NSIS_SHA256) { throw "NSIS hash mismatch: $h" }
+
+      - name: Build host
+        run: powershell -ExecutionPolicy Bypass -File host/build.ps1
+
+      - name: Host smoke (window / argv / single instance)
+        run: node scripts/host-smoke.mjs
+
+      - name: Build NSIS installer
+        run: powershell -ExecutionPolicy Bypass -File packaging/installer.ps1
+
+      - name: Checksums
+        run: |
+          $setup = Get-ChildItem release/Sidelight-*-win-x64-setup.exe
+          $setup | Select-Object Name, Length | Format-Table
+          Get-FileHash $setup.FullName -Algorithm SHA256 | Format-List
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sidelight-win-x64-setup
+          path: release/Sidelight-*-win-x64-setup.exe
+          if-no-files-found: error
+
+  install-verify:
+    # 会写 HKCU 与开始菜单；只在手动触发时跑，替掉本地三项 UNVERIFIED
+    if: github.event_name == 'workflow_dispatch'
+    needs: windows-host
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Sidelight-win-x64-setup
+          path: release
+
+      - name: Install to default path (no /D)
+        run: |
+          New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\Sidelight" | Out-Null
+          Set-Content "$env:LOCALAPPDATA\Sidelight\keep.txt" 'keep'
+          $setup = (Get-ChildItem release/Sidelight-*-win-x64-setup.exe | Select-Object -First 1).FullName
+          $p = Start-Process $setup -ArgumentList '/S' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "installer exit $($p.ExitCode)" }
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\Sidelight'
+          if (-not (Test-Path (Join-Path $dir 'Sidelight.exe'))) { throw "default path missing: $dir" }
+          if (-not (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Sidelight')) { throw 'HKCU uninstall key missing' }
+          $lnk = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Sidelight.lnk'
+          if (-not (Test-Path $lnk)) { throw 'Start Menu shortcut missing' }
+          Start-Sleep 2
+          $apps = @(Get-StartApps | Where-Object Name -match 'Sidelight')
+          if ($apps.Count -lt 1) { Write-Warning 'Get-StartApps did not list Sidelight（shell 缓存，不判失败）' }
+          'PASS default path + HKCU + Start Menu'
+
+      - name: Uninstall and assert cleanup
+        run: |
+          & "$env:LOCALAPPDATA\Programs\Sidelight\uninstall.exe" /S
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Test-Path "$env:LOCALAPPDATA\Programs\Sidelight") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          if (Test-Path "$env:LOCALAPPDATA\Programs\Sidelight") { throw 'install dir left behind' }
+          if (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Sidelight') { throw 'uninstall key left' }
+          if (-not (Test-Path "$env:LOCALAPPDATA\Sidelight\keep.txt")) { throw 'user data was deleted' }
+          Remove-Item "$env:LOCALAPPDATA\Sidelight" -Recurse -Force
+          'PASS uninstall cleanup + user data kept'

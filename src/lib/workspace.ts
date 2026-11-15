@@ -36,7 +36,22 @@ type FilePicker = (options?: {
 type PickerWindow = Window & {
   showDirectoryPicker?: DirectoryPicker
   showOpenFilePicker?: FilePicker
+  showSaveFilePicker?: SaveFilePicker
 }
+
+type SaveFilePicker = (options?: {
+  suggestedName?: string
+  types?: Array<{ description?: string; accept: Record<string, string[]> }>
+}) => Promise<FileSystemFileHandle>
+
+/** 保存落点：选中的文件句柄与文件名 */
+export type FileWriteTarget = {
+  handle: FileSystemFileHandle
+  name: string
+}
+
+/** 另存为的结果：拿到落点 / 浏览器不支持 / 用户取消 */
+export type SaveAsResult = FileWriteTarget | 'unsupported' | null
 
 type PickedFile = {
   name: string
@@ -230,6 +245,32 @@ export async function writeNode(file: WorkspaceFileNode, text: string): Promise<
   const writable = await file.handle.createWritable()
   await writable.write(text)
   await writable.close()
+}
+
+/**
+ * 让用户选一个保存位置并立刻写入。
+ * 取消（AbortError）返回 null；浏览器没有 showSaveFilePicker 返回 'unsupported'，由调用方降级。
+ */
+export async function saveAsFile(name: string, text: string): Promise<SaveAsResult> {
+  const picker = pickerWindow().showSaveFilePicker
+  if (typeof picker !== 'function') return 'unsupported'
+
+  let handle: FileSystemFileHandle
+  try {
+    handle = await picker({
+      suggestedName: name,
+      types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }],
+    })
+  } catch (error) {
+    if (isAbortError(error)) return null
+    throw error
+  }
+  if (!handle) return null
+
+  const writable = await handle.createWritable()
+  await writable.write(text)
+  await writable.close()
+  return { handle, name: handle.name || name }
 }
 
 const DEMO_NAME = '示例文集'

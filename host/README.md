@@ -76,6 +76,14 @@ host\bin\Sidelight.exe .tmp\some.md     # 把该文件内容装进编辑器
 - `Resolve`：已是 `\\?\` 前缀原样返回；否则先 `Path.GetFullPath`，长度 ≥240 时加 `\\?\`。实测 309 字符路径带前缀与不带前缀都能打开。
 - 打不开时窗口标题写「Sidelight — 打不开：<文件名>」，日志写 `open failed path=… reason=too-long|missing`，正文保留上一份草稿。
 
+## 下载落点
+
+导出的 HTML/Markdown/纯文本与「无句柄保存副本」都走 WebView2 下载。宿主注册了 `DownloadStarting`：
+
+- 测试环境变量 `SIDELIGHT_DOWNLOAD_DIR` 存在 → 直接落到该目录，不弹框；否则同步弹 `SaveFileDialog`（`FileName` 只取建议路径的 basename，`InitialDirectory` 用上次目录或 `Downloads`）。取消 → `Cancel=true`。
+- **两条分支都 `Handled = true`**，否则 WebView2 会再弹它自己的下载 UI。日志：`download starting name=… result=… handled=true mode=env|dialog`，状态变化记 `download state=… reason=… bytes=…`。
+- SDK 1.0.4314.35 的 `DownloadStarting` 没有 `SuggestedFileName`，用默认 `ResultFilePath` 的 basename 代替（同样防越界）。
+- 本机代理沙箱里浏览器进程无法创建下载文件（`reason=FileFailed`，试过快照目录、`.tmp` 与 `webview2-data` 三处），所以 `host/download-probe.mjs` 只验到「事件接住 + 路径正确」，落盘标 UNVERIFIED。用 Playwright 连 CDP 时它会截走下载，探针会先把 `Browser.setDownloadBehavior` 复位成 `default`。
 ## 启动失败与数据目录
 
 - 前置检查在显示主窗之前做：缺 `www/index.html`、或三级数据目录全失败，直接开错误窗（标题 `Sidelight 启动失败`），正文写用户能懂的原因与日志路径。关窗 exit 1；8 s 看门狗兜底。

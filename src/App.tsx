@@ -13,6 +13,7 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import { TaskItem } from '@tiptap/extension-task-item'
 import { TaskList } from '@tiptap/extension-task-list'
 
+import { FileMenu } from './components/FileMenu.tsx'
 import { FileTree } from './components/FileTree.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { InlinePopover } from './components/InlinePopover.tsx'
@@ -58,7 +59,9 @@ import {
   pickFile,
   pickWorkspace,
   readNode,
+  saveAsFile,
   writeNode,
+  type FileWriteTarget,
   type Workspace,
   type WorkspaceFileNode,
 } from './lib/workspace.ts'
@@ -67,7 +70,7 @@ import { assetFileName, writeAsset } from './lib/asset.ts'
 declare global {
   interface Window {
     /** 宿主与验收脚本读的脏标记与文档名；round-02 跨组契约，随 [dirty, docName] 更新 */
-    __slState?: { dirty: boolean; name: string }
+    __slState?: { dirty: boolean; name: string; readOnly?: boolean }
   }
 }
 
@@ -125,6 +128,11 @@ function reasonOf(error: unknown): string {
   return '原因未知'
 }
 
+/** 编辑器正文 → 与保存一致的 Markdown（frontmatter / 脚注由调用方拼） */
+function serializeBody(current: Editor): string {
+  return repairCalloutMarkers(repairHtml(repairMath(repairFootnoteRefs(current.getMarkdown()))))
+}
+
 /** 文档位置 → 文本下标（buildTextIndex 的 text 与文档位置不是同一坐标系） */
 function offsetForPosition(index: { positions: number[] }, position: number): number {
   let low = 0
@@ -154,6 +162,8 @@ type Notice = {
   text: string
   kind: 'info' | 'error'
   action?: { label: string; onClick: () => void }
+  /** true 时跳过 6 秒计时器：保存结果这类信息要一直留着 */
+  persist?: boolean
 }
 
 
@@ -211,7 +221,13 @@ export default function App() {
   const [saveDiff, setSaveDiff] = useState<DiffLine[]>([])
   const [pendingSave, setPendingSave] = useState<string | null>(null)
   const eolRef = useRef<'lf' | 'crlf'>('lf')
-  const [pendingSwitch, setPendingSwitch] = useState<{ text: string; name: string; file: WorkspaceFileNode | null } | null>(
+  const [pendingSwitch, setPendingSwitch] = useState<{
+    text: string
+    name: string
+    file: WorkspaceFileNode | null
+    /** 确认之后要做的事（例如「新建」还要先建文件）；没有就直接载入 text */
+    after?: () => void
+  } | null>(
     null,
   )
   const [linkEdit, setLinkEdit] = useState<{ href: string; from: number; to: number; anchor: DOMRect } | null>(null)
@@ -228,7 +244,14 @@ export default function App() {
 
   // 草稿、文档名、frontmatter 一起恢复，避免刷新后元数据与文件名丢失
   const [initial] = useState(() => {
-    const fallback = { text: SAMPLE, frontmatter: '', footnotes: '', name: DEMO_DOC_NAME, savedAt: 0 }
+    const fallback = {
+      text: SAMPLE,
+      frontmatter: '',
+      footnotes: '',
+      name: DEMO_DOC_NAME,
+      savedAt: 0,
+      readOnly: false,
+    }
     try {
       const raw = localStorage.getItem(DOC_KEY)
       if (!raw) {
@@ -236,7 +259,7 @@ export default function App() {
         const footnoteSplit = extractFootnotes(split.body)
         return { ...fallback, text: footnoteSplit.body, frontmatter: split.frontmatter, footnotes: footnoteSplit.footnotes }
       }
-      const parsed = JSON.parse(raw) as { text?: string; name?: string; savedAt?: number }
+      const parsed = JSON.parse(raw) as { text?: string; name?: string; savedAt?: number; readOnly?: boolean }
       const text = typeof parsed.text === 'string' ? parsed.text : raw
       const split = splitFrontmatter(text)
       const footnoteSplit = extractFootnotes(split.body)
@@ -246,6 +269,8 @@ export default function App() {
         footnotes: footnoteSplit.footnotes,
         name: parsed.name ?? DEMO_DOC_NAME,
         savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : 0,
+        // 宿主 argv 打开的文件是只读的：保存只能另存为，不能假装写回原文件
+        readOnly: parsed.readOnly === true,
       }
     } catch {
       return fallback
@@ -253,6 +278,7 @@ export default function App() {
   })
 
   const [docName, setDocName] = useState(initial.name)
+  const [readOnly, setReadOnly] = useState(initial.readOnly)
   const [frontmatter, setFrontmatter] = useState(initial.frontmatter)
   const [footnotes, setFootnotes] = useState(initial.footnotes)
   const [originalText, setOriginalText] = useState<string | null>(null)
@@ -268,6 +294,14 @@ export default function App() {
   const analyzeRef = useRef<() => void>(() => {})
   const typewriterRef = useRef<() => void>(() => {})
   const sourceBaselineRef = useRef('')
+  /** 保存基线：当前正文与它不等才算脏；载入、保存成功、草稿恢复时更新 */
+  const baselineRef = useRef<string | null>(null)
+  /** 另存为拿到的落点：第二次保存直接写它，不再弹选择器 */
+  const saveTargetRef = useRef<FileWriteTarget | null>(null)
+  /** 「另存为」的入口：提示条上的按钮与文件菜单都用它 */
+  const saveAsCopyRef = useRef<() => void>(() => {})
+  /** 当前正文的序列化结果（onUpdate 里做基线比较用，避开 useCallback 的声明顺序） */
+  const contentRef = useRef<() => string>(() => '')
   const acceptedRef = useRef<Array<{ annotation: Annotation; from: number; to: number; replacement: string }>>([])
   const fileRef = useRef<WorkspaceFileNode | null>(null)
   const workspaceRef = useRef<Workspace | null>(null)
@@ -314,8 +348,8 @@ export default function App() {
 
   // 跨组契约：宿主与验收脚本从这里读脏标记，不看编辑器内部状态
   useEffect(() => {
-    window.__slState = { dirty, name: docName }
-  }, [dirty, docName])
+    window.__slState = { dirty, name: docName, readOnly }
+  }, [dirty, docName, readOnly])
 
   // 切换文档的确认框与另外两个对话框共用一套焦点逻辑
   useDialogFocus(pendingSwitch !== null, switchDialogRef)
@@ -413,7 +447,8 @@ export default function App() {
     onUpdate: ({ editor: current, transaction }) => {
       // 载入文档的那次替换带 addToHistory:false，不算用户改动。
       if (transaction?.getMeta('addToHistory') === false) return
-      setDirty(true)
+      // 脏 = 当前正文与保存基线不等：撤销回原样会自动变干净，不再要求必存一次
+      if (baselineRef.current !== null) setDirty(contentRef.current().replace(/\r\n/g, '\n') !== baselineRef.current)
       setOutline(extractOutline(current.state.doc))
       setStats(countText(current.state.doc.textContent))
 
@@ -480,6 +515,13 @@ export default function App() {
   useEffect(() => {
     if (!editor) return
     setMarkdown(initial.text)
+    // 保存基线取「序列化后的正文」而不是原始文本：撤销回初始内容时必须刚好等于基线
+    baselineRef.current = joinFrontmatter(
+      initial.frontmatter,
+      joinFootnotes(serializeBody(editor), initial.footnotes),
+    ).replace(/\r\n/g, '\n')
+    saveTargetRef.current = null
+    setDirty(false)
     const { from, to } = editor.state.selection
     const context = buildContext(readBlocks(editor), from, to)
     setSelection({ chars: context.selection.length, from, to, source: context.source })
@@ -877,9 +919,9 @@ export default function App() {
     }
   }, [editor, typewriterMode])
 
-  // 普通提示六秒后自动消失；错误留着，等用户处理
+  // 普通提示六秒后自动消失；错误与 persist 提示留着，等用户处理
   useEffect(() => {
-    if (!notice || notice.kind === 'error') return
+    if (!notice || notice.kind === 'error' || notice.persist) return
     const timer = setTimeout(() => setNotice(null), 6000)
     return () => clearTimeout(timer)
   }, [notice])
@@ -888,11 +930,11 @@ export default function App() {
     typewriterRef.current = typewriterScroll
   }, [typewriterScroll])
 
-  // 源码模式下的改动也要置脏并写草稿，否则退出前保存会丢
+  // 源码模式：脏按保存基线算；改动仍要写草稿，否则退出前保存会丢
   useEffect(() => {
     if (!sourceMode) return
+    if (baselineRef.current !== null) setDirty(sourceText.replace(/\r\n/g, '\n') !== baselineRef.current)
     if (sourceText === sourceBaselineRef.current) return
-    setDirty(true)
     try {
       localStorage.setItem(DOC_KEY, JSON.stringify({ text: sourceText, name: docNameRef.current, savedAt: Date.now() }))
     } catch {
@@ -1005,6 +1047,8 @@ export default function App() {
       const split = splitFrontmatter(text)
       const footnoteSplit = extractFootnotes(split.body)
       eolRef.current = text.includes('\r\n') ? 'crlf' : 'lf'
+      // 换了一篇文档：旧句柄不能跟过来
+      saveTargetRef.current = null
       setFrontmatter(split.frontmatter)
       frontmatterRef.current = split.frontmatter
       setFootnotes(footnoteSplit.footnotes)
@@ -1017,8 +1061,15 @@ export default function App() {
       abortRef.current?.abort()
       setAnalyzing(false)
       setMarkdown(footnoteSplit.body)
+      // 基线用序列化结果：撤销回到载入态时应当刚好等于它
+      baselineRef.current = joinFrontmatter(
+        split.frontmatter,
+        joinFootnotes(serializeBody(editor), footnoteSplit.footnotes),
+      ).replace(/\r\n/g, '\n')
       setDocName(name)
       setActiveFile(file)
+      // 从文件打开 / 新建 / 切换文档：都不再是「命令行只读打开」
+      setReadOnly(false)
       setAnnotations([])
       setUnresolved(0)
       setNotice(null)
@@ -1083,6 +1134,50 @@ export default function App() {
     [requestLoad],
   )
 
+  /** 真实文件夹里挑一个没被占用的「未命名 N.md」 */
+  const nextNewName = useCallback((space: Workspace): string => {
+    const used = new Set<string>()
+    if (space.root?.kind === 'dir') for (const child of space.root.children) used.add(child.name)
+    if (!used.has('未命名.md')) return '未命名.md'
+    let index = 2
+    while (used.has(`未命名 ${index}.md`)) index += 1
+    return `未命名 ${index}.md`
+  }, [])
+
+  /** 新建：有真实文件夹就建空文件并刷新树快照；示例/空态只换内存文档 */
+  const startNewDocument = useCallback(async () => {
+    const space = workspaceRef.current
+    const root = space && !space.demo ? space.rootHandle : null
+    if (!space || space.demo || !root || space.root?.kind !== 'dir') {
+      loadIntoEditor('', '未命名.md', null)
+      return
+    }
+    try {
+      const name = nextNewName(space)
+      const handle = await root.getFileHandle(name, { create: true })
+      const file: WorkspaceFileNode = { kind: 'file', name, path: name, handle }
+      // 树快照要立刻能看到新文件，否则「新建」看起来像没反应
+      setWorkspace((previous) =>
+        previous && previous.root?.kind === 'dir'
+          ? { ...previous, root: { ...previous.root, children: [...previous.root.children, file] } }
+          : previous,
+      )
+      loadIntoEditor('', name, file)
+      show(`已新建 ${name}`)
+    } catch (error) {
+      setNotice({ text: `新建失败：${reasonOf(error)}。`, kind: 'error' })
+    }
+  }, [loadIntoEditor, nextNewName, show])
+
+  /** 新建前先走同一套未保存确认；取消则什么都不做 */
+  const newDocument = useCallback(() => {
+    if (dirty) {
+      setPendingSwitch({ text: '', name: '未命名.md', file: null, after: () => void startNewDocument() })
+      return
+    }
+    void startNewDocument()
+  }, [dirty, startNewDocument])
+
   /** Blob + a.download；失败就抛给调用方，让用户看到「保存 / 导出失败」 */
   const saveBlob = useCallback((name: string, content: string, type: string) => {
     const blob = new Blob([content], { type })
@@ -1097,6 +1192,47 @@ export default function App() {
     }
   }, [])
 
+  /** 保存成功后的统一收尾：新句柄就是文档身份，基线更新，提示留下不消失 */
+  const finishSaved = useCallback(
+    (name: string, target: FileWriteTarget, normalized: string, withEol: string) => {
+      const oldName = docNameRef.current
+      saveTargetRef.current = target
+      baselineRef.current = normalized
+      docNameRef.current = name
+      setDocName(name)
+      setActiveFile((previous) => {
+        const cut = previous?.path ? previous.path.lastIndexOf('/') : -1
+        return {
+          kind: 'file',
+          name,
+          path: cut >= 0 ? `${previous!.path.slice(0, cut)}/${name}` : name,
+          handle: target.handle,
+        }
+      })
+      setOriginalText(withEol)
+      setSaveWarned(true)
+      setDraftShown(false)
+      setDirty(false)
+      // 另存为之后有了新落点，只读横幅可以撤掉
+      setReadOnly(false)
+      setNotice({
+        text: `已保存 ${name}`,
+        kind: 'info',
+        persist: true,
+        action: { label: '另存为', onClick: () => saveAsCopyRef.current() },
+      })
+      localStorage.setItem(DOC_KEY, JSON.stringify({ text: withEol, name, savedAt: Date.now() }))
+      // 另存为之后旧名字的草稿留着会误导恢复，两个名字都清一遍
+      void (async () => {
+        const dir = await cacheDirFor()
+        if (!dir) return
+        await removeCache(dir, 'draft', cacheKey(oldName))
+        await removeCache(dir, 'draft', cacheKey(name))
+      })()
+    },
+    [cacheDirFor],
+  )
+
   const commitSave = useCallback(
     async (text: string) => {
       setPendingSave(null)
@@ -1107,35 +1243,39 @@ export default function App() {
       // 保留原文件的换行风格，Windows 上不至于整篇变成 LF
       const normalized = text.replace(/\r\n/g, '\n')
       const withEol = eolRef.current === 'crlf' ? normalized.replace(/\n/g, '\r\n') : normalized
-
-      if (activeFile?.handle) {
-        try {
-          await writeNode(activeFile, withEol)
-          setOriginalText(withEol)
-          setDirty(false)
-          setNotice(null)
-          const dir = await cacheDirFor()
-          if (dir) await removeCache(dir, 'draft', cacheKey(activeFile.name))
-        } catch (error) {
-          setNotice({ text: `保存失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
-        }
-        return
-      }
+      const target =
+        saveTargetRef.current ??
+        (activeFile?.handle ? { handle: activeFile.handle, name: activeFile.name } : null)
 
       try {
-        saveBlob(docName, withEol, 'text/markdown;charset=utf-8')
-        setOriginalText(withEol)
-        // 没有磁盘句柄时只是下载了一份副本，原文件没动，所以仍然算未保存
-        setDirty(true)
-        setNotice({
-          text: '这篇还没有磁盘路径。副本已下载到「下载」文件夹；要写回原文件，先用「打开文件夹」打开它所在目录。',
-          kind: 'info',
-        })
+        if (target) {
+          await writeNode({ kind: 'file', name: target.name, path: activeFile?.path ?? target.name, handle: target.handle }, withEol)
+          finishSaved(target.name, target, normalized, withEol)
+          return
+        }
+
+        const result = await saveAsFile(docName, withEol)
+        if (result === null) {
+          // 用户取消：不留「已保存」的假象
+          setNotice({ text: '已取消保存。', kind: 'info' })
+          return
+        }
+        if (result === 'unsupported') {
+          saveBlob(docName, withEol, 'text/markdown;charset=utf-8')
+          setNotice({
+            text: '无法确认落点：已交给浏览器下载。要写回文件，请用「另存为」选择位置。',
+            kind: 'info',
+            persist: true,
+            action: { label: '另存为', onClick: () => saveAsCopyRef.current() },
+          })
+          return
+        }
+        finishSaved(result.name, result, normalized, withEol)
       } catch (error) {
         setNotice({ text: `保存失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
       }
     },
-    [activeFile, docName, cacheDirFor, saveBlob],
+    [activeFile, docName, finishSaved, saveBlob],
   )
 
   const currentMarkdown = useCallback(() => {
@@ -1145,9 +1285,20 @@ export default function App() {
     return joinFrontmatter(frontmatterRef.current, joinFootnotes(body, footnotesRef.current))
   }, [editor, sourceMode, sourceText])
 
+  // onUpdate 里拿不到这个 useCallback（声明在后面），用 ref 转一手
+  useEffect(() => {
+    contentRef.current = currentMarkdown
+  }, [currentMarkdown])
+
   const saveFile = useCallback(() => {
     if (!editor) return
     const text = currentMarkdown()
+
+    // 只读文档（命令行打开）：Ctrl+S 一律走另存为，不假装写回原文件
+    if (readOnly) {
+      void saveAsCopyRef.current()
+      return
+    }
 
     // 第一次保存这篇文档时，把规范化造成的改动摆出来；确认过一次就不再打扰
     if (originalText !== null && !saveWarned && originalText !== text) {
@@ -1160,21 +1311,61 @@ export default function App() {
     }
 
     void commitSave(text)
-  }, [editor, originalText, saveWarned, commitSave, currentMarkdown])
+  }, [editor, readOnly, originalText, saveWarned, commitSave, currentMarkdown])
+
+  /** 另存为：不管当前有没有句柄，都重新选一个落点 */
+  const saveAsCopy = useCallback(async () => {
+    if (!editor) return
+    const normalized = currentMarkdown().replace(/\r\n/g, '\n')
+    const withEol = eolRef.current === 'crlf' ? normalized.replace(/\n/g, '\r\n') : normalized
+    try {
+      const result = await saveAsFile(docName, withEol)
+      if (result === null) {
+        setNotice({ text: '已取消保存。', kind: 'info' })
+        return
+      }
+      if (result === 'unsupported') {
+        saveBlob(docName, withEol, 'text/markdown;charset=utf-8')
+        setNotice({
+          text: '无法确认落点：已交给浏览器下载。要写回文件，请换一个支持选择保存位置的浏览器。',
+          kind: 'info',
+          persist: true,
+        })
+        return
+      }
+      finishSaved(result.name, result, normalized, withEol)
+    } catch (error) {
+      setNotice({ text: `保存失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
+    }
+  }, [editor, currentMarkdown, docName, finishSaved, saveBlob])
+
+  useEffect(() => {
+    saveAsCopyRef.current = () => void saveAsCopy()
+  }, [saveAsCopy])
 
   const cancelSwitch = useCallback(() => setPendingSwitch(null), [])
 
   const discardAndSwitch = useCallback(() => {
     const next = pendingSwitch
     setPendingSwitch(null)
-    if (next) loadIntoEditor(next.text, next.name, next.file)
+    if (!next) return
+    if (next.after) {
+      next.after()
+      return
+    }
+    loadIntoEditor(next.text, next.name, next.file)
   }, [pendingSwitch, loadIntoEditor])
 
   const saveAndSwitch = useCallback(() => {
     const next = pendingSwitch
     setPendingSwitch(null)
     void commitSave(currentMarkdown()).then(() => {
-      if (next) loadIntoEditor(next.text, next.name, next.file)
+      if (!next) return
+      if (next.after) {
+        next.after()
+        return
+      }
+      loadIntoEditor(next.text, next.name, next.file)
     })
   }, [pendingSwitch, commitSave, currentMarkdown, loadIntoEditor])
 
@@ -1331,7 +1522,8 @@ export default function App() {
       }),
     )
     syncDocInfo(editor)
-    if (sourceText !== sourceBaselineRef.current) setDirty(true)
+    // 离开源码：脏按保存基线算，不能只看「源码里改没改」
+    if (baselineRef.current !== null) setDirty(sourceText.replace(/\r\n/g, '\n') !== baselineRef.current)
   }, [editor, sourceText, setMarkdown, syncDocInfo])
 
   /**
@@ -1382,6 +1574,8 @@ export default function App() {
       if (!editor) return
       setExportOpen(false)
       try {
+        // 源码里刚改的内容还没进编辑器；先写回，否则导出的 HTML / TXT 会丢最新改动
+        if (sourceMode) applySource()
         if (kind === 'markdown') {
           const name = exportName(docName, 'md')
           saveBlob(name, currentMarkdown(), 'text/markdown;charset=utf-8')
@@ -1408,7 +1602,7 @@ export default function App() {
         setNotice({ text: `导出失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
       }
     },
-    [editor, docName, currentMarkdown, settings.fontSize, saveBlob, show],
+    [editor, docName, currentMarkdown, settings.fontSize, saveBlob, show, sourceMode, applySource],
   )
 
   const insertImageFile = useCallback(
@@ -1692,6 +1886,12 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true" />
           Sidelight
         </div>
+        <FileMenu
+          onNew={newDocument}
+          onSaveAs={() => saveAsCopyRef.current()}
+          onOpenFile={() => void openSingleFile()}
+          onOpenFolder={() => void openFolder()}
+        />
         <div className="doc-name">
           {docName}
           {dirty && <span className="dirty" title="有未保存的改动" />}
@@ -1963,6 +2163,7 @@ export default function App() {
               onToggle={() => setTreeCollapsed((value) => !value)}
               onOpenFolder={openFolder}
               onOpenSingleFile={openSingleFile}
+              onNewFile={newDocument}
               onOpenDemo={() => {
                 const demo = demoWorkspace()
                 setWorkspace(demo)
@@ -1984,6 +2185,14 @@ export default function App() {
         </div>
 
         <div className="doc-scroll" ref={scrollRef}>
+          {readOnly && (
+            <div className="readonly-banner" role="status">
+              <span>只读打开：Ctrl+S 不会写回原文件，请用「另存为」选择位置。</span>
+              <button type="button" onClick={() => saveAsCopyRef.current()}>
+                另存为
+              </button>
+            </div>
+          )}
           {risks.length > 0 && viewMode === 'edit' && (
             <div className="risk-banner">
               <span>这篇用到 {risks.join('、')}，编辑器读不全，保存会改写。</span>

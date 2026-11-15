@@ -38,7 +38,7 @@ powershell -ExecutionPolicy Bypass -File packaging\installer.ps1      # 下载 N
 powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 ```
 
-- `installer.ps1` 只读 `dist/` 与 `host/bin/`，版本号从 `package.json` 只读；打印实测字节、`P + 10,000` 门槛、硬报警线 840,000 B 与 SHA256。
+- `installer.ps1` 只读 `dist/` 与 `host/bin/`，版本号从 `package.json` 只读；打印实测字节、`P + 10,000` 门槛、硬报警线 850,000 B 与 SHA256。
 - `verify-installer.ps1` 静默安装 → 断言目录、HKCU 卸载项 7 值、开始菜单快捷方式 → 静默卸载 → 断言清理干净且 `%LOCALAPPDATA%\Sidelight` 仍在。
 - 两条都要求先有 `host/bin`（`host\build.ps1`）与 `dist`。
 
@@ -46,7 +46,7 @@ powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 
 - **默认 `%TEMP%` 对子进程不可写**：NSIS 解包需要可写的 TEMP，否则安装器直接以 exit 2 失败（窗口报 `NSIS Error`）。验证前必须把 `TEMP`/`TMP` 重定向到工作区，例如 `.tmp\nsis-temp`。`verify-installer.ps1` 已自动这么做。
 - **HKCU 写入不可观测**：本沙箱里卸载项与开始菜单快捷方式的写入会被环境吞掉，装完查不到。`verify-installer.ps1` 对这两项输出 `UNVERIFIED`，不判 `FAIL`；只有在交互式桌面真机复验才看得到。
-- **安装目录指到工作区**：验证脚本用 NSIS 的 `/D=<工作区>\.tmp\install-verify`，避免写 `%LOCALAPPDATA%\Programs`（该路径在沙箱里可能被拒写）。
+- **WebView2 下载写盘受限**：宿主接住了 `DownloadStarting`（日志 `download starting … handled=true`），但本沙箱的浏览器进程写下载文件会 `state=Interrupted reason=FileFailed`（试过快照目录、`.tmp` 与 `webview2-data` 三处）。`host/download-probe.mjs` 只验到「事件接住 + 路径正确」，落盘标 UNVERIFIED。
 
 ## 已知限制
 

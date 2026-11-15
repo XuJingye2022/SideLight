@@ -11,6 +11,7 @@ type Props = {
   onOpenSingleFile: () => void
   onOpenDemo: () => void
   onOpenFile: (file: WorkspaceFileNode) => void
+  onNewFile: () => void
 }
 
 type BranchProps = {
@@ -83,6 +84,7 @@ export function FileTree({
   onOpenSingleFile,
   onOpenDemo,
   onOpenFile,
+  onNewFile,
 }: Props) {
   // 展开状态只放本地，记的是目录的相对路径
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
@@ -114,7 +116,7 @@ export function FileTree({
       <aside className="file-tree" aria-label="文件树">
         <div className="file-tree-empty">
           <p className="file-tree-empty-title">现在打开的是示例</p>
-          <p className="file-tree-empty-sub">当前是示例，可以直接改</p>
+          <p className="file-tree-empty-sub">先打开一个文件夹，保存才会写回</p>
           <div className="file-tree-actions">
             <button type="button" onClick={onOpenFolder}>
               打开文件夹
@@ -139,10 +141,24 @@ export function FileTree({
         <span className="file-tree-name" title={workspace.name}>
           {workspace.name}
         </span>
+        {workspace.demo && <span className="file-badge">示例</span>}
         <button type="button" onClick={onToggle} aria-label="收起文件树" title="收起文件树">
           ‹
         </button>
       </header>
+
+      {workspace.demo ? (
+        <p className="file-tree-demo-note">改动不写盘，保存会另存为</p>
+      ) : (
+        <div className="file-tree-head-actions">
+          <button type="button" onClick={onNewFile}>
+            ＋ 新建文件
+          </button>
+          <button type="button" onClick={onOpenFolder}>
+            打开其他文件夹
+          </button>
+        </div>
+      )}
 
       <div className="file-tree-list">
         {nodes.length > 0 ? (

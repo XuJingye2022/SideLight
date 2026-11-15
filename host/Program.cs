@@ -421,7 +421,19 @@ static class Program
             Log("controller ready runtime=" + env.BrowserVersionString);
 
             CoreWebView2 core = web.CoreWebView2;
+            try
+            {
+                string dlDir = Environment.GetEnvironmentVariable("SIDELIGHT_DOWNLOAD_DIR");
+                if (string.IsNullOrEmpty(dlDir)) dlDir = ResolveDownloadDir();
+                core.Profile.DefaultDownloadFolderPath = dlDir;
+                Log("default download dir=" + dlDir);
+            }
+            catch (Exception ex)
+            {
+                Log("default download dir failed " + ex.Message);
+            }
             core.PermissionRequested += OnPermissionRequested;
+            core.DownloadStarting += OnDownloadStarting;
             core.NavigationStarting += OnNavigationStarting;
             core.NavigationCompleted += OnNavigationCompleted;
             core.ProcessFailed += delegate(object s, CoreWebView2ProcessFailedEventArgs e)
@@ -463,6 +475,82 @@ static class Program
         if (e.PermissionKind == CoreWebView2PermissionKind.FileReadWrite)
         {
             e.State = CoreWebView2PermissionState.Allow;
+        }
+    }
+
+    static string lastDownloadDir;
+
+    static string ResolveDownloadDir()
+    {
+        if (!string.IsNullOrEmpty(lastDownloadDir) && Directory.Exists(lastDownloadDir)) return lastDownloadDir;
+        try
+        {
+            string downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            if (Directory.Exists(downloads)) return downloads;
+        }
+        catch (Exception) { }
+        return baseDir;
+    }
+
+    // 下载落点：测试用 SIDELIGHT_DOWNLOAD_DIR 指定目录；否则同步弹 SaveFileDialog（UI/STA 线程）。
+    // 两条分支都必须 Handled = true，否则 WebView2 会再弹它自己的下载 UI。
+    // 文件名取 GetFileName(SuggestedFileName)，避免页面给的名字带路径越界。
+    static void OnDownloadStarting(object sender, CoreWebView2DownloadStartingEventArgs e)
+    {
+        try
+        {
+            // SDK 1.0.4314.35 的 DownloadStarting 没有 SuggestedFileName；默认 ResultFilePath
+            // 就是「下载目录 + 建议文件名」，取它的 basename 同样能防路径越界。
+            string suggested = e.ResultFilePath;
+            string name = string.IsNullOrEmpty(suggested) ? "download.bin" : Path.GetFileName(suggested);
+            if (string.IsNullOrEmpty(name)) name = "download.bin";
+
+            string dir = Environment.GetEnvironmentVariable("SIDELIGHT_DOWNLOAD_DIR");
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+                lastDownloadDir = dir;
+                e.ResultFilePath = Path.Combine(dir, name);
+                e.Handled = true;
+                Log("download starting name=" + name + " result=" + e.ResultFilePath + " handled=true mode=env");
+                try
+                {
+                    CoreWebView2DownloadOperation op = e.DownloadOperation;
+                    op.StateChanged += delegate(object s2, object e2)
+                    {
+                        Log("download state=" + op.State + " reason=" + op.InterruptReason + " bytes=" + op.BytesReceived + " path=" + op.ResultFilePath);
+                    };
+                }
+                catch (Exception ex2)
+                {
+                    Log("download state hook failed " + ex2.Message);
+                }
+                return;
+            }
+
+            using (SaveFileDialog dialog = new SaveFileDialog())
+            {
+                dialog.FileName = name;
+                dialog.InitialDirectory = ResolveDownloadDir();
+                dialog.OverwritePrompt = true;
+                DialogResult answer = dialog.ShowDialog(form);
+                if (answer != DialogResult.OK)
+                {
+                    e.Handled = true;
+                    e.Cancel = true;
+                    Log("download cancelled name=" + name + " handled=true");
+                    return;
+                }
+                lastDownloadDir = Path.GetDirectoryName(dialog.FileName);
+                e.ResultFilePath = dialog.FileName;
+                e.Handled = true;
+                Log("download starting name=" + name + " result=" + dialog.FileName + " handled=true mode=dialog");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("download failed " + ex.Message);
+            try { e.Handled = true; e.Cancel = true; } catch (Exception) { }
         }
     }
 
@@ -510,7 +598,7 @@ static class Program
         sb.Append(b64text);
         sb.Append("'),name:dec('");
         sb.Append(b64name);
-        sb.Append("'),savedAt:0}));");
+        sb.Append("'),savedAt:0,readOnly:true}));");
         if (oneShotGuard) sb.Append("sessionStorage.setItem('sl:argv-done','1');");
         sb.Append("location.reload();");
         sb.Append("}catch(e){}})();");

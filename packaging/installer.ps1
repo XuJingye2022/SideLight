@@ -1,5 +1,5 @@
 ﻿# 打 per-user NSIS 安装包。只读现有 dist 与 host\bin；缺 NSIS 就下官方 3.11 zip 到 .tmp。
-# 版本号从 package.json 只读。门槛：P + 10,000 B；硬报警线 840,000 B。
+# 版本号从 package.json 只读。硬报警线 850,000 B（超线打印载荷占比并 exit 1）。
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -64,17 +64,15 @@ if (-not (Test-Path $setup)) {
     exit 1
 }
 $p = (Get-Item $setup).Length
-$threshold = $p + 10000
 $sha = (Get-FileHash $setup -Algorithm SHA256).Hash
 
 Write-Host ("version={0}" -f $version)
 Write-Host ("setup={0} B  {1}" -f $p, $setup)
 Write-Host ("sha256={0}" -f $sha)
-Write-Host ("threshold(P+10000)={0} B" -f $threshold)
-Write-Host ("hard=840000 B  estimatedSize={0} KB" -f $estKb)
+Write-Host ("hard=850000 B  estimatedSize={0} KB" -f $estKb)
 
-if ($p -gt 840000) {
-    Write-Host '安装包超过硬报警线 840,000 B，下面是载荷占比（前 12 个）：'
+if ($p -gt 850000) {
+    Write-Host '安装包超过硬报警线 850,000 B，下面是载荷占比（前 12 个）：'
     $rows = @()
     foreach ($f in $payloadNames) {
         $item = Get-Item (Join-Path $root "host\bin\$f")

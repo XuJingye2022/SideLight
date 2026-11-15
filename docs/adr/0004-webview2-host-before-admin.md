@@ -1,6 +1,6 @@
-# 发布路径先走 C#/.NET Framework + WebView2 宿主，Tauri 2 留作目标
+# 发布路径：C#/.NET Framework + WebView2 宿主（0.17.0 已发布），Tauri 2 只是条件选项
 
-本机没有管理员权限、没有 Rust、没有 MSVC。Tauri 2 的官方 Windows 前提是 MSVC Build Tools，官方也只支持 MSVC target。这条路不是工作量大，是环境不允许。因此第 01 轮用一个 spike 验证另一条路：系统自带 `csc.exe`（.NET Framework 4.8，C# 5）编一个 WinForms 窗口，装 WebView2 控件，加载现有前端 `dist`。
+本机没有管理员权限、没有 Rust、没有 MSVC。Tauri 2 的官方 Windows 前提是 MSVC Build Tools，官方也只支持 MSVC target。这条路不是工作量大，是环境不允许。第 01 轮先用一个 spike 验证另一条路，到 0.17.0 它已经是正式发布路径（宿主 + per-user NSIS 安装包 + 便携 zip 都已交付）；Tauri 2 只在文末触发条件满足时才重评估。当时验证的做法：系统自带 `csc.exe`（.NET Framework 4.8，C# 5）编一个 WinForms 窗口，装 WebView2 控件，加载现有前端 `dist`。
 
 关键前提是 WebView2 支持 File System Access API。如果它不支持，前端 `showDirectoryPicker` / `createWritable` / 缓存写入那套代码要重写成宿主 IPC，工作量翻倍。spike 的第 5 条验收专门证明这件事。
 
@@ -42,9 +42,9 @@
 (Get-ChildItem host\bin -File | Where-Object Name -in 'Sidelight.exe','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll','Sidelight.exe.config' | Measure-Object Length -Sum).Sum + (Get-ChildItem host\bin\www -Recurse -File | Measure-Object Length -Sum).Sum
 ```
 
-2026-11-15 第 03 轮收尾实测 **2,389,352 B**（可执行文件与 SDK 程序集 988,708 B + `www/` 1,400,644 B；第 02 轮为 2,379,631 B）。
+2026-11-15 第 04 轮收尾实测 **2,398,413 B**（可执行文件与 SDK 程序集 991,780 B + `www/` 1,406,633 B；第 03 轮为 2,389,352 B，第 02 轮为 2,379,631 B）。
 
-工作目录 `host\bin` 里还有 `webview2-data`（同一时刻 15,188,740 B，随运行增长）与 `host.log`。**这两样不进发布包**：便携 zip 由 `packaging/portable.ps1` 打，staging 会断言它们不存在；NSIS 安装包由 `packaging/installer.ps1` 打，载荷同源。第 03 轮实测：便携 zip 904,736 B，SHA256 `6EE283D36FCA075062C045DAD62C1D3815E9327CE99676E77E2D6E6A8C90ECA3`；setup.exe 827,198 B，SHA256 `251FB3BDA666158EB57DFA4EBA2ADBFFFEE41F8A66630EB8A4A72232E92762E4`（第 02 轮的 zip 为 900,752 B / `63DA8F37…`，仅作历史对照）。
+工作目录 `host\bin` 里还有 `webview2-data`（同一时刻 15,267,266 B，随运行增长）与 `host.log`。**这两样不进发布包**：便携 zip 由 `packaging/portable.ps1` 打，staging 会断言它们不存在；NSIS 安装包由 `packaging/installer.ps1` 打，载荷同源。第 04 轮实测：便携 zip 907,266 B，SHA256 `6E523A4C87488558ED032711C4A79A87394BC7EEB7FC217E713A826077AA54BA`；setup.exe 829,472 B，SHA256 `89FEC195064742D5C8DD77132933598AA0086E87AE2F3D7DA920078732EF2EBC`。产物体积与校验和以本轮实测为准。
 
 ## 偏离与缺口
 
