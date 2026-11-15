@@ -49,11 +49,11 @@
 
 ## 当前版本与体积
 
-- v0.19.0。`dist` 1,382,298 B（1.32 MiB）；JS 1.11 MB（gzip 348 KB）、CSS 51 KB、KaTeX 字体 213,664 B / 15 个 woff2。
-- 便携 zip：873,775 B；NSIS per-user 安装包：794,843 B（硬线 850,000）。
-- 宿主冷启动 FCP 304 ms；转发 reload 64 ms；主 chunk 1,113.29 kB，`chunkSizeWarningLimit` 1200。
-- 打开文件上限：6 MB（marked 词法器在 8 MB 起爆栈）；超过显示可见错误。
-- 已知：KaTeX 仍全量进首屏（tiptap 扩展静态 import，尚未做惰性 spike）。
+- v0.20.0。`dist` 1,389,367 B（1.33 MiB）；JS 1.12 MB（gzip 350 KB）、CSS 51 KB、KaTeX 字体 213,664 B / 15 个 woff2。
+- 便携 zip：876,034 B；NSIS per-user 安装包：799,631 B（硬线 850,000）。关联 opt-in 默认不勾。
+- 宿主冷启动 FCP 304 ms；主 chunk 1.1 MB，`chunkSizeWarningLimit` 1200。
+- 打开文件上限 6 MB；保存差异门覆盖浏览器与宿主四条路径。
+- 已知：KaTeX 仍全量进首屏；引用式链接/表格仍不保真，但保存前会拦截并要求确认。
 
 ## 轮次记录
 
@@ -65,17 +65,20 @@
 | 4 | 保存落点 + 文件菜单 + 导出/只读 | round-04/plan.md | PASS-WITH-UNVERIFIED：保存选落点、新建/另存为、源码导出、argv 只读横幅 | 11c3348 |
 | 5 | 键盘/主题/公式导出/字体 | round-05/plan.md | PASS-WITH-UNVERIFIED：快捷键与焦点、三档主题、MathML 导出、15 woff2、0.18.0 | 2b031e8 |
 | 6 | 写回原文件 + 编码/大文件 | round-06/plan.md | PASS-WITH-UNVERIFIED：/__doc + postMessage、BOM/CRLF/GBK 保留、6 MB 上限、0.19.0 | d5e7b8d |
+| 7 | 保存门 + 源码原文 + 关联 opt-in | round-07/plan.md | PASS-WITH-UNVERIFIED：四条保存路径统一差异门、源码显示原文、.md 打开方式 opt-in、0.20.0 | d65164a |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
-- **编辑器保真**：引用式链接、表格对齐往返仍改格式（3/7）；这是本轮之后最该堵的数据问题。
-- **`.md` 关联**：memo 结论是只加 HKCU `OpenWithProgids`，不承诺默认程序；安装器 opt-in 复选框未做。
+- **自动保存 / 关闭保护**：写盘没有自动保存；关窗/切文档时未保存改动只靠草稿与提示，可能丢改动。
+- **最近文件**：没有「最近打开」入口，重开要重新找文件。
+- **文件树操作**：只有新建文件；没有删除、刷新、新建文件夹；FSA 无 rename API，重命名要另想安全方案。
+- **编辑器保真**：引用式链接/表格不保真，靠保存门拦截；真正保真仍待做（02/04）。
 - **KaTeX 全量首屏**：tiptap 静态 import；惰性 alias spike 未做，目标 gzip 265 KiB，风险高。
-- **真实环境 UNVERIFIED**：浏览器保留键/AltGr、真实中文输入法、系统保存对话框、HKCU/快捷方式/默认安装路径、宿主下载落盘、真人双击/SmartScreen、文件占用/网络盘/中文长路径、真人双击写回。
-- **6 MB 解析上限**：8 MB 起 marked 爆栈；若以后要支持更大文件，需要换解析器或流式解析。
-- `src/App.tsx` 约 2300 行；三处重复序列化 / 草稿写入；22 处字号无变量。
+- **真实环境 UNVERIFIED**：HKCU 关联/打开方式/卸载、真人双击、系统对话框、真实 IME、文件占用/网络盘/中文长路径、AltGr。
+- `src/App.tsx` 约 2400 行；三处重复序列化 / 草稿写入；22 处字号无变量。
 - 13 处 11–11.5px 小字；无 Mermaid、字体不可换、无自定义快捷键。
 - 密钥明文存 localStorage；CI `windows-host` job 未在 GitHub 首跑。
+- 6 MB 上限（marked 8 MB 爆栈）；更大文件需换解析器。
 - 500 toast 原始响应未进 `title`；ADR-0004 载荷数每次宿主改动后要复算。
 
 ## 决策记录
@@ -90,3 +93,4 @@
 - 2026-11-15 第 4 轮：无句柄保存用 `showSaveFilePicker`，取消不清 dirty；argv 打开的文件按只读处理，显示横幅，`Ctrl+S` 走另存为；原文件写回留待宿主 IPC。
 - 2026-11-15 第 5 轮：主题三档（浅/深/跟随系统）；快捷键改用 `Ctrl+Alt+*`，删除线改 `Ctrl+Shift+X`；HTML 导出用 KaTeX MathML 自包含；字体裁到 15 个 woff2；`chunkSizeWarningLimit` 1200，不拆 KaTeX；版本 0.18.0。
 - 2026-11-15 第 6 轮：宿主正文改走 `GET /__doc` + `postMessage` 写回，不再经 localStorage；保留 BOM/CRLF/GBK；原子替换；6 MB 解析上限（超过给可见错误）；30 个零引用截图移出跟踪；版本 0.19.0。
+- 2026-11-15 第 7 轮：四条保存路径统一差异门，引用式链接/表格不再静默改写；源码模式未编辑时显示原文；`.md` 打开方式 opt-in（默认不勾、不改默认程序）；版本 0.20.0。
