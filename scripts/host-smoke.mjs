@@ -156,9 +156,16 @@ async function main() {
     if (msg.type() !== 'error') return
     const text = msg.text()
     const url = msg.location()?.url ?? ''
-    // 宿主 smoke 只忽略两种 404：无 argv 时 /__doc 尚未注入、以及 favicon.ico
+    // 宿主 smoke 只忽略这三个预期 404：无 argv 的 /__doc、无草稿的 /__draft、favicon.ico
+    let pathname = ''
+    try {
+      pathname = new URL(url).pathname
+    } catch {
+      pathname = ''
+    }
+    const isExpected = pathname === '/__doc' || pathname === '/__draft' || pathname === '/favicon.ico'
     const is404 = text.includes('404')
-    if (is404 && (url.includes('/__doc') || url.includes('/favicon.ico'))) {
+    if (is404 && isExpected) {
       ignoredConsole.push(url || text)
       return
     }
