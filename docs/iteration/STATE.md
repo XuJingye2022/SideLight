@@ -49,9 +49,10 @@
 
 ## 当前版本与体积
 
-- v0.16.3。`dist` 1,395,531 B（1.33 MB）；JS 1.09 MB（gzip 341 KB）、CSS 51 KB、KaTeX 字体 256,168 B / 19 个 woff2。
-- 便携 zip：`release/Sidelight-0.16.3-win-x64-portable.zip`，900,752 B。安装器尚未制作。
-- 已知：单个 JS chunk 超过 500 KB 报警；KaTeX 可改按需加载；宿主内 FCP 约 2.2 s，待查。
+- v0.17.0。`dist` 1,400,644 B（1.34 MB）；JS 1.09 MB（gzip 341 KB）、CSS 51 KB、KaTeX 字体 256,168 B / 19 个 woff2。
+- 便携 zip：`release/Sidelight-0.17.0-win-x64-portable.zip`，904,736 B。NSIS per-user 安装包：`release/Sidelight-0.17.0-win-x64-setup.exe`，827,198 B。
+- 宿主冷启动 FCP 304 ms（修复前 2,196 ms），转发 reload 64 ms。
+- 已知：单个 JS chunk 超过 500 KB 报警；KaTeX 可改按需加载（目标 gzip 265 KB）。
 
 ## 轮次记录
 
@@ -59,22 +60,22 @@
 | --- | --- | --- | --- | --- |
 | 1 | 基线体检 + 发布路径决策 | round-01/plan.md | PASS：货币吞字修复、字体 1,072,948→256,168 B、开源文件、宿主 5/5 | cb36110 |
 | 2 | 首次使用可信 + 静默丢字 | round-02/plan.md | PASS：转发确认与队列、长路径、启动失败、便携 zip 900,752 B、模拟标注/对比度/焦点 | 6c9c2b0 |
+| 3 | 冷启动 + 安装器 + 窄窗/错误 | round-03/plan.md | PASS-WITH-UNVERIFIED：FCP 2.2 s→304 ms、NSIS 827,198 B、窄窗无溢出、错误可操作 | db4f617 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
-- **首次使用不完整**：窄窗口（≤1119px）横向滚动、顶栏按钮被裁；401 直接铺原始 JSON、断网只显示 `Failed to fetch`、导出失败无 catch；示例工作区与「还没有打开文件夹 / 未命名.md」矛盾；没有「新建 / 另存为」。
-- **键盘**：Tab 21 次才到正文，无 skip link；快捷键无提示，`aria-keyshortcuts` 为 0；仍有 8 类 11–11.5px 小字。
-- **冷启动**：宿主窗口 107 ms 可见，但 FCP 约 2.2 s；同机浏览器 prod 168–184 ms。根因未定位。
-- **安装**：便携 zip 已有；安装器（per-user，无管理员）未做；`.md` 关联属用户可见能力，需产品负责人点头；卸载与签名未做。
-- **宿主数据目录**：本机 `%LOCALAPPDATA%` 与 `%TEMP%` 分支都写不进，实际回退 exe 同级；装到只读目录会撞启动失败。
-- `vite.config.ts` 仍监听 `host/bin`，宿主测试会触发整页 reload 与 EBUSY 噪声；把 `**/host/bin/**` 加进 `watch.ignored`。
-- `shots/` 占跟踪字节约 86.5%；每次验收会改写已跟踪截图，提交噪声大。
-- KaTeX 仍全量进首屏（gzip 341 KB，目标 ≤250 KB）。
-- 引用式链接、表格对齐往返仍改格式（3/7）。
-- `src/App.tsx` 约 2100 行；三处重复序列化 / 草稿写入。
+- **新建 / 另存为缺失**：没有「新建」入口；`Ctrl+S` 在没打开文件夹时静默下载到系统下载目录，不弹保存确认、不显示落点。
+- **输入法未验证**：中文组合输入、候选窗、组合期间打开对话框；宿主内同样未测。
+- **键盘与快捷键**：Tab 21 次才到正文，无 skip link；快捷键无提示（B/I/S、保存、设置、分析），`aria-keyshortcuts` 为 0。
+- **AGENTS 状态过期**：§6 仍写「浏览器原型 / 未接 Tauri 壳」，§5 仍写「打安装包（Tauri 接上之后）」；与 0.17.0 实际不符。
+- **安装 UNVERIFIED**：HKCU 卸载项、开始菜单、默认 `%LOCALAPPDATA%\Programs\Sidelight` 路径、真人双击/SmartScreen、WebView2 缺失分支。
+- **`.md` 关联**：HKCU 可注册但抢不到默认程序，只多「打开方式」候选；属用户可见能力，待产品负责人确认。
+- **仓库重量**：`shots/` 占跟踪字节约 90%，94 处引用；发布前做一次只留引用图的清理。
+- **编辑器保真**：引用式链接、表格对齐往返仍改格式（3/7）。
+- `src/App.tsx` 约 2100 行；三处重复序列化 / 草稿写入；22 处字号无变量。
 - 无主题切换、无 Mermaid、字体不可换、无自定义快捷键。
-- 密钥明文存 localStorage。
-- 版本仍是 0.16.3；两轮改动未进 CHANGELOG。
+- 密钥明文存 localStorage；CI 缺 windows 宿主 job。
+- 500 toast 原始响应未进 `title`（可见文案正确）。
 
 ## 决策记录
 
@@ -84,3 +85,4 @@
 - 2026-11-15 根代理：dev server 用 `http://localhost:5173`，不要写 `127.0.0.1`（Vite 只绑 `::1`）。
 - 2026-11-15 第 1 轮：接受 ADR-0004，发布路径先走 C# WebView2 宿主。宿主五项验收全 PASS，含真实文件夹读写。
 - 2026-11-15 第 2 轮：便携 zip 成为第一个可分发的构建产物（900,752 B，`release/`）；安装器、`.md` 关联、卸载留给后续轮。宿主转发新文件前必须确认未保存改动。
+- 2026-11-15 第 3 轮：宿主 origin 固定为 `http://127.0.0.1:47821`，旧 `https://sidelight.local` 的 localStorage 一次性丢失（预发布代价，ADR-0005）。NSIS per-user 安装包装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据。
