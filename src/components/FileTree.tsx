@@ -209,7 +209,7 @@ export function FileTree({
           <p className="file-tree-empty-title">现在打开的是示例</p>
           <p className="file-tree-empty-sub">打开一个文件夹后，保存会写回原文件</p>
           <div className="file-tree-actions">
-            <button type="button" className="file-tree-open-wide" onClick={onOpenFolder}>
+            <button type="button" style={{ width: '100%' }} onClick={onOpenFolder}>
               打开文件夹…
             </button>
           </div>

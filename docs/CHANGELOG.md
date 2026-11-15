@@ -2,6 +2,15 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
+## 0.27.0 — 2026-11-16
+
+跨平台：Windows 与 macOS 各一套原生宿主。
+
+- macOS 原生宿主（Swift + AppKit + WKWebView + Network.framework，arm64）：`host-mac/` 提供 `/__doc`、`/__draft`、`/__recent` 与同一套 `save`/`draft-*`/`recent-*`/`close-answer` 协议，编码（BOM/UTF-8/GB18030）、EOL、原子写、草稿与最近记录、关窗三选一与 Windows 宿主对等。
+- 宿主桥抽成 WebView2 / WKWebView 双通道：页面只依赖 `postMessage` 语义，Windows 走 `window.chrome.webview`，macOS 走 `window.webkit.messageHandlers.sidelight` 与 `sidelight-host` 事件。
+- Windows 仍是 per-user NSIS 安装包 + 便携 zip，行为不变。
+- macOS 包**未签名、未公证**（ad-hoc 签名）：首次打开需右键「打开」或 `xattr -dr com.apple.quarantine`。Intel Mac 暂未构建。
+- 测试 16 个文件 205 条；体积 `[TBD]`（Windows 安装包/zip 与 macOS zip 的字节与 SHA256 由 root 出包后回填）。
 ## 0.26.0 — 2026-11-16
 
 

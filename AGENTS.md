@@ -35,7 +35,7 @@ Sidelight：面向中文写作者的桌面 Markdown 编辑器。左边写，右�
 
 ```bash
 npm run build      # 类型检查 + 打包
-npm test           # 测试文件与条数以 npm test 输出为准（0.26.0 记 16 个文件、205 条）：上下文、批注、大纲、字数、frontmatter、行差分、图片命名、查找、脚注、HTML、callout、导出、公式、缓存、搜索、错误文案
+npm test           # 测试文件与条数以 npm test 输出为准（0.27.0 记 16 个文件、205 条）：上下文、批注、大纲、字数、frontmatter、行差分、图片命名、查找、脚注、HTML、callout、导出、公式、缓存、搜索、错误文案
 npm run roundtrip  # 只在改动编辑器或 markdown 序列化时跑
 ```
 
@@ -62,14 +62,15 @@ npm run roundtrip  # 只在改动编辑器或 markdown 序列化时跑
 1. 改版本号，写 CHANGELOG 当次条目。
 2. `npm run build` 通过。
 3. 打安装包（Windows）：先 `powershell -ExecutionPolicy Bypass -File host\build.ps1` 编 C# 宿主（需 `dist/` 与 `.tmp\wv2` 的 WebView2 SDK），再 `packaging\installer.ps1` 出 NSIS 安装包；便携包用 `packaging\portable.ps1`。产物在 `release/`，不进版本控制。
-4. 跑 `packaging\verify-installer.ps1`，记下 UNVERIFIED 项（HKCU、开始菜单、默认路径、双击/SmartScreen）；产出校验和与发布说明草稿。
-5. 根代理复核，交给人点发布。
+4. 打 macOS 包（需要在 macOS + Xcode CLT 上，或交给 CI）：`bash host-mac/build.sh` → `release/Sidelight-<版本>-macos-<arch>.zip`（ad-hoc 签名，未公证）；`--self-test` 验 `/__doc`。Windows 本机不能编译 macOS 宿主。
+5. 跑 `packaging\verify-installer.ps1`，记下 UNVERIFIED 项（HKCU、开始菜单、默认路径、双击/SmartScreen）；产出校验和与发布说明草稿。
+6. 根代理复核，交给人点发布。
 
 ## 6. 当前状态
 
-当前 0.26.0，Windows 桌面应用：C# WebView2 宿主（`host/`）加载 `dist`，per-user NSIS 安装包与便携 zip 在 `release/`（不进版本控制，打包脚本在 `packaging/`）。文件树、大纲、源码/预览/专注/打字机、页边批注与采纳、逐条追问、联网核对、长文批注定位、链接与公式就地编辑、frontmatter/脚注/行内 HTML/callout/公式保真、保存前对比、`.sidelight` 缓存、图片插入、查找替换、字号缩放、导出、表格工具条都能跑。测试 16 个文件 205 条。CI 只在 Linux 跑 build + test；Windows 宿主与安装包尚未进 CI。
+当前 0.27.0，Windows + macOS 桌面应用：C# WebView2 宿主（`host/`，Windows）与 Swift/AppKit/WKWebView 宿主（`host-mac/`，macOS arm64）加载同一份 `dist`；per-user NSIS 安装包与便携 zip、macOS zip 在 `release/`（不进版本控制，打包脚本在 `packaging/` 与 `host-mac/build.sh`）。文件树、大纲、源码/预览/专注/打字机、页边批注与采纳、逐条追问、联网核对、长文批注定位、链接与公式就地编辑、frontmatter/脚注/行内 HTML/callout/公式保真、保存前对比、`.sidelight` 缓存、图片插入、查找替换、字号缩放、导出、表格工具条都能跑。测试 16 个文件 205 条。CI 有 Linux gate、Windows 宿主与安装包、macOS 宿主三组 job；Windows/macOS 宿主 job 都是 `continue-on-error`，首跑不阻塞。
 
-新建与另存为已能走完「新建 → 写 → 保存 → 再打开」：顶栏「文件」菜单（新建/另存为/打开文件/打开文件夹）、文件树头「＋ 新建文件」、没有句柄时保存走系统保存对话框、保存成功有持久提示；双击 `.md` 由宿主打开后可直接写回原文件（宿主 `/__doc` + `postMessage`，原子替换，编码/换行保留）；`.md` 只加「打开方式」候选（安装时 opt-in、默认不勾、不改默认程序）；宿主文档有草稿兜底（`draft-save` 写 `.sidelight/drafts/`，`/__draft` 只读），关窗有未保存改动时问「取消 / 存草稿 / 丢弃」；宿主记住最近 8 篇（`/__recent` 只回哈希 id，可清除/撤销/移除）；没动过的表格整块写回原文；含引用式链接定义的文档默认源码模式打开；KaTeX 惰性加载（首屏 gzip 284,973 B ≤285,000，余 27 B）；文件树右键可删除（移到工作区 `.sidelight/trash/`），同目录重命名（只接受 `.md`/`.markdown`，目标存在拒绝，缓存迁新键，最近记录不迁移）；不能移动/复制/删目录，无应用内恢复。未验：中文输入法（浏览器与宿主）、真模型与真实搜索接口（无 key）、安装后的 HKCU 卸载项/开始菜单/真人双击/SmartScreen、WebView2 缺失分支（仅静态检查）、写回（文件占用/只读/网络盘/中文路径/真人双击）、勾选关联后「打开方式」是否出现与卸载是否残留、真人交互安装、数据保真拦截的真实文档样本、真实 Alt+F4/注销/关机下的关窗、真实 IME 组合输入下的关窗、`save-draft` 写失败（只读目录）的可见错误路径、真人重启后的最近列表、`recent.json` 写失败、网络盘失效、卸载保留 `%LOCALAPPDATA%\Sidelight`、日志迁移、表格复用只保证行内字节、真实宿主源码保存字节、真实 WebView2 冷启动、离线时 KaTeX chunk 失败、CLI 下 `npm test` 看不到 alias、`katexLazy.test.ts` 尚未挂入 `npm test`、文件树删除的真人右键与确认框、从 trash 手动恢复、网络盘/OneDrive 占位文件、超长路径与中文文件名、并发删除同一文件、侧栏 tablist 与文件树展开态/空文件夹提示（延后，本轮不算达标）、真人右键重命名与确认框、大小写两段式失败后的临时名、网络盘/OneDrive 占位文件下的改名。质量报告里的 22 条问题已全部修完（见 [质量报告](docs/qa-report.md) 顶部）；对 Typora 的差距见 [差距表](docs/typora-gap.md)，当前 21 项有、18 项缺。
+新建与另存为已能走完「新建 → 写 → 保存 → 再打开」：顶栏「文件」菜单（新建/另存为/打开文件/打开文件夹）、文件树头「＋ 新建文件」、没有句柄时保存走系统保存对话框、保存成功有持久提示；双击 `.md` 由宿主打开后可直接写回原文件（宿主 `/__doc` + `postMessage`，原子替换，编码/换行保留）；`.md` 只加「打开方式」候选（安装时 opt-in、默认不勾、不改默认程序）；宿主文档有草稿兜底（`draft-save` 写 `.sidelight/drafts/`，`/__draft` 只读），关窗有未保存改动时问「取消 / 存草稿 / 丢弃」；宿主记住最近 8 篇（`/__recent` 只回哈希 id，可清除/撤销/移除）；没动过的表格整块写回原文；含引用式链接定义的文档默认源码模式打开；KaTeX 惰性加载（首屏 gzip 284,973 B ≤285,000，余 27 B）；文件树右键可删除（移到工作区 `.sidelight/trash/`），同目录重命名（只接受 `.md`/`.markdown`，目标存在拒绝，缓存迁新键，最近记录不迁移）；不能移动/复制/删目录，无应用内恢复。未验：中文输入法（浏览器与宿主）、真模型与真实搜索接口（无 key）、安装后的 HKCU 卸载项/开始菜单/真人双击/SmartScreen、WebView2 缺失分支（仅静态检查）、写回（文件占用/只读/网络盘/中文路径/真人双击）、勾选关联后「打开方式」是否出现与卸载是否残留、真人交互安装、数据保真拦截的真实文档样本、真实 Alt+F4/注销/关机下的关窗、真实 IME 组合输入下的关窗、`save-draft` 写失败（只读目录）的可见错误路径、真人重启后的最近列表、`recent.json` 写失败、网络盘失效、卸载保留 `%LOCALAPPDATA%\Sidelight`、日志迁移、表格复用只保证行内字节、真实宿主源码保存字节、真实 WebView2 冷启动、离线时 KaTeX chunk 失败、CLI 下 `npm test` 看不到 alias、`katexLazy.test.ts` 尚未挂入 `npm test`、文件树删除的真人右键与确认框、从 trash 手动恢复、网络盘/OneDrive 占位文件、超长路径与中文文件名、并发删除同一文件、侧栏 tablist 与文件树展开态/空文件夹提示（延后，本轮不算达标）、真人右键重命名与确认框、大小写两段式失败后的临时名、网络盘/OneDrive 占位文件下的改名、macOS 真机（本机是 Windows，未运行过）、macOS 签名/公证、Intel Mac 构建、WKWebView 下的真实 IME 与拖放。质量报告里的 22 条问题已全部修完（见 [质量报告](docs/qa-report.md) 顶部）；对 Typora 的差距见 [差距表](docs/typora-gap.md)，当前 21 项有、18 项缺。
 
 下一步写在 README 末节。改完状态就更新那一节，别另开地方。
 

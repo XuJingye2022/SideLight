@@ -107,10 +107,19 @@ export function RenameInput({
   }
 
   return (
-    <span className="tree-rename">
+    <span style={{ display: 'flex', flex: 1, minWidth: 0, alignItems: 'center', gap: 6 }}>
       <input
         ref={inputRef}
-        className="tree-rename-input"
+        style={{
+          flex: 1,
+          minWidth: 0,
+          maxWidth: 181,
+          padding: '1px 4px',
+          border: '1px solid var(--accent)',
+          borderRadius: 4,
+          background: 'var(--paper-raised)',
+          font: 'inherit',
+        }}
         value={value}
         disabled={busy}
         aria-label={`重命名 ${file.name}`}
@@ -132,7 +141,21 @@ export function RenameInput({
         onClick={(event) => event.stopPropagation()}
         onMouseDown={(event) => event.stopPropagation()}
       />
-      {error && <span className="tree-rename-error">{error}</span>}
+      {error && (
+        <span
+          style={{
+            flex: 'none',
+            maxWidth: 210,
+            overflow: 'hidden',
+            color: 'var(--warn)',
+            fontSize: 11,
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {error}
+        </span>
+      )}
     </span>
   )
 }
@@ -264,7 +287,14 @@ export default function TreeActions({
               <button ref={cancelRef} type="button" onClick={onCancelDelete}>
                 取消
               </button>
-              <button type="button" className="warn" onClick={() => onConfirmDelete(deleteTarget)}>
+              <button
+                type="button"
+                style={{
+                  borderColor: 'color-mix(in srgb, var(--warn) 65%, var(--line-strong))',
+                  color: 'color-mix(in srgb, var(--warn) 70%, var(--ink))',
+                }}
+                onClick={() => onConfirmDelete(deleteTarget)}
+              >
                 移到回收站
               </button>
             </div>

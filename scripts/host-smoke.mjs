@@ -129,8 +129,25 @@ async function main() {
   }
 
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`)
-  const context = browser.contexts()[0]
-  const page = await context.pages()[0]
+  let context = browser.contexts()[0]
+  let page = context?.pages()[0]
+  if (!page) {
+    // 慢 runner 上 CDP 先连上、页面后建：等 page 事件，再用 200 ms 轮询兜底
+    if (context) {
+      page = await context.waitForEvent('page', { timeout: 30000 }).catch(() => undefined)
+    }
+    const deadline = Date.now() + 30000
+    while (!page && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      context = browser.contexts()[0] ?? context
+      page = context?.pages()[0]
+    }
+  }
+  if (!page) {
+    check('窗口：宿主页面已创建', false, 'connectOverCDP 后 30 秒内没有拿到 page')
+    await killHosts()
+    return
+  }
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) navCount += 1
   })

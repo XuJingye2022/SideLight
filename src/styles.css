@@ -441,14 +441,6 @@ main.doc-scroll:focus {
   padding: 2px 6px 16px;
 }
 
-.tree-dir {
-  padding-left: 0;
-}
-
-.file-tree-list > .tree-dir {
-  padding-left: 0;
-}
-
 .tree-dir-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -459,35 +451,6 @@ main.doc-scroll:focus {
   display: flex;
   align-items: center;
   gap: 2px;
-}
-
-.tree-rename {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-}
-
-.tree-rename-input {
-  flex: 1;
-  min-width: 0;
-  max-width: 181px;
-  padding: 1px 4px;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  background: var(--paper-raised);
-  font: inherit;
-}
-
-.tree-rename-error {
-  flex: none;
-  max-width: 210px;
-  overflow: hidden;
-  color: var(--warn);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .tree-row .tree-file {
@@ -513,15 +476,6 @@ main.doc-scroll:focus {
 .tree-row:hover .tree-row-more,
 .tree-row:focus-within .tree-row-more {
   opacity: 1;
-}
-
-.file-tree-open-wide {
-  width: 100%;
-}
-
-.dialog-actions .warn {
-  border-color: color-mix(in srgb, var(--warn) 65%, var(--line-strong));
-  color: color-mix(in srgb, var(--warn) 70%, var(--ink));
 }
 
 .tree-dir-name,

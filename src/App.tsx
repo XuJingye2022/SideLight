@@ -309,6 +309,8 @@ export default function App() {
   const [trashReason, setTrashReason] = useState<string | null>(null)
   const [treeRefreshing, setTreeRefreshing] = useState(false)
   const [activeFile, setActiveFile] = useState<WorkspaceFileNode | null>(null)
+  /** 宿主桥每次渲染取一次；Windows/WK 单例稳定，浏览器为 null */
+  const host = getHostTransport()
   const [treeCollapsed, setTreeCollapsed] = useState(false)
   /** 窄窗时页边栏变抽屉：顶栏「批注」开关它 */
   const [railOpen, setRailOpen] = useState(false)
@@ -2012,7 +2014,7 @@ export default function App() {
       // 另存为成功：告诉宿主忘掉 argv 路径，之后 Ctrl+S 走句柄/另存为
       if (hostDoc) {
         void clearHostDraftRef.current()
-        getHostTransport()?.postMessage({ v: 1, type: 'forget' })
+        host?.postMessage({ v: 1, type: 'forget' })
         hostModeRef.current = false
         setHostDoc(null)
         document.title = `${name} — Sidelight`
@@ -2245,8 +2247,7 @@ export default function App() {
   /* ---------- 最近打开（T1/T2） ---------- */
 
   const loadRecent = useCallback(async () => {
-    const transport = getHostTransport()
-    if (!transport) {
+    if (!host) {
       setRecent({ kind: 'no-host' })
       return
     }
@@ -2288,8 +2289,7 @@ export default function App() {
   const sendRecent = useCallback(
     (type: string, payload: Record<string, unknown> = {}) =>
       new Promise<{ ok: boolean; error?: string; id: number }>((resolve) => {
-        const transport = getHostTransport()
-        if (!transport) {
+        if (!host) {
           resolve({ ok: false, error: 'IO', id: 0 })
           return
         }
@@ -2300,7 +2300,7 @@ export default function App() {
         const message = isItemScoped
           ? { v: 1, type, ...payload }
           : { v: 1, type, id: requestId }
-        transport.postMessage(message)
+        host.postMessage(message)
         setTimeout(() => {
           if (recentRequestsRef.current.delete(key)) resolve({ ok: false, error: 'IO', id: requestId })
         }, 10000)
@@ -2391,8 +2391,7 @@ export default function App() {
     if (!hostModeRef.current || draftSuppressedRef.current) return
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
     draftTimerRef.current = setTimeout(() => {
-      const transport = getHostTransport()
-      if (!transport || !hostModeRef.current || draftSuppressedRef.current) return
+      if (!host || !hostModeRef.current || draftSuppressedRef.current) return
       const id = (nextDraftIdRef.current += 1)
       const generation = draftGenerationRef.current
       let resolveAck: () => void = () => {}
@@ -2400,7 +2399,7 @@ export default function App() {
         resolveAck = resolve
       })
       draftPendingRef.current = { id, generation, ack, resolve: resolveAck }
-      transport.postMessage({ v: 1, type: 'draft-save', id, text })
+      host.postMessage({ v: 1, type: 'draft-save', id, text })
     }, 800)
   }, [])
 
@@ -2421,7 +2420,7 @@ export default function App() {
     draftGenerationRef.current += 1
     draftSuppressedRef.current = true
     draftPendingRef.current = null
-    getHostTransport()?.postMessage({ v: 1, type: 'draft-clear', id: (nextDraftIdRef.current += 1) })
+    host?.postMessage({ v: 1, type: 'draft-clear', id: (nextDraftIdRef.current += 1) })
   }, [])
 
   const recoverHostDraft = useCallback(() => {
@@ -2597,18 +2596,18 @@ export default function App() {
 
   const cancelCloseGuard = useCallback(() => {
     setCloseGuardOpen(false)
-    getHostTransport()?.postMessage({ v: 1, type: 'close-answer', action: 'cancel' })
+    host?.postMessage({ v: 1, type: 'close-answer', action: 'cancel' })
   }, [])
 
   const saveDraftAndClose = useCallback(() => {
     const { normalized } = prepareSave()
     setCloseGuardOpen(false)
-    getHostTransport()?.postMessage({ v: 1, type: 'close-answer', action: 'save-draft', text: normalized })
+    host?.postMessage({ v: 1, type: 'close-answer', action: 'save-draft', text: normalized })
   }, [prepareSave])
 
   const discardAndClose = useCallback(() => {
     setCloseGuardOpen(false)
-    getHostTransport()?.postMessage({ v: 1, type: 'close-answer', action: 'discard' })
+    host?.postMessage({ v: 1, type: 'close-answer', action: 'discard' })
   }, [])
 
   // close-request 排队：其它模态或写回还没结束就先记下，结束后再弹
@@ -2679,8 +2678,7 @@ export default function App() {
   /** 宿主文档：把一次写回发给宿主；同一时间只有一个 id 在飞 */
   const sendHostSave = useCallback(
     (text: string) => {
-      const transport = getHostTransport()
-      if (!transport || !hostDoc?.ready || !hostDoc.writable) return
+      if (!host || !hostDoc?.ready || !hostDoc.writable) return
       if (pendingIdsRef.current.size > 0) {
         // 保存中再按一次：只记最新一份，回包后补发
         pendingHostSave.current = { text }
@@ -2693,7 +2691,7 @@ export default function App() {
       setSaving(true)
       setSaveError(null)
       // 只发正文，不带任何路径/文件名
-      transport.postMessage({ v: 1, type: 'save', id, text })
+      host.postMessage({ v: 1, type: 'save', id, text })
       const timer = setTimeout(() => {
         if (!pendingIdsRef.current.has(id)) return
         pendingIdsRef.current.delete(id)
@@ -2758,8 +2756,7 @@ export default function App() {
 
   // 宿主回包：只认 pendingIds 里的 id；失败保留 dirty，可重试
   useEffect(() => {
-    const transport = getHostTransport()
-    if (!transport) return
+    if (!host) return
     const onMessage = (payload: unknown) => {
       const data = payload as
         | { v?: number; type?: string; id?: number; ok?: boolean; error?: string; mtime?: number }
@@ -2819,7 +2816,7 @@ export default function App() {
       if (queued) sendHostSaveRef.current(queued.text)
       flushHostSaveWaiters()
     }
-    return transport.addEventListener(onMessage)
+    return host.addEventListener(onMessage)
   }, [flushHostSaveWaiters])
 
   const cancelSwitch = useCallback(() => setPendingSwitch(null), [])
