@@ -74,19 +74,12 @@ import {
   type WorkspaceFileNode,
 } from './lib/workspace.ts'
 import { assetFileName, writeAsset } from './lib/asset.ts'
+import { getHostTransport } from './lib/hostBridge.ts'
 
 declare global {
   interface Window {
     /** 宿主与验收脚本读的脏标记与文档名；round-02 跨组契约，随 [dirty, docName] 更新 */
     __slState?: { dirty: boolean; name: string; readOnly?: boolean; viewMode?: 'edit' | 'source' | 'preview' }
-    /** WebView2 宿主桥：只在宿主里存在；浏览器里是 undefined */
-    chrome?: {
-      webview?: {
-        postMessage: (message: unknown) => void
-        addEventListener: (type: 'message', listener: (event: { data: unknown }) => void) => void
-        removeEventListener: (type: 'message', listener: (event: { data: unknown }) => void) => void
-      }
-    }
   }
 }
 
@@ -2019,7 +2012,7 @@ export default function App() {
       // 另存为成功：告诉宿主忘掉 argv 路径，之后 Ctrl+S 走句柄/另存为
       if (hostDoc) {
         void clearHostDraftRef.current()
-        window.chrome?.webview?.postMessage({ v: 1, type: 'forget' })
+        getHostTransport()?.postMessage({ v: 1, type: 'forget' })
         hostModeRef.current = false
         setHostDoc(null)
         document.title = `${name} — Sidelight`
@@ -2252,8 +2245,8 @@ export default function App() {
   /* ---------- 最近打开（T1/T2） ---------- */
 
   const loadRecent = useCallback(async () => {
-    const webview = window.chrome?.webview
-    if (!webview) {
+    const transport = getHostTransport()
+    if (!transport) {
       setRecent({ kind: 'no-host' })
       return
     }
@@ -2295,8 +2288,8 @@ export default function App() {
   const sendRecent = useCallback(
     (type: string, payload: Record<string, unknown> = {}) =>
       new Promise<{ ok: boolean; error?: string; id: number }>((resolve) => {
-        const webview = window.chrome?.webview
-        if (!webview) {
+        const transport = getHostTransport()
+        if (!transport) {
           resolve({ ok: false, error: 'IO', id: 0 })
           return
         }
@@ -2307,7 +2300,7 @@ export default function App() {
         const message = isItemScoped
           ? { v: 1, type, ...payload }
           : { v: 1, type, id: requestId }
-        webview.postMessage(message)
+        transport.postMessage(message)
         setTimeout(() => {
           if (recentRequestsRef.current.delete(key)) resolve({ ok: false, error: 'IO', id: requestId })
         }, 10000)
@@ -2398,8 +2391,8 @@ export default function App() {
     if (!hostModeRef.current || draftSuppressedRef.current) return
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
     draftTimerRef.current = setTimeout(() => {
-      const webview = window.chrome?.webview
-      if (!webview || !hostModeRef.current || draftSuppressedRef.current) return
+      const transport = getHostTransport()
+      if (!transport || !hostModeRef.current || draftSuppressedRef.current) return
       const id = (nextDraftIdRef.current += 1)
       const generation = draftGenerationRef.current
       let resolveAck: () => void = () => {}
@@ -2407,7 +2400,7 @@ export default function App() {
         resolveAck = resolve
       })
       draftPendingRef.current = { id, generation, ack, resolve: resolveAck }
-      webview.postMessage({ v: 1, type: 'draft-save', id, text })
+      transport.postMessage({ v: 1, type: 'draft-save', id, text })
     }, 800)
   }, [])
 
@@ -2428,7 +2421,7 @@ export default function App() {
     draftGenerationRef.current += 1
     draftSuppressedRef.current = true
     draftPendingRef.current = null
-    window.chrome?.webview?.postMessage({ v: 1, type: 'draft-clear', id: (nextDraftIdRef.current += 1) })
+    getHostTransport()?.postMessage({ v: 1, type: 'draft-clear', id: (nextDraftIdRef.current += 1) })
   }, [])
 
   const recoverHostDraft = useCallback(() => {
@@ -2604,18 +2597,18 @@ export default function App() {
 
   const cancelCloseGuard = useCallback(() => {
     setCloseGuardOpen(false)
-    window.chrome?.webview?.postMessage({ v: 1, type: 'close-answer', action: 'cancel' })
+    getHostTransport()?.postMessage({ v: 1, type: 'close-answer', action: 'cancel' })
   }, [])
 
   const saveDraftAndClose = useCallback(() => {
     const { normalized } = prepareSave()
     setCloseGuardOpen(false)
-    window.chrome?.webview?.postMessage({ v: 1, type: 'close-answer', action: 'save-draft', text: normalized })
+    getHostTransport()?.postMessage({ v: 1, type: 'close-answer', action: 'save-draft', text: normalized })
   }, [prepareSave])
 
   const discardAndClose = useCallback(() => {
     setCloseGuardOpen(false)
-    window.chrome?.webview?.postMessage({ v: 1, type: 'close-answer', action: 'discard' })
+    getHostTransport()?.postMessage({ v: 1, type: 'close-answer', action: 'discard' })
   }, [])
 
   // close-request 排队：其它模态或写回还没结束就先记下，结束后再弹
@@ -2686,8 +2679,8 @@ export default function App() {
   /** 宿主文档：把一次写回发给宿主；同一时间只有一个 id 在飞 */
   const sendHostSave = useCallback(
     (text: string) => {
-      const webview = window.chrome?.webview
-      if (!webview || !hostDoc?.ready || !hostDoc.writable) return
+      const transport = getHostTransport()
+      if (!transport || !hostDoc?.ready || !hostDoc.writable) return
       if (pendingIdsRef.current.size > 0) {
         // 保存中再按一次：只记最新一份，回包后补发
         pendingHostSave.current = { text }
@@ -2700,7 +2693,7 @@ export default function App() {
       setSaving(true)
       setSaveError(null)
       // 只发正文，不带任何路径/文件名
-      webview.postMessage({ v: 1, type: 'save', id, text })
+      transport.postMessage({ v: 1, type: 'save', id, text })
       const timer = setTimeout(() => {
         if (!pendingIdsRef.current.has(id)) return
         pendingIdsRef.current.delete(id)
@@ -2765,10 +2758,10 @@ export default function App() {
 
   // 宿主回包：只认 pendingIds 里的 id；失败保留 dirty，可重试
   useEffect(() => {
-    const webview = window.chrome?.webview
-    if (!webview) return
-    const onMessage = (event: { data: unknown }) => {
-      const data = event.data as
+    const transport = getHostTransport()
+    if (!transport) return
+    const onMessage = (payload: unknown) => {
+      const data = payload as
         | { v?: number; type?: string; id?: number; ok?: boolean; error?: string; mtime?: number }
         | null
       if (!data || data.v !== 1) return
@@ -2826,8 +2819,7 @@ export default function App() {
       if (queued) sendHostSaveRef.current(queued.text)
       flushHostSaveWaiters()
     }
-    webview.addEventListener('message', onMessage)
-    return () => webview.removeEventListener('message', onMessage)
+    return transport.addEventListener(onMessage)
   }, [flushHostSaveWaiters])
 
   const cancelSwitch = useCallback(() => setPendingSwitch(null), [])
