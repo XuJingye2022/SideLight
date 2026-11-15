@@ -45,6 +45,7 @@ import { MathInputRules } from './lib/mathInput.ts'
 import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDefinitions, lossLabels, type Loss } from './lib/risk.ts'
 import { repairCalloutMarkers } from './lib/escapes.ts'
 import { buildHtmlDocument, buildPlainText, exportName } from './lib/export.ts'
+import { ensureKatex } from './lib/katexLazy.ts'
 import { findAll, type Match } from './lib/find.ts'
 import { extractFootnotes, joinFootnotes, repairFootnoteRefs } from './lib/footnotes.ts'
 import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontmatter.ts'
@@ -764,6 +765,8 @@ export default function App() {
   const setMarkdown = useCallback(
     (body: string) => {
       if (!editor) return
+      // 含公式：先非阻塞预取 KaTeX，再同步 parse；不 await，避免首屏被惰性 chunk 卡住
+      if (/\$\$|\$[^$\n]+\$/.test(body)) void ensureKatex().catch(() => undefined)
       const manager = editor.markdown ?? editor.storage.markdown?.manager
       if (!manager) {
         editor.commands.setContent(body, { contentType: 'markdown' })
@@ -2368,6 +2371,30 @@ export default function App() {
     saveFileRef.current = saveFile
   }, [saveFile])
 
+  // KaTeX 加载失败后点击公式占位：先重试加载，成功后重建公式 NodeView
+  useEffect(() => {
+    const root = scrollRef.current
+    if (!root || !editor) return
+    const handler = (event: MouseEvent) => {
+      const target = (event.target as HTMLElement | null)?.closest?.('.math-fallback')
+      if (!target) return
+      event.preventDefault()
+      event.stopPropagation()
+      void ensureKatex()
+        .then(() => {
+          // 直接 reparse 当前 Markdown：替换掉失败态节点，让新 NodeView 用已加载的 KaTeX 排版
+          setMarkdown(editor.getMarkdown())
+        })
+        .catch(() => undefined)
+    }
+    root.addEventListener('mousedown', handler, true)
+    root.addEventListener('click', handler, true)
+    return () => {
+      root.removeEventListener('mousedown', handler, true)
+      root.removeEventListener('click', handler, true)
+    }
+  }, [editor, setMarkdown])
+
   useEffect(() => {
     saveAsCopyRef.current = () => requestSave('saveAs')
   }, [requestSave])
@@ -2849,10 +2876,12 @@ export default function App() {
   )
 
   const exportAs = useCallback(
-    (kind: 'html' | 'markdown' | 'text') => {
+    async (kind: 'html' | 'markdown' | 'text') => {
       if (!editor) return
       setExportOpen(false)
       try {
+        // 导出 HTML 需要 KaTeX 的 MathML；无条件等一下，已就绪时是一次微任务
+        await ensureKatex().catch(() => undefined)
         // 源码里刚改的内容还没进编辑器；先写回，否则导出的 HTML / TXT 会丢最新改动
         if (sourceMode) applySource()
         if (kind === 'markdown') {
@@ -2862,16 +2891,23 @@ export default function App() {
           return
         }
         if (kind === 'html') {
+          const bodyHtml = editor.getHTML()
           const html = buildHtmlDocument({
             title: docName,
-            bodyHtml: editor.getHTML(),
+            bodyHtml,
             fontSize: settings.fontSize,
             frontmatter: frontmatterRef.current,
             footnotes: footnotesRef.current,
           })
           const name = exportName(docName, 'html')
           saveBlob(name, html, 'text/html;charset=utf-8')
-          show(`已导出 ${name}`)
+          const hadMath =
+            bodyHtml.includes('data-type="inline-math"') || bodyHtml.includes('data-type="block-math"')
+          if (html.includes('math-fallback') || (hadMath && !html.includes('<math'))) {
+            setNotice({ text: '公式排版没加载成功，已按 LaTeX 原文导出。', kind: 'error' })
+          } else {
+            show(`已导出 ${name}`)
+          }
           return
         }
         const name = exportName(docName, 'txt')
@@ -3307,6 +3343,7 @@ export default function App() {
             type="button"
             className={`menu-trigger${menuOpen ? ' is-open' : ''}`}
             onClick={() => setMenuOpen((value) => !value)}
+            onPointerDown={() => void ensureKatex().catch(() => undefined)}
           >
             插入 ▾
           </button>

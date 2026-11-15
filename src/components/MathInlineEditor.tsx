@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import katex from 'katex'
+import katex, { isKatexReady, subscribe } from '../lib/katexLazy.ts'
 
 type Props = {
   /** 公式在屏幕上的位置，输入框盖在它上面 */
@@ -21,6 +21,7 @@ const WIDTH = 320
 export function MathInlineEditor({ anchor, latex, display, onChange, onCommit, onCancel }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const committedRef = useRef(false)
+  const katexReady = useSyncExternalStore(subscribe, isKatexReady, () => false)
 
   useEffect(() => {
     const input = inputRef.current
@@ -30,6 +31,7 @@ export function MathInlineEditor({ anchor, latex, display, onChange, onCommit, o
   }, [])
 
   const preview = (() => {
+    if (!katexReady) return ''
     if (latex.trim().length === 0) return ''
     try {
       return katex.renderToString(latex, { throwOnError: false, displayMode: display })
@@ -74,8 +76,10 @@ export function MathInlineEditor({ anchor, latex, display, onChange, onCommit, o
         onBlur={() => commit()}
       />
       <div
-        className={`math-inline-preview${preview ? '' : ' is-empty'}`}
-        dangerouslySetInnerHTML={{ __html: preview || '（预览会出现在这里）' }}
+        className={`math-inline-preview${katexReady && preview ? '' : ' is-empty'}`}
+        dangerouslySetInnerHTML={{
+          __html: katexReady ? preview || '（预览会出现在这里）' : '公式排版加载中…',
+        }}
       />
     </div>,
     document.body,

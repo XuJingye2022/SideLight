@@ -79,10 +79,17 @@ await page.waitForTimeout(200)
 await page.getByRole('button', { name: '插入 ▾' }).click()
 await page.waitForTimeout(200)
 await page.getByRole('button', { name: '公式', exact: true }).click()
-await page.waitForTimeout(500)
+// 惰性 KaTeX：等排版态出现、占位清空，不靠固定 500ms
+await page.waitForSelector('.editor .katex', { timeout: 10000 })
+await page.waitForFunction(() => !document.querySelector('.math-pending'), null, { timeout: 10000 })
 check('公式渲染', (await page.locator('.editor .katex').count()) > 0)
 
 // 3b. 字体：只发 woff2 后公式字体仍能真加载（.katex 节点数不能证明字体加载）
+await page.waitForFunction(
+  () => [...document.fonts].filter((font) => /KaTeX/.test(font.family)).length >= 16,
+  null,
+  { timeout: 10000 },
+)
 const fonts = await page.evaluate(async () => {
   await document.fonts.ready
   const katex = [...document.fonts].filter((font) => /KaTeX/.test(font.family))

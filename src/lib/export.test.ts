@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import katexReal from 'katex'
+
+import { __setLoaderForTest, ensureKatex } from './katexLazy.ts'
 import {
   buildHtmlDocument,
   buildPlainText,
@@ -9,6 +12,10 @@ import {
   renderFootnotes,
   renderFrontmatter,
 } from './export.ts'
+
+// 测试进程里 KaTeX 是同步可用的：注入 real loader，避免动态 import CSS
+__setLoaderForTest(async () => ({ katex: katexReal }))
+await ensureKatex()
 
 // fixture 来自第 05 轮 dev 页面 `document.querySelector('.editor').innerHTML`
 // （Tiptap 的 editor.getHTML() 输出同构）：外层属性与顺序原样，KaTeX 内层只保留一层。

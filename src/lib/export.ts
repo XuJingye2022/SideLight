@@ -1,4 +1,4 @@
-import katex from 'katex'
+import katex from './katexLazy.ts'
 
 import { mathToPlainText, replaceMathHtml } from './math.ts'
 

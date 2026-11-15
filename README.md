@@ -63,18 +63,18 @@
 - 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
 ## 依赖与体积
 
-体积见 CHANGELOG 0.23.0（[docs/CHANGELOG.md](docs/CHANGELOG.md)）。两条软线：JS 主 chunk ≤ 1,153,000 B（gzip 约 355 KB）；安装包预计 ≤ 820,000 B，实际以 `packaging/installer.ps1` 出包为准，安装包硬线仍是 850,000 B。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
+体积见 CHANGELOG 0.24.0（[docs/CHANGELOG.md](docs/CHANGELOG.md)）。首屏 gzip 从 364,960 B 降到 **282,809 B（−22.5%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 77 KB）按需加载，首屏不再包含；安装包预计 ≤ 815,000 B，实际以 `packaging/installer.ps1` 出包为准，硬线仍是 850,000 B。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
 
-**为什么不拆 KaTeX**：`@tiptap/extension-mathematics` 顶层静态 `import katex`，扩展在编辑器首帧就要注册，拆包必须换惰性 shim 并异步化三处渲染，0.18.0 不做；构建用 `chunkSizeWarningLimit: 1200` 显式设告警线（主 chunk 约 1.10 MB 是首屏必需，1200 留约 100 kB 余量）。
+**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 282,809 B，原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 1200`（主 chunk 约 883 KB）。
 
 运行时依赖只有两组，都不是为省几行代码引入的：
 
 - Tiptap 3.34 与配套扩展：编辑器内核、表格、任务列表、图片、公式。自己写不出同等质量的所见即所得。
-- KaTeX：公式排版。字体是打包里唯一的体积大头，后面可按需加载（只打开有公式的文档时才加载）。
+- KaTeX：公式排版。0.24.0 起 JS/CSS 与字体都按需加载（第一次渲染公式时才下载），首屏不再包含。
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
 
-宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 810,456 B（SHA256 `11E37B5E72C905C6788FD4189768905423B68D4ACE7681C73593141233A1E4D1`）、便携 zip 889,108 B（SHA256 `4208F677A618C8CC3A993947609171388B3AF478CF042EC6FF16C91670039C79`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
+宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 811,756 B（SHA256 `4F06530B18E82AE51866A62633CEAF015723D481FE51754152950BBF183593D4`）、便携 zip 891,471 B（SHA256 `E06F2E2EB2514D5027BA12D6A9DFA34AADF304B134F9A198A466C2D9F7452EE5`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
 
 ## 跑起来
 

@@ -113,10 +113,18 @@ export function woff2Only() {
     apply: 'build',
     generateBundle(_options, bundle) {
       const cssNames = Object.keys(bundle).filter((name) => name.endsWith('.css'))
-      if (cssNames.length !== 1) {
-        throw new Error(`[woff2-only] CSS 资产数为 ${cssNames.length}，期望 1`)
+      if (cssNames.length > 2) {
+        throw new Error(`[woff2-only] CSS 资产数为 ${cssNames.length}，期望 1–2（KaTeX 样式拆出后主 CSS + 惰性 CSS）`)
       }
-      const cssName = cssNames[0]
+      const readCss = (name) => {
+        const item = bundle[name]
+        return typeof item.source === 'string' ? item.source : new TextDecoder().decode(item.source)
+      }
+      const faceNames = cssNames.filter((name) => readCss(name).includes('@font-face'))
+      if (faceNames.length !== 1) {
+        throw new Error(`[woff2-only] 含 @font-face 的 CSS 资产数为 ${faceNames.length}，期望 1`)
+      }
+      const cssName = faceNames[0]
       const asset = bundle[cssName]
       if (asset.type !== 'asset') {
         throw new Error(`[woff2-only] ${cssName} 不是 asset`)

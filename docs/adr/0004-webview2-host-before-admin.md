@@ -42,9 +42,9 @@
 (Get-ChildItem host\bin -File | Where-Object Name -in 'Sidelight.exe','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll','Sidelight.exe.config' | Measure-Object Length -Sum).Sum + (Get-ChildItem host\bin\www -Recurse -File | Measure-Object Length -Sum).Sum
 ```
 
-2026-11-16 第 10 轮（0.23.0）收尾实测 **2,429,318 B**（可执行文件与 SDK 程序集 1,020,452 B + `www/` 1,408,866 B；第 08 轮为 2,406,836 B，第 07 轮 2,391,387 B，第 06 轮 2,384,318 B，第 05 轮 2,365,470 B，第 04 轮 2,398,413 B，第 03 轮 2,389,352 B，第 02 轮 2,379,631 B）。
+2026-11-16 第 11 轮（0.24.0）收尾实测 **2,434,202 B**（可执行文件与 SDK 程序集 1,020,452 B + `www/` 1,413,750 B；第 08 轮为 2,406,836 B，第 07 轮 2,391,387 B，第 06 轮 2,384,318 B，第 05 轮 2,365,470 B，第 04 轮 2,398,413 B，第 03 轮 2,389,352 B，第 02 轮 2,379,631 B）。
 
-工作目录 `host\bin` 里还有 `webview2-data`（同一时刻 19,541,722 B，随运行增长）与 `host.log`。**这两样不进发布包**：便携 zip 由 `packaging/portable.ps1` 打，staging 会断言它们不存在；NSIS 安装包由 `packaging/installer.ps1` 打，载荷同源。第 10 轮（0.23.0）实测：便携 zip 889,108 B，SHA256 `4208F677A618C8CC3A993947609171388B3AF478CF042EC6FF16C91670039C79`；setup.exe 810,456 B，SHA256 `11E37B5E72C905C6788FD4189768905423B68D4ACE7681C73593141233A1E4D1`。产物体积与校验和以本轮实测为准。
+工作目录 `host\bin` 里还有 `webview2-data`（同一时刻 19,564,849 B，随运行增长）与 `host.log`。**这两样不进发布包**：便携 zip 由 `packaging/portable.ps1` 打，staging 会断言它们不存在；NSIS 安装包由 `packaging/installer.ps1` 打，载荷同源。第 11 轮（0.24.0）实测：便携 zip 891,471 B，SHA256 `E06F2E2EB2514D5027BA12D6A9DFA34AADF304B134F9A198A466C2D9F7452EE5`；setup.exe 811,756 B，SHA256 `4F06530B18E82AE51866A62633CEAF015723D481FE51754152950BBF183593D4`。产物体积与校验和以本轮实测为准。
 
 ## 偏离与缺口
 

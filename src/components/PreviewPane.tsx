@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
-import katex from 'katex'
+import { useMemo, useSyncExternalStore } from 'react'
 
+import katex from '../lib/katexLazy.ts'
+import { isKatexReady, subscribe } from '../lib/katexLazy.ts'
 import { renderFootnotes, renderFrontmatter } from '../lib/export.ts'
 
 type Props = {
@@ -25,14 +26,25 @@ function renderMath(html: string): string {
 }
 
 /**
- * 只读预览：复用导出的渲染与编辑器排版，
- * frontmatter 与脚注跟导出保持一致，公式由 KaTeX 当场补渲染。
+ * 只读预览：复用导出的渲染与编辑器排版；frontmatter 与脚注跟导出一致，公式由 KaTeX 当场补渲染。
+ * KaTeX 惰性加载完成前显示占位，加载后由 useSyncExternalStore 自动重画。
  */
 export function PreviewPane({ bodyHtml, frontmatter, footnotes }: Props) {
-  const html = useMemo(
-    () => `${renderFrontmatter(frontmatter)}${renderMath(bodyHtml)}${renderFootnotes(footnotes)}`,
-    [bodyHtml, frontmatter, footnotes],
-  )
+  const ready = useSyncExternalStore(subscribe, isKatexReady, () => false)
+  const hasMath = bodyHtml.includes('data-type="inline-math"') || bodyHtml.includes('data-type="block-math"')
+
+  const html = useMemo(() => {
+    if (hasMath && !ready) return ''
+    return `${renderFrontmatter(frontmatter)}${renderMath(bodyHtml)}${renderFootnotes(footnotes)}`
+  }, [bodyHtml, frontmatter, footnotes, hasMath, ready])
+
+  if (hasMath && !ready) {
+    return (
+      <div className="doc-column preview-column">
+        <p className="math-pending-note">公式预览加载中…</p>
+      </div>
+    )
+  }
 
   return (
     <div className="doc-column preview-column">

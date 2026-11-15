@@ -1,9 +1,15 @@
+import path from 'node:path'
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 import { woff2Only } from './scripts/vite-woff2-only.mjs'
 
 export default defineConfig({
+  resolve: {
+    // katex 按需加载：唯一入口 shim 由 A 组提供；正则只匹配裸 `katex` 说明符。
+    alias: [{ find: /^katex$/, replacement: path.resolve('src/lib/katexLazy.ts') }],
+  },
   server: {
     port: 5173,
     strictPort: true,
