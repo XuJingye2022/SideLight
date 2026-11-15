@@ -71,14 +71,16 @@ jobs:
             Expand-Archive .tmp/wv2.zip .tmp/wv2 -Force
           }
 
-      - name: Fetch NSIS 3.11 (pinned)
+      - name: Fetch NSIS 3.11 (pinned, vendored asset)
         run: |
           if (-not (Test-Path .tmp/nsis/nsis-3.11.zip)) {
             New-Item -ItemType Directory -Force .tmp/nsis | Out-Null
-            Invoke-WebRequest -Uri 'https://prdownloads.sourceforge.net/nsis/nsis-3.11.zip' -OutFile .tmp/nsis/nsis-3.11.zip -UseBasicParsing
+            # SourceForge 直链会返回反爬 HTML；改用本仓库 Release 固定资产
+            Invoke-WebRequest -Uri 'https://github.com/XuJingye2022/SideLight/releases/download/v0.26.0/build-tools-nsis-3.11.zip' -OutFile .tmp/nsis/nsis-3.11.zip -UseBasicParsing
           }
           $h = (Get-FileHash .tmp/nsis/nsis-3.11.zip -Algorithm SHA256).Hash
           if ($h -ne $env:NSIS_SHA256) { throw "NSIS hash mismatch: $h" }
+          Expand-Archive .tmp/nsis/nsis-3.11.zip .tmp/nsis -Force
 
       - name: Build host
         run: powershell -ExecutionPolicy Bypass -File host/build.ps1
@@ -104,7 +106,7 @@ jobs:
   macos-host:
     # 首跑不阻塞主流程；CI 编译是 macOS 宿主的唯一验证（本机没有 Swift/macOS）
     continue-on-error: true
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 30
     defaults:
       run:
