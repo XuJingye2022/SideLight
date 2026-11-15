@@ -101,6 +101,34 @@ jobs:
           path: release/Sidelight-*-win-x64-setup.exe
           if-no-files-found: error
 
+  macos-host:
+    # 首跑不阻塞主流程；CI 编译是 macOS 宿主的唯一验证（本机没有 Swift/macOS）
+    continue-on-error: true
+    runs-on: macos-14
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      - name: Build macOS app (swift build + .app + zip)
+        run: bash host-mac/build.sh
+
+      - name: Self-test (start server, GET /__doc)
+        run: ./.tmp/mac/Sidelight.app/Contents/MacOS/SidelightMac --self-test
+
+      - name: Upload macOS zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sidelight-macos
+          path: release/Sidelight-*-macos-*.zip
   install-verify:
     # 会写 HKCU 与开始菜单；只在手动触发时跑，替掉本地三项 UNVERIFIED
     # 首跑计划：先只手动 dispatch windows-host；它连续绿 3 次后再跑本任务。
