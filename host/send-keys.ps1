@@ -1,9 +1,15 @@
-﻿param([string]$Path, [string]$Log = '.tmp\send-keys.log')
+﻿param(
+    [string]$Path,
+    [string]$Log = '.tmp\send-keys.log',
+    [string]$Dialog = 'Folder',
+    [string]$Choice = 'No'
+)
 
-# 驱动 WebView2 的原生文件夹选择框，不依赖前台焦点：
-# Win32 EnumWindows 找 #32770（msedgewebview2 的窗口）→ GetDlgItem 拿「文件夹:」编辑框(1152) 与
-# 「选择文件夹」按钮(IDOK=1) → WM_SETTEXT 填路径 → BM_CLICK 点按钮。
-# 控件 ID 来自 .tmp 的 UIA 树 dump（Edit id=1152、Button id=1、class=Button）。
+# 两种原生对话框驱动：
+#   -Dialog Folder（默认）：WebView2 的文件夹选择框。Win32 找 #32770（msedgewebview2）→ GetDlgItem(1152) 编辑框 /
+#     GetDlgItem(1) 按钮 → SendKeys 打路径 + 回车两次 → BM_CLICK 兜底。
+#   -Dialog YesNo -Choice Yes|No：宿主的 MessageBox。先找 Sidelight 进程的可见 #32770，找不到再退 msedgewebview2；
+#     GetDlgItem(6|7) + BM_CLICK。WinForms MessageBox 的 IDYES=6、IDNO=7。
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -49,6 +55,11 @@ public static class DlgWin {
         }, IntPtr.Zero);
         return found;
     }
+    public static string Title(IntPtr h) {
+        StringBuilder sb = new StringBuilder(256);
+        GetWindowText(h, sb, 256);
+        return sb.ToString();
+    }
 }
 "@
 
@@ -59,6 +70,44 @@ function Write-Log([string]$message) {
 
 $browserPids = @(Get-Process msedgewebview2 -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -like '*EdgeWebView*' } | Select-Object -ExpandProperty Id)
+$appPids = @(Get-Process Sidelight -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+
+if ($Dialog -eq 'YesNo') {
+    $buttonId = if ($Choice -eq 'Yes') { 6 } else { 7 }
+    $deadline = (Get-Date).AddSeconds(25)
+    $hwnd = [IntPtr]::Zero
+    while ((Get-Date) -lt $deadline -and $hwnd -eq [IntPtr]::Zero) {
+        foreach ($p in $appPids) {
+            $h = [DlgWin]::FindDialog([uint32]$p)
+            if ($h -ne [IntPtr]::Zero) { $hwnd = $h; break }
+        }
+        if ($hwnd -eq [IntPtr]::Zero) {
+            foreach ($p in $browserPids) {
+                $h = [DlgWin]::FindDialog([uint32]$p)
+                if ($h -ne [IntPtr]::Zero) { $hwnd = $h; break }
+            }
+        }
+        if ($hwnd -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 200 }
+    }
+    if ($hwnd -eq [IntPtr]::Zero) {
+        Write-Log 'NO-DIALOG'
+        exit 2
+    }
+    Write-Log ("yesno hwnd=" + $hwnd + " title=[" + [DlgWin]::Title($hwnd) + "] choice=" + $Choice)
+    $btn = [DlgWin]::GetDlgItem($hwnd, $buttonId)
+    if ($btn -eq [IntPtr]::Zero) {
+        Write-Log ("NO-BUTTON id=" + $buttonId)
+        exit 4
+    }
+    if (-not [DlgWin]::IsWindowEnabled($btn)) {
+        Write-Log 'BUTTON-DISABLED'
+        exit 5
+    }
+    # BM_CLICK = 0x00F5
+    [void][DlgWin]::SendMessage($btn, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+    Write-Log ("clicked-" + $Choice)
+    exit 0
+}
 
 $deadline = (Get-Date).AddSeconds(25)
 $hwnd = [IntPtr]::Zero

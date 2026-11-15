@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { DEFAULT_ANALYSIS_PROMPT } from '../lib/prompt.ts'
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, type Settings } from '../lib/settings.ts'
+import { useDialogFocus } from './useDialogFocus.ts'
 
 type Props = {
   open: boolean
@@ -12,6 +13,8 @@ type Props = {
 
 export function SettingsDialog({ open, settings, onSave, onClose }: Props) {
   const [draft, setDraft] = useState<Settings>(settings)
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  useDialogFocus(open, dialogRef)
 
   // 对话框常驻，每次打开都把草稿同步成当前设置，避免保存时把刚改的值盖回去
   useEffect(() => {
@@ -24,8 +27,16 @@ export function SettingsDialog({ open, settings, onSave, onClose }: Props) {
 
   return (
     <div className="overlay" role="presentation" onMouseDown={onClose}>
-      <div className="dialog" role="dialog" aria-label="设置" onMouseDown={(event) => event.stopPropagation()}>
-        <h2>设置</h2>
+      <div
+        ref={dialogRef}
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="设置"
+        aria-labelledby="settings-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <h2 id="settings-title">设置</h2>
         <p className="dialog-note">密钥只存在这台机器的本地存储里，不会上传。</p>
 
         <label className="field">
@@ -47,6 +58,7 @@ export function SettingsDialog({ open, settings, onSave, onClose }: Props) {
             placeholder="sk-..."
             spellCheck={false}
           />
+          {draft.apiKey.trim().length === 0 && <span className="field-hint">未配置：分析会用本地模拟批注</span>}
         </label>
 
         <label className="field">

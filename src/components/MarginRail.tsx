@@ -9,6 +9,8 @@ type Props = {
   activeId: string | null
   analyzing: boolean
   unresolved: number
+  /** 没配 API Key，批注是本地模拟生成的 */
+  simulated: boolean
   goal: string
   discussingId: string | null
   verifyingId: string | null
@@ -32,6 +34,7 @@ export function MarginRail({
   activeId,
   analyzing,
   unresolved,
+  simulated,
   goal,
   discussingId,
   verifyingId,
@@ -73,6 +76,8 @@ export function MarginRail({
 
       {unresolved > 0 && <p className="rail-notice">有 {unresolved} 条没能在正文里定位，已丢弃。</p>}
 
+      {simulated && <p className="rail-notice-mock">未配置 API Key，下面是本地模拟批注，不调用模型</p>}
+
       {pending.length === 0 && !analyzing && (
         <div className="rail-empty">
           <p className="rail-empty-title">选中一段，按 Ctrl + Enter</p>
@@ -94,6 +99,7 @@ export function MarginRail({
             <span className={`note-kind note-kind-${annotation.kind}`}>
               {annotation.kind === 'revision' ? '修订' : '评价'}
             </span>
+            {simulated && <span className="note-kind note-kind-mock">模拟</span>}
             <span className="note-index">第 {index + 1} 处</span>
           </header>
 

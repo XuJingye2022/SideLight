@@ -1,9 +1,11 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -21,6 +23,12 @@ static class Program
     static Mutex heldMutex;
     static string scriptId;
     static string pendingFile;
+
+    // 转发队列：WebView2 没就绪或正在导航时收到的路径先排队，导航完成后重放。
+    static readonly Queue<string> forwardQueue = new Queue<string>();
+    static bool navReady;
+    static bool portableDataDir;
+    static string fatalInitError;
 
     [STAThread]
     static void Main(string[] args)
@@ -65,58 +73,161 @@ static class Program
             return;
         }
 
+        string www = Path.Combine(baseDir, "www");
+        if (!File.Exists(Path.Combine(www, "index.html")))
+        {
+            Log("startup failed reason=no-www path=" + Path.Combine(www, "index.html"));
+            RunErrorForm("缺少运行文件 www/index.html。请重新解压完整的 zip。日志：" + logPath);
+            return;
+        }
+
+        string dataDir = ResolveUserDataDir();
+        if (dataDir == null)
+        {
+            RunErrorForm("无法创建 WebView2 数据目录。请把程序放到可写目录，或检查 %LOCALAPPDATA% 与 %TEMP% 的权限。日志：" + logPath);
+            return;
+        }
+
         form = new Form();
-        form.Text = "Sidelight";
+        form.Text = portableDataDir ? "Sidelight（便携数据目录）" : "Sidelight";
         form.Width = 1280;
         form.Height = 820;
         form.StartPosition = FormStartPosition.CenterScreen;
         form.BackColor = Color.White;
+        try
+        {
+            string iconFile = Path.Combine(baseDir, "sidelight.ico");
+            if (File.Exists(iconFile)) form.Icon = new Icon(iconFile);
+        }
+        catch (Exception)
+        {
+            // 图标坏了不挡启动，退回默认图标。
+        }
 
         web = new WebView2();
         web.Dock = DockStyle.Fill;
         form.Controls.Add(web);
 
-        form.Load += delegate { InitWebView(); };
+        form.Load += delegate { InitWebView(www, dataDir); };
         form.Shown += delegate { StartPipeServer(); };
         form.FormClosed += delegate { Log("form closed"); };
 
         Application.Run(form);
         GC.KeepAlive(heldMutex);
+        if (fatalInitError != null)
+        {
+            RunErrorForm(fatalInitError);
+        }
         Log("exit");
     }
 
+    // 长路径：已是 \\?\ 前缀原样返回；否则先求绝对路径，长度 ≥240 时加 \\?\ 前缀。
+    // 依赖 Sidelight.exe.config 的 UseLegacyPathHandling=false / BlockLongPaths=false，
+    // 以及 app.manifest 的 longPathAware=true（不带前缀的 300 字符路径也靠它）。
     static string Resolve(string arg)
     {
-        try { return Path.GetFullPath(arg); }
-        catch { return arg; }
+        if (arg.StartsWith(@"\\?\")) return arg;
+        string full;
+        try { full = Path.GetFullPath(arg); }
+        catch { full = arg; }
+        if (full.Length >= 240 && !full.StartsWith(@"\\?\")) return @"\\?\" + full;
+        return full;
     }
 
-    static string ResolveUserDataDir()
+    static string TryDataDir(string dir)
     {
+        string probe = null;
         try
         {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string dir = Path.Combine(Path.Combine(appData, "Sidelight"), "WebView2");
             Directory.CreateDirectory(dir);
-            string probe = Path.Combine(dir, ".write-probe");
+            probe = Path.Combine(dir, ".probe-" + Guid.NewGuid().ToString("N"));
             File.WriteAllText(probe, "ok");
-            File.Delete(probe);
             return dir;
         }
         catch (Exception ex)
         {
-            Log("appdata unusable: " + ex.Message + " -> 退回 exe 同级 webview2-data");
-            string fallback = Path.Combine(baseDir, "webview2-data");
-            Directory.CreateDirectory(fallback);
-            return fallback;
+            Log("data dir candidate failed " + dir + " " + ex.Message);
+            return null;
+        }
+        finally
+        {
+            if (probe != null)
+            {
+                try { File.Delete(probe); } catch { }
+            }
         }
     }
 
-    static async void InitWebView()
+    // 顺序：%LOCALAPPDATA% → %TEMP% → exe 同级（便携）。全失败返回 null，由调用方给错误窗。
+    static string ResolveUserDataDir()
+    {
+        string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string temp = Path.GetTempPath();
+        string[] candidates = new string[]
+        {
+            Path.Combine(Path.Combine(appData, "Sidelight"), "WebView2"),
+            Path.Combine(Path.Combine(temp, "Sidelight"), "WebView2"),
+            Path.Combine(baseDir, "webview2-data")
+        };
+        for (int i = 0; i < candidates.Length; i++)
+        {
+            string ok = TryDataDir(candidates[i]);
+            if (ok != null)
+            {
+                string kind = i == 0 ? "localappdata" : (i == 1 ? "temp" : "portable");
+                portableDataDir = i == 2;
+                Log("data dir=" + ok + " kind=" + kind);
+                return ok;
+            }
+        }
+        Log("data dir FAILED tried=" + string.Join(" | ", candidates));
+        return null;
+    }
+
+    static string SafeFileName(string path)
     {
         try
         {
-            string dataDir = ResolveUserDataDir();
+            string name = Path.GetFileName(path);
+            if (!string.IsNullOrEmpty(name)) return name;
+        }
+        catch { }
+        int cut = path.LastIndexOfAny(new char[] { '\\', '/' });
+        return cut >= 0 && cut + 1 < path.Length ? path.Substring(cut + 1) : path;
+    }
+
+    // 启动前置失败：不显示主窗，直接进错误窗。关闭或 8 s 看门狗到点都 exit 1。
+    static void RunErrorForm(string message)
+    {
+        Log("error form: " + message);
+        Form error = new Form();
+        error.Text = "Sidelight 启动失败";
+        error.Width = 640;
+        error.Height = 260;
+        error.StartPosition = FormStartPosition.CenterScreen;
+        Label label = new Label();
+        label.Text = message;
+        label.Dock = DockStyle.Fill;
+        label.Padding = new Padding(16);
+        error.Controls.Add(label);
+        System.Windows.Forms.Timer watchdog = new System.Windows.Forms.Timer();
+        watchdog.Interval = 8000;
+        watchdog.Tick += delegate
+        {
+            Log("error form watchdog fired");
+            watchdog.Stop();
+            error.Close();
+        };
+        error.Shown += delegate { watchdog.Start(); };
+        error.FormClosed += delegate { watchdog.Stop(); Log("error form closed"); };
+        Application.Run(error);
+        Log("exit code 1 (error form)");
+        Environment.Exit(1);
+    }
+    static async void InitWebView(string www, string dataDir)
+    {
+        try
+        {
 
             CoreWebView2Environment env = await CoreWebView2Environment.CreateAsync(null, dataDir, null);
             await web.EnsureCoreWebView2Async(env);
@@ -124,30 +235,29 @@ static class Program
 
             CoreWebView2 core = web.CoreWebView2;
             core.PermissionRequested += OnPermissionRequested;
+            core.NavigationStarting += OnNavigationStarting;
             core.NavigationCompleted += OnNavigationCompleted;
             core.ProcessFailed += delegate(object s, CoreWebView2ProcessFailedEventArgs e)
             {
                 Log("process failed " + e.ProcessFailedKind);
             };
 
-            string www = Path.Combine(baseDir, "www");
-            if (!File.Exists(Path.Combine(www, "index.html")))
-            {
-                throw new FileNotFoundException("www/index.html 不存在，先用 host/build.ps1 复制 dist。", Path.Combine(www, "index.html"));
-            }
+
             core.SetVirtualHostNameToFolderMapping(
                 "sidelight.local", www, CoreWebView2HostResourceAccessKind.Allow);
             Log("mapping " + www);
 
             if (pendingFile != null && File.Exists(pendingFile))
             {
-                string script = BuildArgvScript(pendingFile);
+                string script = BuildApplyScript(File.ReadAllText(pendingFile, Encoding.UTF8), Path.GetFileName(pendingFile), true);
                 scriptId = await core.AddScriptToExecuteOnDocumentCreatedAsync(script);
                 Log("argv script added id=" + scriptId);
             }
             else if (pendingFile != null)
             {
-                Log("argv file missing " + pendingFile);
+                string reason = pendingFile.Length >= 240 ? "too-long" : "missing";
+                Log("open failed path=" + pendingFile + " reason=" + reason);
+                form.Text = "Sidelight — 打不开：" + SafeFileName(pendingFile);
             }
 
             core.Navigate(APP_URL);
@@ -156,8 +266,8 @@ static class Program
         catch (Exception ex)
         {
             Log("INIT-FAIL " + ex.ToString());
-            MessageBox.Show("Sidelight 宿主启动失败：" + ex.Message, "Sidelight");
-            form.Close();
+            fatalInitError = "Sidelight 启动失败：无法创建 WebView2 环境。" + ex.Message + " 日志：" + logPath;
+            try { form.Close(); } catch { }
         }
     }
 
@@ -170,25 +280,42 @@ static class Program
         }
     }
 
+    static void OnNavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e)
+    {
+        navReady = false;
+        Log("navigation starting " + e.Uri);
+    }
+
     static void OnNavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
     {
         Log("nav completed success=" + e.IsSuccess + " status=" + e.WebErrorStatus);
-        // SDK 1.0.4314.35 的 .NET 投影只给了 AddScriptToExecuteOnDocumentCreatedAsync，
-        // 没有 RemoveScriptToExecuteOnDocumentCreated 的 Async 包装（已查 dll 字符串表）。
-        // 所以「只注入一次」靠注入脚本自己的 sessionStorage 守卫，验收用 sl:argv-runs 与导航次数证明。
+        if (!e.IsSuccess)
+        {
+            if (forwardQueue.Count > 0) Log("forward deferred count=" + forwardQueue.Count);
+            return;
+        }
+        navReady = true;
+        if (forwardQueue.Count == 0) return;
+        // 只应用最后一个路径：reload 期间连续转发时，用户想要的是最后那一份。
+        string next = null;
+        while (forwardQueue.Count > 0) next = forwardQueue.Dequeue();
+        Log("forward drained " + next);
+        ApplyForwardAsync(next);
     }
 
     // 只在首个顶层导航注入一次；重载后靠 sessionStorage 守卫直接返回，避免无限重载。
-    static string BuildArgvScript(string path)
+    static string BuildApplyScript(string text, string name, bool oneShotGuard)
     {
-        string text = File.ReadAllText(path, Encoding.UTF8);
         string b64text = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
-        string b64name = Convert.ToBase64String(Encoding.UTF8.GetBytes(Path.GetFileName(path)));
+        string b64name = Convert.ToBase64String(Encoding.UTF8.GetBytes(name));
         StringBuilder sb = new StringBuilder();
         sb.Append("(function(){try{");
-        sb.Append("if(sessionStorage.getItem('sl:argv-done')==='1'){return;}");
-        sb.Append("var n=parseInt(sessionStorage.getItem('sl:argv-runs')||'0',10)+1;");
-        sb.Append("sessionStorage.setItem('sl:argv-runs',String(n));");
+        if (oneShotGuard)
+        {
+            sb.Append("if(sessionStorage.getItem('sl:argv-done')==='1'){return;}");
+            sb.Append("var n=parseInt(sessionStorage.getItem('sl:argv-runs')||'0',10)+1;");
+            sb.Append("sessionStorage.setItem('sl:argv-runs',String(n));");
+        }
         sb.Append("function dec(b){var s=atob(b);var a=new Uint8Array(s.length);");
         sb.Append("for(var i=0;i<s.length;i++){a[i]=s.charCodeAt(i);}return new TextDecoder('utf-8').decode(a);}");
         sb.Append("localStorage.setItem('");
@@ -198,30 +325,112 @@ static class Program
         sb.Append("'),name:dec('");
         sb.Append(b64name);
         sb.Append("'),savedAt:0}));");
-        sb.Append("sessionStorage.setItem('sl:argv-done','1');");
+        if (oneShotGuard) sb.Append("sessionStorage.setItem('sl:argv-done','1');");
         sb.Append("location.reload();");
         sb.Append("}catch(e){}})();");
         return sb.ToString();
     }
 
-    static void OpenFileIntoDoc(string path)
+    static void EnqueueForward(string path)
+    {
+        if (form == null || form.IsDisposed) return;
+        try
+        {
+            form.BeginInvoke((MethodInvoker)delegate { EnqueueForwardOnUi(path); });
+        }
+        catch (Exception ex)
+        {
+            Log("forward failed enqueue " + ex.Message);
+        }
+    }
+
+    static void EnqueueForwardOnUi(string path)
     {
         if (string.IsNullOrEmpty(path) || !File.Exists(path)) { Log("forward ignored " + path); return; }
-        string text = File.ReadAllText(path, Encoding.UTF8);
-        string b64text = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
-        string b64name = Convert.ToBase64String(Encoding.UTF8.GetBytes(Path.GetFileName(path)));
-        StringBuilder sb = new StringBuilder();
-        sb.Append("(function(){try{function dec(b){var s=atob(b);var a=new Uint8Array(s.length);");
-        sb.Append("for(var i=0;i<s.length;i++){a[i]=s.charCodeAt(i);}return new TextDecoder('utf-8').decode(a);}");
-        sb.Append("localStorage.setItem('");
-        sb.Append(DOC_KEY);
-        sb.Append("',JSON.stringify({text:dec('");
-        sb.Append(b64text);
-        sb.Append("'),name:dec('");
-        sb.Append(b64name);
-        sb.Append("'),savedAt:0}));location.reload();}catch(e){}})();");
-        web.CoreWebView2.ExecuteScriptAsync(sb.ToString());
-        Log("forward applied " + path);
+        if (!navReady)
+        {
+            if (forwardQueue.Contains(path)) { Log("forward duplicate queued " + path); return; }
+            forwardQueue.Enqueue(path);
+            Log("forward queued " + path);
+            return;
+        }
+        ApplyForwardAsync(path);
+    }
+
+    // 页面的 __slState 由前端挂载后才存在；导航完成到 React 挂载之间有一个小窗口。
+    static async Task<string> ReadDirtyAsync()
+    {
+        CoreWebView2 core = web == null ? null : web.CoreWebView2;
+        if (core == null) { Log("forward dirty=unknown webview null"); return "unknown"; }
+        for (int i = 0; i < 30; i++)
+        {
+            try
+            {
+                string type = await core.ExecuteScriptAsync("typeof window.__slState");
+                if (type == "\"object\"") break;
+            }
+            catch (Exception)
+            {
+                // 页面还没加载完时会抛，继续等。
+            }
+            await Task.Delay(100);
+        }
+        try
+        {
+            string raw = await core.ExecuteScriptAsync("(window.__slState===undefined?-1:(window.__slState.dirty?1:0))");
+            if (raw == "1") return "1";
+            if (raw == "0") return "0";
+            Log("forward dirty=unknown raw=" + raw);
+            return "unknown";
+        }
+        catch (Exception ex)
+        {
+            Log("forward dirty=unknown " + ex.Message);
+            return "unknown";
+        }
+    }
+
+    #pragma warning disable 4014
+    static async void ApplyForwardAsync(string path)
+    {
+        try
+        {
+            string dirty = await ReadDirtyAsync();
+            if (dirty == "0")
+            {
+                Log("forward dirty=0 " + path);
+            }
+            else
+            {
+                Log("forward dirty=" + dirty + " " + path);
+                string name = Path.GetFileName(path);
+                DialogResult answer = MessageBox.Show(
+                    "当前文档有未保存的改动。打开 " + name + " 会替换它。",
+                    "Sidelight",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2);
+                if (answer != DialogResult.Yes)
+                {
+                    Log("forward cancelled " + path);
+                    return;
+                }
+                Log("forward confirmed " + path);
+            }
+
+            string text = File.ReadAllText(path, Encoding.UTF8);
+            string script = BuildApplyScript(text, Path.GetFileName(path), false);
+            Task exec = web.CoreWebView2.ExecuteScriptAsync(script);
+            exec.ContinueWith(delegate(Task prev)
+            {
+                if (prev.IsFaulted) Log("forward failed exec " + prev.Exception.GetBaseException().Message);
+            });
+            Log("forward applied " + path);
+        }
+        catch (Exception ex)
+        {
+            Log("forward failed " + ex.Message);
+        }
     }
 
     static void StartPipeServer()
@@ -242,10 +451,7 @@ static class Program
                         {
                             string path = Encoding.UTF8.GetString(Convert.FromBase64String(line.Trim()));
                             Log("pipe received " + path);
-                            if (form != null && !form.IsDisposed)
-                            {
-                                form.BeginInvoke((MethodInvoker)delegate { OpenFileIntoDoc(path); });
-                            }
+                            EnqueueForward(path);
                         }
                     }
                 }
@@ -291,6 +497,7 @@ static class Program
         }
     }
 
+#pragma warning restore 4014
     static void Log(string message)
     {
         try

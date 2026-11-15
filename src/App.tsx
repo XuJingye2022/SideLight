@@ -24,6 +24,7 @@ import { PreviewPane } from './components/PreviewPane.tsx'
 import { SaveDialog } from './components/SaveDialog.tsx'
 import { SettingsDialog } from './components/SettingsDialog.tsx'
 import { StatusBar } from './components/StatusBar.tsx'
+import { useDialogFocus } from './components/useDialogFocus.ts'
 import { messageOf, streamAnnotations, streamChat, type ChatMessage } from './lib/ai.ts'
 import {
   buildTextIndex,
@@ -61,6 +62,13 @@ import {
   type WorkspaceFileNode,
 } from './lib/workspace.ts'
 import { assetFileName, writeAsset } from './lib/asset.ts'
+
+declare global {
+  interface Window {
+    /** 宿主与验收脚本读的脏标记与文档名；round-02 跨组契约，随 [dirty, docName] 更新 */
+    __slState?: { dirty: boolean; name: string }
+  }
+}
 
 const DOC_KEY = 'sidelight.doc.v1'
 
@@ -133,6 +141,8 @@ type SelectionState = {
 
 export default function App() {
   const [settings, setSettings] = useState<Settings>(() => loadSettings())
+  // 没配 Key 时走本地模拟流，界面必须明说，否则用户会以为模型读过文章
+  const simulated = !hasKey(settings)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [activeFile, setActiveFile] = useState<WorkspaceFileNode | null>(null)
@@ -256,6 +266,7 @@ export default function App() {
   const frontmatterRef = useRef(initial.frontmatter)
   const footnotesRef = useRef(initial.footnotes)
   const docNameRef = useRef(initial.name)
+  const switchDialogRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     frontmatterRef.current = frontmatter
@@ -268,6 +279,14 @@ export default function App() {
   useEffect(() => {
     docNameRef.current = docName
   }, [docName])
+
+  // 跨组契约：宿主与验收脚本从这里读脏标记，不看编辑器内部状态
+  useEffect(() => {
+    window.__slState = { dirty, name: docName }
+  }, [dirty, docName])
+
+  // 切换文档的确认框与另外两个对话框共用一套焦点逻辑
+  useDialogFocus(pendingSwitch !== null, switchDialogRef)
 
   const shortcutExtension = useMemo(
     () =>
@@ -1613,8 +1632,22 @@ export default function App() {
           {dirty && <span className="dirty" title="有未保存的改动" />}
         </div>
         <div className="spacer" />
-        <button type="button" className="analyze-button" onClick={runAnalysis} disabled={selection.chars === 0 || analyzing}>
-          {analyzing ? '分析中…' : selection.to > selection.from ? '分析选中' : '分析本段'}
+        <button
+          type="button"
+          className="analyze-button"
+          onClick={runAnalysis}
+          disabled={selection.chars === 0 || analyzing}
+          title={simulated ? '未配置 API Key：从本地生成模拟批注' : undefined}
+        >
+          {analyzing
+            ? '分析中…'
+            : selection.to > selection.from
+              ? simulated
+                ? '分析选中（模拟）'
+                : '分析选中'
+              : simulated
+                ? '分析本段（模拟）'
+                : '分析本段'}
         </button>
         <div className="export-wrap">
           <button type="button" onClick={() => setExportOpen((value) => !value)}>
@@ -1905,6 +1938,7 @@ export default function App() {
                 activeId={activeId}
                 analyzing={analyzing}
                 unresolved={unresolved}
+                simulated={simulated}
                 goal={analysisGoal}
                 onGoalRetry={() => {
                   setAnalysisGoal('')
@@ -1993,8 +2027,16 @@ export default function App() {
 
       {pendingSwitch && (
         <div className="overlay" role="presentation" onMouseDown={cancelSwitch}>
-          <div className="dialog" role="dialog" aria-label="切换文档" onMouseDown={(event) => event.stopPropagation()}>
-            <h2>这篇还有没保存的改动</h2>
+          <div
+            ref={switchDialogRef}
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="切换文档"
+            aria-labelledby="switch-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2 id="switch-title">这篇还有没保存的改动</h2>
             <p className="dialog-note">切到「{pendingSwitch.name}」之前，要先把当前这篇存下来吗？</p>
             <div className="dialog-actions">
               <button type="button" onClick={cancelSwitch}>

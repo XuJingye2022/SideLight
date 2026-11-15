@@ -1,4 +1,7 @@
+import { useRef } from 'react'
+
 import type { DiffLine } from '../lib/diff.ts'
+import { useDialogFocus } from './useDialogFocus.ts'
 
 type Props = {
   open: boolean
@@ -10,6 +13,8 @@ type Props = {
 const MAX_PREVIEW = 60
 
 export function SaveDialog({ open, diff, onConfirm, onCancel }: Props) {
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  useDialogFocus(open, dialogRef)
   if (!open) return null
 
   const changed = diff.filter((line) => line.kind !== 'same')
@@ -19,12 +24,15 @@ export function SaveDialog({ open, diff, onConfirm, onCancel }: Props) {
   return (
     <div className="overlay" role="presentation" onMouseDown={onCancel}>
       <div
+        ref={dialogRef}
         className="dialog save-dialog"
         role="dialog"
+        aria-modal="true"
         aria-label="保存前确认"
+        aria-labelledby="save-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <h2>保存后文件会有这些差异</h2>
+        <h2 id="save-title">保存后文件会有这些差异</h2>
         <p className="dialog-note">
           这里既有你自己的改动，也有编辑器把 Markdown 规范化的结果。frontmatter 与脚注已经原样保留，其余以这里为准。
         </p>

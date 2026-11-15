@@ -28,11 +28,16 @@ if (Test-Path $www) { Remove-Item $www -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $www | Out-Null
 
 $exe = Join-Path $bin 'Sidelight.exe'
+$iconPath = Join-Path $root 'packaging\sidelight.ico'
+$manifest = Join-Path $PSScriptRoot 'app.manifest'
+if (-not (Test-Path $iconPath)) { Write-Host "警告：缺 packaging\sidelight.ico，exe 不带图标"; $iconArg = @() } else { $iconArg = @("/win32icon:$iconPath") }
 $cscArgs = @(
     '/nologo',
     '/target:winexe',
     '/platform:x64',
     '/codepage:65001',
+    "/win32manifest:`"$manifest`"",
+    $iconArg
     "/out:$exe",
     "/r:$(Join-Path $lib 'Microsoft.Web.WebView2.Core.dll')",
     "/r:$(Join-Path $lib 'Microsoft.Web.WebView2.WinForms.dll')",
@@ -49,6 +54,7 @@ if ($LASTEXITCODE -ne 0) {
 Copy-Item (Join-Path $lib 'Microsoft.Web.WebView2.Core.dll') $bin -Force
 Copy-Item (Join-Path $lib 'Microsoft.Web.WebView2.WinForms.dll') $bin -Force
 Copy-Item (Join-Path $sdk 'runtimes\win-x64\native\WebView2Loader.dll') $bin -Force
+Copy-Item (Join-Path $PSScriptRoot 'Sidelight.exe.config') $bin -Force
 Copy-Item (Join-Path $dist '*') $www -Recurse -Force
 
 $size = (Get-ChildItem $bin -Recurse -File | Measure-Object Length -Sum).Sum
