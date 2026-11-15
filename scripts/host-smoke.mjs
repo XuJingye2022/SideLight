@@ -151,8 +151,18 @@ async function main() {
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) navCount += 1
   })
+  const ignoredConsole = []
   page.on('console', (msg) => {
-    if (msg.type() === 'error') consoleErrors.push(msg.text())
+    if (msg.type() !== 'error') return
+    const text = msg.text()
+    const url = msg.location()?.url ?? ''
+    // 宿主 smoke 只忽略两种 404：无 argv 时 /__doc 尚未注入、以及 favicon.ico
+    const is404 = text.includes('404')
+    if (is404 && (url.includes('/__doc') || url.includes('/favicon.ico'))) {
+      ignoredConsole.push(url || text)
+      return
+    }
+    consoleErrors.push(url ? `${text} @ ${url}` : text)
   })
   page.on('pageerror', (err) => consoleErrors.push(`pageerror: ${err.message}`))
 
@@ -163,6 +173,9 @@ async function main() {
     renderOk = false
   }
   await page.waitForTimeout(1500)
+  if (ignoredConsole.length > 0) {
+    console.log(`ignored console 404: ${[...new Set(ignoredConsole)].join(', ')}`)
+  }
 
   const title = await page.title()
   check('窗口：document.title 以 Sidelight 结尾（「文件名 — Sidelight」）', title.endsWith('Sidelight'), `document.title=${title}`)
