@@ -1,12 +1,16 @@
 import { DEFAULT_ANALYSIS_PROMPT } from './prompt.ts'
 import type { SearchProvider } from './search.ts'
 
+export type ThemeMode = 'light' | 'dark' | 'system'
+
 export type Settings = {
   baseUrl: string
   apiKey: string
   model: string
   /** 正文字号，像素 */
   fontSize: number
+  /** 浅色 / 深色 / 跟随系统 */
+  theme: ThemeMode
   /** 联网核对用的搜索服务；off 表示不启用 */
   searchProvider: SearchProvider
   searchApiKey: string
@@ -24,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
   model: 'deepseek-chat',
   fontSize: 17,
+  theme: 'system',
   searchProvider: 'off',
   searchApiKey: '',
   analysisPrompt: DEFAULT_ANALYSIS_PROMPT,
@@ -44,6 +49,10 @@ export function loadSettings(): Settings {
       apiKey: parsed.apiKey ?? '',
       model: parsed.model?.trim() || DEFAULT_SETTINGS.model,
       fontSize: clampFontSize(parsed.fontSize ?? DEFAULT_SETTINGS.fontSize),
+      theme:
+        parsed.theme === 'light' || parsed.theme === 'dark' || parsed.theme === 'system'
+          ? parsed.theme
+          : DEFAULT_SETTINGS.theme,
       searchProvider:
         parsed.searchProvider === 'tavily' || parsed.searchProvider === 'bocha' ? parsed.searchProvider : 'off',
       searchApiKey: parsed.searchApiKey ?? '',

@@ -30,3 +30,34 @@ export function repairMath(markdown: string): string {
     .replace(/\$\$[\s\S]*?\$\$/g, (block) => block.replace(/\\\\/g, '\\'))
     .replace(/\$[^$\n]+\$/g, (inline) => inline.replace(/\\\\/g, '\\'))
 }
+
+// 公式节点的属性顺序不固定（data-type 与 data-latex 谁在前都可能），先按 data-type 定位整块，再从属性串里取 latex
+const MATH_NODE = /<(span|div)\b([^>]*\bdata-type="(inline|block)-math"[^>]*)>([\s\S]*?)<\/\1>/g
+
+function decodeEntities(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+}
+
+/**
+ * 把编辑器 HTML 里的公式节点交给 render 重写。取不到 data-latex 就原样保留，不误删。
+ * 属性顺序无关：data-type 在前或在后都能匹配。
+ */
+export function replaceMathHtml(html: string, render: (latex: string, display: boolean) => string): string {
+  return html.replace(MATH_NODE, (whole, _tag: string, attrs: string, kind: string) => {
+    const match = /\bdata-latex="([^"]*)"/.exec(attrs)
+    if (!match) return whole
+    const latex = decodeEntities(match[1])
+    if (!latex.trim()) return whole
+    return render(latex, kind === 'block')
+  })
+}
+
+/** 纯文本导出：公式还原成 `$latex$` / `$$latex$$`，而不是整段消失 */
+export function mathToPlainText(html: string): string {
+  return replaceMathHtml(html, (latex, display) => (display ? `$$${latex}$$` : `$${latex}$`))
+}

@@ -35,7 +35,7 @@
 
 ## 现在不能做什么
 
-- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen 尚未人工验。安装用 `release/Sidelight-0.17.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
+- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen 尚未人工验。安装用 `release/Sidelight-0.18.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
 - 没有 .md 文件关联：双击 .md 不会用 Sidelight 打开，要在「打开方式」里手动选一次。
 - 密钥存在浏览器 localStorage，没有加密，也没有系统钥匙串。
 - 引用式链接打开再保存会被改写成行内链接；打开时提示，保存前把受影响的行摆出来给你确认。
@@ -48,7 +48,9 @@
 
 ## 依赖与体积
 
-打包产物约 1.34 MiB（1,406,633 B）：JS 1.0 MB、KaTeX 字体 256,168 B（19 个文件，只发 woff2）、其余是 HTML 与 CSS。
+打包产物约 1.31 MiB（1,373,690 B）：JS 1.1 MB、KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联成 data URI）、其余是 HTML 与 CSS。
+
+**为什么不拆 KaTeX**：`@tiptap/extension-mathematics` 顶层静态 `import katex`，扩展在编辑器首帧就要注册，拆包必须换惰性 shim 并异步化三处渲染，0.18.0 不做；构建用 `chunkSizeWarningLimit: 1200` 显式设告警线（主 chunk 约 1.10 MB 是首屏必需，1200 留约 100 kB 余量）。
 
 运行时依赖只有两组，都不是为省几行代码引入的：
 
@@ -57,7 +59,7 @@
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
 
-宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 829,472 B（SHA256 `89FEC195064742D5C8DD77132933598AA0086E87AE2F3D7DA920078732EF2EBC`）、便携 zip 907,266 B（SHA256 `6E523A4C87488558ED032711C4A79A87394BC7EEB7FC217E713A826077AA54BA`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
+宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 788,878 B（SHA256 `FE5AC4097DF71E438A9F6FB21CC8BFE81E9A838ACBDB48C17279AD8650B9BB94`）、便携 zip 866,981 B（SHA256 `F866D2AA548562BA21ABD920588FDFEA628AB14839EC300F31B4E92497FCFE6E`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
 
 ## 跑起来
 
@@ -67,7 +69,7 @@ npm run dev       # http://localhost:5173
 npm test          # 16 个文件、171 条断言
 npm run roundtrip # Markdown 往返损失测量，写 docs/roundtrip-report.md
 npm run build     # 类型检查 + 打包
-npm run shot      # 无头浏览器跑流程并截图（需先起 dev；当前固定写 shots/round-01/）
+npm run shot      # 无头浏览器跑流程并截图（需先起 dev；默认写 .tmp/shots/shot.png，--out 指定路径）
 npm run acceptance # 11 项：草稿、货币、查找、公式、字体、表格、导出、三处保真、无控制台错误（需先起 dev + 无头浏览器）
 node scripts/qa.mjs  # 缺陷探测：切换文档、设置、字号、批注漂移、空文档、专注模式（qa7、qa9–qa18 是单项探测）
 ```

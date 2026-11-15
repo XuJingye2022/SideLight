@@ -79,7 +79,14 @@ const fonts = await page.evaluate(async () => {
     loaded: katex.filter((font) => font.status === 'loaded').length,
   }
 })
-check('字体已加载', fonts.main && fonts.faces === 20 && fonts.loaded >= 1, `faces=${fonts.faces} loaded=${fonts.loaded}`)
+// dev server（5173）直接从 node_modules 提供 katex.min.css 的全部 20 个 face；
+// vite preview（4173）服务 dist，已经过 woff2-only 插件裁到 16 个。按运行环境判，不放宽成 ≥。
+const expectedFaces = new URL(url).port === '4173' ? 16 : 20
+check(
+  '字体已加载',
+  fonts.main && fonts.faces === expectedFaces && fonts.loaded >= 1,
+  `faces=${fonts.faces}/${expectedFaces} loaded=${fonts.loaded}`,
+)
 
 // 4. 表格工具条
 await page.getByRole('button', { name: '插入 ▾' }).click()

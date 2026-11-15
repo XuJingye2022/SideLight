@@ -3,6 +3,7 @@ import { Extension, type ChainedCommands, type Editor } from '@tiptap/core'
 import { Markdown } from '@tiptap/markdown'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { StarterKit } from '@tiptap/starter-kit'
+import { Strike } from '@tiptap/extension-strike'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
 import { TextSelection } from '@tiptap/pm/state'
@@ -24,6 +25,7 @@ import { Outline } from './components/Outline.tsx'
 import { PreviewPane } from './components/PreviewPane.tsx'
 import { SaveDialog } from './components/SaveDialog.tsx'
 import { SettingsDialog } from './components/SettingsDialog.tsx'
+import { ShortcutsDialog } from './components/ShortcutsDialog.tsx'
 import { StatusBar } from './components/StatusBar.tsx'
 import { useDialogFocus } from './components/useDialogFocus.ts'
 import { errorCopy, messageOf, streamAnnotations, streamChat, type ChatMessage } from './lib/ai.ts'
@@ -41,7 +43,7 @@ import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } fro
 import { MathInputRules } from './lib/mathInput.ts'
 import { diffLines, type DiffLine } from './lib/diff.ts'
 import { repairCalloutMarkers } from './lib/escapes.ts'
-import { buildHtmlDocument, exportName } from './lib/export.ts'
+import { buildHtmlDocument, buildPlainText, exportName } from './lib/export.ts'
 import { findAll, type Match } from './lib/find.ts'
 import { extractFootnotes, joinFootnotes, repairFootnoteRefs } from './lib/footnotes.ts'
 import { joinFrontmatter, splitFrontmatter } from './lib/frontmatter.ts'
@@ -78,6 +80,16 @@ const DOC_KEY = 'sidelight.doc.v1'
 
 /** 第一次打开时正文就是示例，文档名也说明这一点，别让三处说法互相矛盾 */
 const DEMO_DOC_NAME = '示例 · 未命名.md'
+
+/**
+ * 删除线只绑 Mod-Shift-x。Tiptap 自带的 Strike 用 Mod-Shift-s，
+ * 和「保存」的 Ctrl+S 家族以及浏览器「另存网页」抢键，必须整条换掉而不是再补一条。
+ */
+const StrikeShortcut = Strike.extend({
+  addKeyboardShortcuts() {
+    return { 'Mod-Shift-x': () => this.editor.commands.toggleStrike() }
+  },
+})
 
 const SAMPLE = `# 侧灯
 
@@ -172,6 +184,8 @@ export default function App() {
   // 没配 Key 时走本地模拟流，界面必须明说，否则用户会以为模型读过文章
   const simulated = !hasKey(settings)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const exportTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [activeFile, setActiveFile] = useState<WorkspaceFileNode | null>(null)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
@@ -351,6 +365,11 @@ export default function App() {
     window.__slState = { dirty, name: docName, readOnly }
   }, [dirty, docName, readOnly])
 
+  // 主题：设置变化时同步到 <html data-theme>；取消对话框也靠这里还原到已保存值
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', settings.theme)
+  }, [settings.theme, settingsOpen])
+
   // 切换文档的确认框与另外两个对话框共用一套焦点逻辑
   useDialogFocus(pendingSwitch !== null, switchDialogRef)
 
@@ -383,7 +402,8 @@ export default function App() {
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({ strike: false }),
+      StrikeShortcut,
       Image.configure({ allowBase64: true }),
       Mathematics.configure({
         // 点公式就进编辑：位置交给节点自己报，比从 DOM 反推准
@@ -1150,6 +1170,8 @@ export default function App() {
     const root = space && !space.demo ? space.rootHandle : null
     if (!space || space.demo || !root || space.root?.kind !== 'dir') {
       loadIntoEditor('', '未命名.md', null)
+      // 纯键盘流程：新建后直接能打字
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
       return
     }
     try {
@@ -1164,6 +1186,8 @@ export default function App() {
       )
       loadIntoEditor('', name, file)
       show(`已新建 ${name}`)
+      // 纯键盘流程：新建后直接能打字
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
     } catch (error) {
       setNotice({ text: `新建失败：${reasonOf(error)}。`, kind: 'error' })
     }
@@ -1373,7 +1397,14 @@ export default function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       const mod = event.ctrlKey || event.metaKey
       const key = event.key.toLowerCase()
-      const dialogOpen = settingsOpen || pendingSave !== null || pendingSwitch !== null
+      const dialogOpen = settingsOpen || shortcutsOpen || pendingSave !== null || pendingSwitch !== null
+      const productCombo =
+        (mod && !event.shiftKey && !event.altKey && key === 's') ||
+        (mod && event.altKey && !event.shiftKey && ['n', 'o', 's', 'e'].includes(key)) ||
+        (mod && event.altKey && event.shiftKey && key === 'o') ||
+        (mod && !event.altKey && (key === 'f' || key === 'h')) ||
+        (mod && !event.altKey && event.shiftKey && key === 'p') ||
+        (mod && (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0'))
 
       if (event.key === 'Escape') {
         if (railOpen) {
@@ -1389,6 +1420,10 @@ export default function App() {
           setSettingsOpen(false)
           return
         }
+        if (shortcutsOpen) {
+          setShortcutsOpen(false)
+          return
+        }
         if (pendingSave !== null) {
           setPendingSave(null)
           setSaveDiff([])
@@ -1401,6 +1436,7 @@ export default function App() {
         if (menuOpen || exportOpen) {
           setMenuOpen(false)
           setExportOpen(false)
+          if (exportOpen) exportTriggerRef.current?.focus()
           return
         }
         // 停在源码或预览里时，Esc 回到编辑；源码里改过的内容按「切回」规则落回正文
@@ -1415,23 +1451,64 @@ export default function App() {
         return
       }
 
-      // 对话框开着时，全局快捷键一律让路
-      if (dialogOpen) return
-
-      if (mod && event.shiftKey && key === 'p') {
-        event.preventDefault()
-        togglePreviewRef.current()
+      // 对话框开着时，产品快捷键只吞掉浏览器默认动作，不执行
+      if (dialogOpen) {
+        if (productCombo) event.preventDefault()
         return
       }
 
-      if (mod && key === 's') {
+      // `?` 只在非输入区打开快捷键一览；正文里打问号照常输入
+      const target = event.target
+      const typing =
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      if (!typing && (event.key === '?' || (event.key === '/' && event.shiftKey))) {
+        event.preventDefault()
+        setShortcutsOpen(true)
+        return
+      }
+
+      if (mod && event.altKey && !event.shiftKey && key === 'n') {
+        event.preventDefault()
+        newDocument()
+        return
+      }
+      if (mod && event.altKey && !event.shiftKey && key === 'o') {
+        event.preventDefault()
+        void openSingleFile()
+        return
+      }
+      if (mod && event.altKey && event.shiftKey && key === 'o') {
+        event.preventDefault()
+        void openFolder()
+        return
+      }
+      if (mod && event.altKey && !event.shiftKey && key === 's') {
+        event.preventDefault()
+        saveAsCopyRef.current()
+        return
+      }
+      if (mod && event.altKey && !event.shiftKey && key === 'e') {
+        event.preventDefault()
+        setExportOpen(true)
+        // 等菜单挂上 DOM 再把焦点送进第一项，键盘可以直接 Enter
+        requestAnimationFrame(() => document.querySelector<HTMLElement>('.export-menu button')?.focus())
+        return
+      }
+
+      if (mod && !event.altKey && !event.shiftKey && key === 's') {
         event.preventDefault()
         saveFile()
         return
       }
-      if (mod && (key === 'f' || key === 'h')) {
+      if (mod && !event.altKey && !event.shiftKey && (key === 'f' || key === 'h')) {
         event.preventDefault()
         setFindOpen(true)
+        return
+      }
+      if (mod && !event.altKey && event.shiftKey && !event.ctrlKey && key === 'p') {
+        event.preventDefault()
+        togglePreviewRef.current()
         return
       }
       if (mod && (event.key === '=' || event.key === '+')) {
@@ -1456,6 +1533,7 @@ export default function App() {
     saveFile,
     findOpen,
     settingsOpen,
+    shortcutsOpen,
     pendingSave,
     pendingSwitch,
     menuOpen,
@@ -1466,7 +1544,19 @@ export default function App() {
     sourceMode,
     previewMode,
     railOpen,
+    newDocument,
+    openSingleFile,
+    openFolder,
   ])
+
+  // 导出菜单打开后焦点进第一项（键盘可以直接走）
+  useEffect(() => {
+    if (!exportOpen) return
+    const frame = requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>('.export-menu button')?.focus(),
+    )
+    return () => cancelAnimationFrame(frame)
+  }, [exportOpen])
 
   // 点菜单外面关掉菜单
   useEffect(() => {
@@ -1596,7 +1686,8 @@ export default function App() {
           return
         }
         const name = exportName(docName, 'txt')
-        saveBlob(name, editor.getText(), 'text/plain;charset=utf-8')
+        // 纯文本从 HTML 转：公式要保留 $latex$，editor.getText() 会把公式整段吞掉
+        saveBlob(name, buildPlainText(editor.getHTML()), 'text/plain;charset=utf-8')
         show(`已导出 ${name}`)
       } catch (error) {
         setNotice({ text: `导出失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
@@ -1881,6 +1972,10 @@ export default function App() {
 
   return (
     <div className={`app${focusMode ? ' focus-mode' : ''}${railOpen ? ' rail-open' : ''}`}>
+      {/* 第一下 Tab 就到这里；Enter 直接把焦点送进正文 */}
+      <a className="skip-link" href="#editor">
+        跳到正文
+      </a>
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true" />
@@ -1915,32 +2010,85 @@ export default function App() {
                 : '分析本段'}
         </button>
         <div className="export-wrap">
-          <button type="button" onClick={() => setExportOpen((value) => !value)}>
+          <button
+            ref={exportTriggerRef}
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={exportOpen}
+            onClick={() => setExportOpen((value) => !value)}
+          >
             导出 ▾
           </button>
           {exportOpen && (
-            <div className="menu export-menu">
-              <button type="button" onClick={() => exportAs('html')}>
+            <div
+              className="menu export-menu"
+              role="menu"
+              aria-label="导出"
+              onKeyDown={(event) => {
+                const items = Array.from(document.querySelectorAll<HTMLElement>('.export-menu button'))
+                const index = items.indexOf(document.activeElement as HTMLElement)
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault()
+                  items[(index + 1) % items.length]?.focus()
+                } else if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  items[(index - 1 + items.length) % items.length]?.focus()
+                } else if (event.key === 'Home') {
+                  event.preventDefault()
+                  items[0]?.focus()
+                } else if (event.key === 'End') {
+                  event.preventDefault()
+                  items[items.length - 1]?.focus()
+                } else if (event.key === 'Tab' || event.key === 'Escape') {
+                  event.preventDefault()
+                  setExportOpen(false)
+                  exportTriggerRef.current?.focus()
+                }
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  exportAs('html')
+                  exportTriggerRef.current?.focus()
+                }}
+              >
                 HTML
               </button>
-              <button type="button" onClick={() => exportAs('markdown')}>
-                Markdown
+              <button
+                type="button"
+                onClick={() => {
+                  exportAs('markdown')
+                  exportTriggerRef.current?.focus()
+                }}
+              >
+                <span>Markdown</span>
               </button>
-              <button type="button" onClick={() => exportAs('text')}>
-                纯文本
+              <button
+                type="button"
+                onClick={() => {
+                  exportAs('text')
+                  exportTriggerRef.current?.focus()
+                }}
+              >
+                <span>纯文本</span>
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setExportOpen(false)
+                  exportTriggerRef.current?.focus()
                   window.print()
                 }}
               >
-                打印 / PDF
+                <span>打印 / PDF</span>
               </button>
             </div>
           )}
         </div>
+        <button type="button" onClick={() => setShortcutsOpen(true)} aria-label="快捷键" title="快捷键">
+          ?
+        </button>
         <button type="button" onClick={saveFile}>
           保存
         </button>
@@ -2184,7 +2332,7 @@ export default function App() {
           )}
         </div>
 
-        <div className="doc-scroll" ref={scrollRef}>
+        <main id="editor" tabIndex={-1} className="doc-scroll" ref={scrollRef}>
           {readOnly && (
             <div className="readonly-banner" role="status">
               <span>只读打开：Ctrl+S 不会写回原文件，请用「另存为」选择位置。</span>
@@ -2268,7 +2416,7 @@ export default function App() {
               />
             </div>
           )}
-        </div>
+        </main>
       </div>
 
       {notice && (
@@ -2414,7 +2562,13 @@ export default function App() {
         settings={settings}
         onSave={commitSettings}
         onClose={() => setSettingsOpen(false)}
+        onShowShortcuts={() => {
+          setSettingsOpen(false)
+          setShortcutsOpen(true)
+        }}
       />
+
+      <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
     </div>
   )
 }

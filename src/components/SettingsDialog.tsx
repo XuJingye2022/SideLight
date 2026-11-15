@@ -9,9 +9,10 @@ type Props = {
   settings: Settings
   onSave: (settings: Settings) => void
   onClose: () => void
+  onShowShortcuts: () => void
 }
 
-export function SettingsDialog({ open, settings, onSave, onClose }: Props) {
+export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcuts }: Props) {
   const [draft, setDraft] = useState<Settings>(settings)
   const dialogRef = useRef<HTMLDivElement | null>(null)
   useDialogFocus(open, dialogRef)
@@ -38,6 +39,35 @@ export function SettingsDialog({ open, settings, onSave, onClose }: Props) {
       >
         <h2 id="settings-title">设置</h2>
         <p className="dialog-note">密钥只存在这台机器的本地存储里，不会上传。</p>
+
+        <div className="field theme-field" role="radiogroup" aria-label="主题">
+          <span>主题</span>
+          <div className="theme-options">
+            {(
+              [
+                ['light', '浅色'],
+                ['dark', '深色'],
+                ['system', '跟随系统'],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={draft.theme === mode}
+                className={draft.theme === mode ? 'is-on' : ''}
+                onClick={() => {
+                  update({ theme: mode })
+                  // 先预览，取消时由 App 还原到已保存的主题
+                  document.documentElement.setAttribute('data-theme', mode)
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="field-hint">点一下就预览；保存后记住，取消会还原。</p>
+        </div>
 
         <label className="field">
           <span>接口地址</span>
@@ -128,6 +158,9 @@ export function SettingsDialog({ open, settings, onSave, onClose }: Props) {
         <p className="dialog-note">协议按 OpenAI 兼容走，DeepSeek、Kimi、智谱、OpenAI、Ollama 都能填。</p>
 
         <div className="dialog-actions">
+          <button type="button" onClick={onShowShortcuts}>
+            快捷键
+          </button>
           <button type="button" onClick={onClose}>
             取消
           </button>

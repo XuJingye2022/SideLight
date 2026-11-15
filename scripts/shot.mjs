@@ -1,6 +1,15 @@
+// 用法：node scripts/shot.mjs [url] [--out 输出路径]
+// 默认写 .tmp/shots/shot.png（.tmp/ 已忽略），不再覆盖 shots/round-01/ 里的历史证据。
+import { mkdirSync } from 'node:fs'
+import { dirname } from 'node:path'
+
 import { chromium } from 'playwright-core'
 
-const url = process.argv[2] ?? 'http://localhost:5173'
+const args = process.argv.slice(2)
+const outAt = args.findIndex((arg) => arg === '--out')
+const out = outAt >= 0 && args[outAt + 1] ? args[outAt + 1] : '.tmp/shots/shot.png'
+const url = args.find((arg, index) => !arg.startsWith('--') && index !== outAt + 1) ?? 'http://localhost:5173'
+mkdirSync(dirname(out), { recursive: true })
 
 const browser = await chromium.connectOverCDP('http://127.0.0.1:9222')
 const context = browser.contexts()[0] ?? (await browser.newContext())
@@ -38,7 +47,8 @@ const after = await page.locator('.editor .katex').count()
 console.log('katex after currency:', after)
 console.log('katex delta:', after - before)
 console.log('editor text tail:', (await page.locator('.editor').innerText()).slice(-40).replace(/\n/g, ' '))
-await page.screenshot({ path: 'shots/round-01/t1-currency.png' })
+await page.screenshot({ path: out })
+console.log(`shot: ${out}`)
 
 // 3. 源码模式里公式语法原样
 await page.getByRole('button', { name: '源码', exact: true }).click()

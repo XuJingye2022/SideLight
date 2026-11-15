@@ -1,3 +1,7 @@
+import katex from 'katex'
+
+import { mathToPlainText, replaceMathHtml } from './math.ts'
+
 const ESCAPES: Record<string, string> = {
   '&': '&amp;',
   '<': '&lt;',
@@ -123,6 +127,36 @@ const STYLES = `
   }
 `
 
+/** 公式 → MathML（自包含，不依赖 KaTeX 的 CSS 与字体）；解析失败退回 `$latex$` 原文 */
+function renderMathml(latex: string, display: boolean): string {
+  const attr = escapeHtml(latex)
+  const fallback = `<code class="math-fallback" data-latex="${attr}">${display ? `$$${escapeHtml(latex)}$$` : `$${escapeHtml(latex)}$`}</code>`
+  try {
+    const mathml = katex.renderToString(latex, { output: 'mathml', throwOnError: false, displayMode: display })
+    // throwOnError:false 时非法输入会返回 katex-error 的 span，而不是 MathML
+    if (!mathml.includes('<math') || mathml.includes('katex-error')) return fallback
+    return `<span class="math math-${display ? 'block' : 'inline'}" data-latex="${attr}">${mathml}</span>`
+  } catch {
+    return fallback
+  }
+}
+
+/** 编辑器 HTML → 纯文本：公式先还原成 `$latex$`，再剥标签、解码实体 */
+export function buildPlainText(html: string): string {
+  return mathToPlainText(html)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|li|blockquote|pre|tr)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 export function buildHtmlDocument(options: HtmlExportOptions): string {
   const title = escapeHtml(options.title.replace(/\.md$/i, ''))
   const size = options.fontSize ?? 17
@@ -142,7 +176,7 @@ ${STYLES}
 </head>
 <body>
 ${renderFrontmatter(options.frontmatter ?? '')}
-${options.bodyHtml}
+${replaceMathHtml(options.bodyHtml, renderMathml)}
 ${renderFootnotes(options.footnotes ?? '')}
 </body>
 </html>

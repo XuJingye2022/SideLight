@@ -60,7 +60,13 @@ export function useDialogFocus(open: boolean, dialogRef: RefObject<HTMLElement |
       for (const element of backdrop) element.removeAttribute('inert')
       const opener = openerRef.current
       openerRef.current = null
-      if (opener && document.contains(opener)) opener.focus()
+      // opener 可能随菜单/对话框一起被卸载；退到显式兜底节点或「文件」按钮，绝不落到 body
+      const fallback =
+        document.querySelector<HTMLElement>('[data-focus-fallback]') ??
+        document.querySelector<HTMLElement>('.file-menu-trigger')
+      const target =
+        opener && opener !== document.body && document.contains(opener) ? opener : fallback
+      target?.focus()
     }
   }, [open, dialogRef])
 }

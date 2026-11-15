@@ -1,7 +1,26 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildHtmlDocument, escapeHtml, exportName, renderFootnotes, renderFrontmatter } from './export.ts'
+import {
+  buildHtmlDocument,
+  buildPlainText,
+  escapeHtml,
+  exportName,
+  renderFootnotes,
+  renderFrontmatter,
+} from './export.ts'
+
+// fixture 来自第 05 轮 dev 页面 `document.querySelector('.editor').innerHTML`
+// （Tiptap 的 editor.getHTML() 输出同构）：外层属性与顺序原样，KaTeX 内层只保留一层。
+const INLINE_MATH_HTML =
+  '<p>正文 <span class="tiptap-mathematics-render tiptap-mathematics-render--editable" data-type="inline-math" data-latex="E=mc^2" contenteditable="false"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">E=mc^2</annotation></semantics></math></span></span></span> 结束。</p>'
+
+const BLOCK_MATH_HTML =
+  '<div class="tiptap-mathematics-render tiptap-mathematics-render--editable" data-type="block-math" data-latex="\\frac{a}{b}" contenteditable="false"><div class="block-math-inner"><span class="katex"><span class="katex-mathml"><math><semantics><mfrac><mi>a</mi><mi>b</mi></mfrac></semantics></math></span></span></div></div>'
+
+// 属性顺序反过来（data-latex 在前）也必须能取到 latex
+const LATEX_FIRST_HTML =
+  '<span class="tiptap-mathematics-render" data-latex="E=mc^2" data-type="inline-math" contenteditable="false"></span>'
 
 test('HTML 特殊字符被转义', () => {
   assert.equal(escapeHtml('<div> & "引号" \'单\''), '&lt;div&gt; &amp; &quot;引号&quot; &#39;单&#39;')
@@ -66,4 +85,44 @@ test('导出时把元数据与脚注一起带上', () => {
   assert.ok(html.includes('title: 周记'))
   assert.ok(html.includes('注释'))
   assert.ok(html.includes('<p>正文</p>'))
+})
+
+test('HTML 导出的行内公式渲染成 MathML', () => {
+  const html = buildHtmlDocument({ title: '公式.md', bodyHtml: INLINE_MATH_HTML })
+  assert.ok(html.includes('<math'))
+  assert.ok(html.includes('E=mc<sup>2</sup>') || html.includes('E=mc^2'))
+  assert.ok(!html.includes('data-latex=""'))
+  assert.ok(html.includes('data-latex="E=mc^2"'))
+})
+
+test('HTML 导出的块级公式也渲染成 MathML', () => {
+  const html = buildHtmlDocument({ title: '公式.md', bodyHtml: BLOCK_MATH_HTML })
+  assert.ok(html.includes('<math'))
+  assert.ok(html.includes('mfrac'))
+})
+
+test('属性顺序为 data-latex 在前时也能替换', () => {
+  const html = buildHtmlDocument({ title: '公式.md', bodyHtml: LATEX_FIRST_HTML })
+  assert.ok(html.includes('<math'))
+  assert.ok(html.includes('data-latex="E=mc^2"'))
+})
+
+test('非法 latex 回退成原文，仍保留 data-latex', () => {
+  const broken =
+    '<span class="tiptap-mathematics-render" data-type="inline-math" data-latex="\\bad{" contenteditable="false"></span>'
+  const html = buildHtmlDocument({ title: '公式.md', bodyHtml: broken })
+  assert.ok(html.includes('math-fallback'))
+  assert.ok(html.includes('data-latex="\\bad{"'))
+  assert.ok(html.includes('$\\bad{$'))
+})
+
+test('TXT 导出保留 $latex$，块级保留 $$…$$', () => {
+  const text = buildPlainText(`${INLINE_MATH_HTML}${BLOCK_MATH_HTML}`)
+  assert.ok(text.includes('$E=mc^2$'))
+  assert.ok(text.includes('$$\\frac{a}{b}$$'))
+  assert.ok(!text.includes('<math'))
+})
+
+test('TXT 导出剥掉标签、保留段落', () => {
+  assert.equal(buildPlainText('<p>甲</p><p>乙</p>'), '甲\n乙')
 })

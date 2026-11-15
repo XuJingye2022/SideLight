@@ -3,11 +3,44 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%232b6d64'/%3E%3C/svg%3E"
     />
     <title>Sidelight</title>
+    <!-- 首屏底色必须在样式表与模块脚本之前，深色刷新才不会闪白 -->
+    <style>
+      html {
+        background: #f6f4ee;
+      }
+      @media (prefers-color-scheme: dark) {
+        html {
+          background: #15171a;
+        }
+      }
+      html[data-theme='dark'] {
+        background: #15171a;
+      }
+      html[data-theme='light'] {
+        background: #f6f4ee;
+      }
+    </style>
+    <script>
+      // 同步读设置里的主题，赶在首帧前写到 <html data-theme>；读不到就保持跟随系统
+      ;(function () {
+        try {
+          var raw = localStorage.getItem('sidelight.settings.v1')
+          if (!raw) return
+          var theme = JSON.parse(raw).theme
+          if (theme === 'light' || theme === 'dark' || theme === 'system') {
+            document.documentElement.setAttribute('data-theme', theme)
+          }
+        } catch (error) {
+          // 设置坏了就让 CSS 走系统偏好
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

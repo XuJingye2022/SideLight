@@ -21,10 +21,35 @@
   --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
   /* 用户可见的小字统一用这一档，别再散写 10 / 11 / 11.5 */
   --text-xs: 12px;
+  color-scheme: light;
 }
 
+/* 手动深色：设置里点了「深色」 */
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #15171a;
+  --paper-raised: #1c1f23;
+  --panel: #191c20;
+  --ink: #e9e6e0;
+  --ink-soft: #a8adaf;
+  --ink-faint: #9aa0a6;
+  --line: #2a2e33;
+  --line-strong: #3a3f45;
+  --accent: #79b3aa;
+  --accent-ink: #9ccbc2;
+  --accent-wash: #22302e;
+  --mark: #d8a465;
+  --mark-wash: #2f2619;
+  --note: #7fb2c9;
+  --note-wash: #1d2a31;
+  --warn: #d98a72;
+  --shadow: rgba(0, 0, 0, 0.35);
+}
+
+/* 跟随系统：没有手动选浅色/深色时，系统深色就是深色（原生下拉、滚动条也跟着） */
 @media (prefers-color-scheme: dark) {
-  :root {
+  html:not([data-theme='light']):not([data-theme='dark']) {
+    color-scheme: dark;
     --paper: #15171a;
     --paper-raised: #1c1f23;
     --panel: #191c20;
@@ -96,6 +121,29 @@ button:disabled {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* 第一下 Tab 到的跳转链接：平时移出屏幕，聚焦时显示 */
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 60;
+  transform: translateY(-160%);
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--paper-raised);
+  font-size: var(--text-xs);
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+main.doc-scroll:focus {
+  outline: none;
 }
 
 /* ---------- 顶栏 ---------- */
@@ -872,6 +920,31 @@ button:disabled {
   color: var(--ink-soft);
 }
 
+.theme-field {
+  margin-bottom: 14px;
+}
+
+.theme-options {
+  display: flex;
+  gap: 6px;
+}
+
+.theme-options button {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+  font-size: var(--text-xs);
+}
+
+.theme-options button.is-on {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
 /* ---------- 工具栏 ---------- */
 
 .toolbar {
@@ -944,6 +1017,69 @@ button:disabled {
 .menu button {
   text-align: left;
   padding: 6px 9px;
+}
+
+/* 文件 / 导出菜单：左边文字、右边键位提示 */
+.file-menu button,
+.export-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.menu kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+/* 快捷键一览 */
+.shortcuts-dialog {
+  width: min(560px, 100%);
+  max-height: 82vh;
+  overflow-y: auto;
+}
+
+.shortcuts-group h3 {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.shortcuts-group dl {
+  margin: 0;
+}
+
+.shortcuts-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.shortcuts-row dt {
+  flex: none;
+  min-width: 200px;
+}
+
+.shortcuts-row dd {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.shortcuts-row kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.shortcuts-note {
+  margin-top: 14px;
 }
 
 /* ---------- 侧栏 ---------- */

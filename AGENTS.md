@@ -35,11 +35,11 @@ Sidelight：面向中文写作者的桌面 Markdown 编辑器。左边写，右�
 
 ```bash
 npm run build      # 类型检查 + 打包
-npm test           # 16 个测试文件，共 171 个：上下文、批注、大纲、字数、frontmatter、行差分、图片命名、查找、脚注、HTML、callout、导出、公式、缓存、搜索、错误文案
+npm test           # 测试文件与条数以 npm test 输出为准（0.18.0 记 16 个文件、177 条）：上下文、批注、大纲、字数、frontmatter、行差分、图片命名、查找、脚注、HTML、callout、导出、公式、缓存、搜索、错误文案
 npm run roundtrip  # 只在改动编辑器或 markdown 序列化时跑
 ```
 
-界面变了要截图：`npm run dev`，再 `npm run shot`，图落 `shots/round-NN/`。`npm run shot` 目前固定写 `shots/round-01/t1-currency.png`，新图先手存，别覆盖旧证据。沙箱挡住浏览器就换 CDP 方式或记「未验证」，不要反复重试同一命令。页面白屏且控制台说「模块没有导出」时，先重启 dev server，别改代码——那是 Vite 的模块缓存。
+界面变了要截图：`npm run dev`，再 `node scripts/shot.mjs --out shots/round-NN/x.png`；不带 `--out` 时默认写 `.tmp/shots/shot.png`，不会覆盖历史证据。沙箱挡住浏览器就换 CDP 方式或记「未验证」，不要反复重试同一命令。页面白屏且控制台说「模块没有导出」时，先重启 dev server，别改代码——那是 Vite 的模块缓存。
 
 ## 4. 不许动的东西
 
@@ -67,7 +67,7 @@ npm run roundtrip  # 只在改动编辑器或 markdown 序列化时跑
 
 ## 6. 当前状态
 
-当前 0.17.0，Windows 桌面应用：C# WebView2 宿主（`host/`）加载 `dist`，per-user NSIS 安装包与便携 zip 在 `release/`（不进版本控制，打包脚本在 `packaging/`）。文件树、大纲、源码/预览/专注/打字机、页边批注与采纳、逐条追问、联网核对、长文批注定位、链接与公式就地编辑、frontmatter/脚注/行内 HTML/callout/公式保真、保存前对比、`.sidelight` 缓存、图片插入、查找替换、字号缩放、导出、表格工具条都能跑。测试 16 个文件 171 条。CI 只在 Linux 跑 build + test；Windows 宿主与安装包尚未进 CI。
+当前 0.18.0，Windows 桌面应用：C# WebView2 宿主（`host/`）加载 `dist`，per-user NSIS 安装包与便携 zip 在 `release/`（不进版本控制，打包脚本在 `packaging/`）。文件树、大纲、源码/预览/专注/打字机、页边批注与采纳、逐条追问、联网核对、长文批注定位、链接与公式就地编辑、frontmatter/脚注/行内 HTML/callout/公式保真、保存前对比、`.sidelight` 缓存、图片插入、查找替换、字号缩放、导出、表格工具条都能跑。测试 16 个文件 177 条。CI 只在 Linux 跑 build + test；Windows 宿主与安装包尚未进 CI。
 
 新建与另存为已能走完「新建 → 写 → 保存 → 再打开」：顶栏「文件」菜单（新建/另存为/打开文件/打开文件夹）、文件树头「＋ 新建文件」、没有句柄时保存走系统保存对话框、保存成功有持久提示；双击 `.md` 由宿主打开时显示只读横幅，只能另存为。未验：中文输入法（浏览器与宿主）、真模型与真实搜索接口（无 key）、安装后的 HKCU 卸载项/开始菜单/真人双击/SmartScreen、WebView2 缺失分支（仅静态检查）。质量报告里的 22 条问题已全部修完（见 [质量报告](docs/qa-report.md) 顶部）；对 Typora 的差距见 [差距表](docs/typora-gap.md)，当前 21 项有、18 项缺。
 

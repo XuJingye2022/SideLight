@@ -2,6 +2,16 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
+## 0.18.0 — 2026-11-15
+
+主题与键盘可达、导出公式保真、字体裁剪。
+
+- 主题：浅色 / 深色 / 跟随系统三档。
+- 快捷键：常用操作键盘可达（清单见 README 的快捷键段）。
+- 导出：HTML 导出里的公式用 MathML 并保留 TeX 源码；纯文本导出保留公式源码。
+- 构建口径：显式设 `chunkSizeWarningLimit: 1200`；不拆 KaTeX（`@tiptap/extension-mathematics` 顶层静态 import，原因见 README「为什么不拆 KaTeX」）。
+- 字体裁剪：只发 woff2，并删掉 4 个装饰 face（Fraktur / Caligraphic / SansSerif 的粗/斜体）；KaTeX 字体 256,168 B / 19 文件 → **213,664 B / 15 文件**（另 1 个 face 内联），只影响 dist 与安装包，不影响首屏。
+- 体积与测试：构建产物 1,373,690 B；安装包 788,878 B（SHA256 `FE5AC4097DF71E438A9F6FB21CC8BFE81E9A838ACBDB48C17279AD8650B9BB94`）、便携 zip 866,981 B（SHA256 `F866D2AA548562BA21ABD920588FDFEA628AB14839EC300F31B4E92497FCFE6E`）；测试 16 个文件 177 条。
 ## 0.17.0 — 2026-11-15
 
 首次给用户可见的「能装、能读、能看清错误」一轮，同时补记第 1、2 轮（那两轮版本号仍是 0.16.3，没有单独发版）。
@@ -13,8 +23,8 @@
 - 错误反馈改成「原因 + 下一步」：401/403 给「打开设置」，断网与 500 说清下一步，错误 `role="alert"` 且不自动消失；保存与导出失败也有中文提示，失败不改脏标记。
 - 首次使用三处说法一致：文档名 `示例 · 未命名.md`、文件树「现在打开的是示例」；「试用示例」真的打开第一篇并显示选中态（`aria-current`）。
 - 小字统一到 12px（设置字段名、页签、查找计数、风险条按钮等），对比度按 WCAG AA 复核。
-- 体积：构建只发 woff2 字体（KaTeX 字体 1,072,948 B / 59 文件 → 256,168 B / 19 文件），构建产物 1,406,633 B。
-- 新增 per-user NSIS 安装器 `Sidelight-0.17.0-win-x64-setup.exe` 829,472 B（SHA256 `89FEC195064742D5C8DD77132933598AA0086E87AE2F3D7DA920078732EF2EBC`，无需管理员，装进 `%LOCALAPPDATA%\Programs\Sidelight`）：缺 WebView2 运行时时直接给下载指引并中止。便携 zip 907,266 B（SHA256 `6E523A4C87488558ED032711C4A79A87394BC7EEB7FC217E713A826077AA54BA`）。卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据（[打包说明](../packaging/README.md)）。
+- 体积：构建只发 woff2 字体（KaTeX 字体 1,072,948 B / 59 文件 → 256,168 B / 19 文件）；构建产物体积见 0.18.0。
+- 新增 per-user NSIS 安装器与便携 zip（`packaging/installer.ps1`、`packaging/portable.ps1`）：无需管理员，装进 `%LOCALAPPDATA%\Programs\Sidelight`；缺 WebView2 运行时时直接给下载指引并中止；卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据（[打包说明](../packaging/README.md)）。字节与校验和见 0.18.0。
 - 新建与另存为：顶栏「文件」菜单（新建 / 另存为 / 打开文件 / 打开文件夹）与文件树头「＋ 新建文件」；没有文件句柄时保存走系统保存对话框，保存成功给持久提示（不自动消失）；示例文档加「示例」徽标。
 - 宿主 argv 打开的文档显示只读横幅：保存只能另存为，不再假装写回原文件。
 - 源码模式下导出取当前源码内容，不再用编辑器内核里的旧正文。
