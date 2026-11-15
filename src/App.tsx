@@ -41,7 +41,7 @@ import { cacheKey, readCache, removeCache, writeCache } from './lib/cache.ts'
 import { buildChunkContext, buildContext, splitSelection, type Block, type ContextPayload } from './lib/context.ts'
 import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } from './lib/decorations.ts'
 import { MathInputRules } from './lib/mathInput.ts'
-import { diffLines, type DiffLine } from './lib/diff.ts'
+import { activeLosses, baselineLosses, lossLabels, type Loss } from './lib/risk.ts'
 import { repairCalloutMarkers } from './lib/escapes.ts'
 import { buildHtmlDocument, buildPlainText, exportName } from './lib/export.ts'
 import { findAll, type Match } from './lib/find.ts'
@@ -136,11 +136,6 @@ function fileToDataUrl(file: File): Promise<string> {
 }
 
 /** 编辑器读不全的语法，用来提示用户走源码模式 */
-function findRiskySyntax(text: string): string[] {
-  const found: string[] = []
-  if (/^\[[^\]]+\]:\s+\S+/m.test(text.replace(/^\[\^[^\]]+\]:.*$/gm, ''))) found.push('引用式链接')
-  return found
-}
 
 /** 失败原因：优先用错误自带的 message，没有就给一句通用的 */
 function reasonOf(error: unknown): string {
@@ -194,6 +189,16 @@ type HostDoc = {
   fileName: string
   mtime: number
   ready: boolean
+}
+
+/** 保存目标：四条路径共用同一个差异门 */
+type SaveTarget = 'host' | 'file' | 'saveAs' | 'switch'
+
+type PendingConfirm = {
+  normalized: string
+  withEol: string
+  target: SaveTarget
+  losses: Loss[]
 }
 
 /** 宿主文档的解析上限：marked 的行内正则对超长单行会在 8 MB 左右爆栈，这里留余量 */
@@ -287,8 +292,7 @@ export default function App() {
   const [replacement, setReplacement] = useState('')
   const [matches, setMatches] = useState<Match[]>([])
   const [matchIndex, setMatchIndex] = useState(0)
-  const [saveDiff, setSaveDiff] = useState<DiffLine[]>([])
-  const [pendingSave, setPendingSave] = useState<string | null>(null)
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
   const eolRef = useRef<'lf' | 'crlf'>('lf')
   const [pendingSwitch, setPendingSwitch] = useState<{
     text: string
@@ -395,9 +399,14 @@ export default function App() {
   const railToggleRef = useRef<HTMLButtonElement | null>(null)
   /** 宿主文档模式：onUpdate 不再往 localStorage 写整篇正文（大文件会撑爆配额） */
   const hostModeRef = useRef(false)
-  /** 写回状态机：pendingIds + pendingSave + saving 是唯一一套 */
+  /** 写回状态机：pendingIds + pendingHostSave + saving 是唯一一套 */
   const pendingIdsRef = useRef(new Set<number>())
-  const pendingSaveRef = useRef<{ text: string } | null>(null)
+  /** 宿主写回队列（保存中再按一次只留最新一份） */
+  const pendingHostSave = useRef<{ text: string } | null>(null)
+  /** 载入时的结构损失基线：只有这些结构以后才可能被拦 */
+  const baselineLossesRef = useRef<Loss[]>([])
+  /** 文件原文：源码模式在「未编辑」时显示它，保存成功后更新为刚写入的文本 */
+  const rawTextRef = useRef<string | null>(null)
   const sentTextRef = useRef<{ id: number; text: string } | null>(null)
   const saveTimersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>())
   const nextSaveIdRef = useRef(0)
@@ -678,14 +687,20 @@ export default function App() {
       }
       baselineRef.current = data.text.replace(/\r\n/g, '\n')
       setOriginalText(data.text)
+      rawTextRef.current = data.text
       eolRef.current = data.eol === 'crlf' ? 'crlf' : 'lf'
-      setRisks(findRiskySyntax(data.text))
+      // 载入即存在的结构损失才算基线；之后只拦仍命中同一结构位置的
+      baselineLossesRef.current = baselineLosses(
+        data.text,
+        joinFrontmatter(split.frontmatter, joinFootnotes(serializeBody(editor), footnoteSplit.footnotes)),
+      )
+      setRisks(lossLabels(baselineLossesRef.current))
       setDocName(data.fileName ?? docNameRef.current)
       docNameRef.current = data.fileName ?? docNameRef.current
       saveTargetRef.current = null
       setHostDoc({ writable, fileName: data.fileName ?? '未命名.md', mtime: Number(data.mtime ?? 0), ready: true })
       setReadOnly(!writable)
-      setSaveWarned(true)
+      setSaveWarned(false)
       setDraftShown(false)
       setDirty(false)
       setSaveError(null)
@@ -1331,14 +1346,24 @@ export default function App() {
       frontmatterRef.current = split.frontmatter
       setFootnotes(footnoteSplit.footnotes)
       footnotesRef.current = footnoteSplit.footnotes
-      setOriginalText(text)
+      setOriginalText(text.length > 0 ? text : null)
+      rawTextRef.current = text.length > 0 ? text : null
       setSaveWarned(false)
-      setRisks(findRiskySyntax(text))
+      setDraftShown(false)
       setAnalysisGoal('')
       // 切换文档时掐断正在跑的批注请求，结果不再落到新文档上
       abortRef.current?.abort()
       setAnalyzing(false)
       setMarkdown(footnoteSplit.body)
+      // 载入即存在的结构损失才算基线；之后只拦仍命中同一结构位置的
+      baselineLossesRef.current =
+        text.length > 0
+          ? baselineLosses(
+              text,
+              joinFrontmatter(split.frontmatter, joinFootnotes(serializeBody(editor), footnoteSplit.footnotes)),
+            )
+          : []
+      setRisks(lossLabels(baselineLossesRef.current))
       // 基线用序列化结果：撤销回到载入态时应当刚好等于它
       baselineRef.current = joinFrontmatter(
         split.frontmatter,
@@ -1517,7 +1542,10 @@ export default function App() {
         }
       })
       setOriginalText(withEol)
-      setSaveWarned(true)
+      rawTextRef.current = withEol
+      // 刚写入的内容就是新基线：不再有已知结构损失
+      baselineLossesRef.current = []
+      setRisks([])
       setDraftShown(false)
       setDirty(false)
       // 另存为之后有了新落点，只读横幅可以撤掉
@@ -1547,16 +1575,10 @@ export default function App() {
     [cacheDirFor, hostDoc],
   )
 
-  const commitSave = useCallback(
-    async (text: string) => {
-      setPendingSave(null)
-      setSaveDiff([])
-      setSaveWarned(true)
+  /** 真正写盘：有句柄写句柄，没有就弹保存位置；调用前已经过差异门 */
+  const performCommit = useCallback(
+    async (normalized: string, withEol: string) => {
       setDraftShown(false)
-
-      // 保留原文件的换行风格，Windows 上不至于整篇变成 LF
-      const normalized = text.replace(/\r\n/g, '\n')
-      const withEol = eolRef.current === 'crlf' ? normalized.replace(/\n/g, '\r\n') : normalized
       const target =
         saveTargetRef.current ??
         (activeFile?.handle ? { handle: activeFile.handle, name: activeFile.name } : null)
@@ -1604,78 +1626,123 @@ export default function App() {
     contentRef.current = currentMarkdown
   }, [currentMarkdown])
 
-  const saveFile = useCallback(() => {
-    if (!editor) return
-    const text = currentMarkdown()
+  /** 保存前统一准备：LF 给宿主，EOL 给文件；末尾换行跟随原文（保住字节） */
+  const prepareSave = useCallback(() => {
+    let normalized = currentMarkdown().replace(/\r\n/g, '\n')
+    if (originalText !== null && originalText.endsWith('\n') && !normalized.endsWith('\n')) normalized += '\n'
+    const withEol = eolRef.current === 'crlf' ? normalized.replace(/\n/g, '\r\n') : normalized
+    return { normalized, withEol }
+  }, [currentMarkdown, originalText])
 
-    // 宿主文档：写回走 postMessage 状态机，不碰浏览器下载
-    if (hostDoc?.ready) {
-      if (!hostDoc.writable) {
-        void saveAsCopyRef.current()
+  /** 另存为的实际写入（调用前已过差异门） */
+  const performSaveAs = useCallback(
+    async (normalized: string, withEol: string) => {
+      try {
+        const result = await saveAsFile(docName, withEol)
+        if (result === null) {
+          setNotice({ text: '已取消保存。', kind: 'info' })
+          return
+        }
+        if (result === 'unsupported') {
+          saveBlob(docName, withEol, 'text/markdown;charset=utf-8')
+          setNotice({
+            text: '无法确认落点：已交给浏览器下载。要写回文件，请换一个支持选择保存位置的浏览器。',
+            kind: 'info',
+            persist: true,
+          })
+          return
+        }
+        finishSaved(result.name, result, normalized, withEol)
+      } catch (error) {
+        setNotice({ text: `保存失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
+      }
+    },
+    [docName, finishSaved, saveBlob],
+  )
+
+  const performSwitch = useCallback(() => {
+    const next = pendingSwitch
+    setPendingSwitch(null)
+    if (!next) return
+    if (next.after) {
+      next.after()
+      return
+    }
+    loadIntoEditor(next.text, next.name, next.file)
+  }, [pendingSwitch, loadIntoEditor])
+
+  const runSave = useCallback(
+    async (pending: PendingConfirm) => {
+      if (pending.target === 'host') {
+        // 宿主只收 LF 归一化文本
+        sendHostSaveRef.current(pending.normalized)
         return
       }
-      // 不改不写：dirty=false 时一个字节都不发，保证原文件 SHA 不变
-      if (!dirty) {
+      if (pending.target === 'saveAs') {
+        await performSaveAs(pending.normalized, pending.withEol)
+        return
+      }
+      await performCommit(pending.normalized, pending.withEol)
+      if (pending.target === 'switch') performSwitch()
+    },
+    [performSaveAs, performCommit, performSwitch],
+  )
+
+  /** 四条保存路径的唯一入口：先过差异门，确认后才真正写 */
+  const requestSave = useCallback(
+    (target: SaveTarget) => {
+      if (!editor) return
+      let goal = target
+      if (goal === 'host' && (hostDoc === null || !hostDoc.ready)) return
+      if (goal === 'host' && hostDoc && !hostDoc.writable) goal = 'saveAs'
+      if (goal === 'host' && !dirty) {
         setNotice({ text: '没有改动，未写入。', kind: 'info', ttl: 1500 })
         return
       }
-      sendHostSaveRef.current(text)
-      return
-    }
-
-    // 兼容旧只读标记（现在只会由宿主设置）
-    if (readOnly) {
-      void saveAsCopyRef.current()
-      return
-    }
-
-    // 第一次保存这篇文档时，把规范化造成的改动摆出来；确认过一次就不再打扰
-    if (originalText !== null && !saveWarned && originalText !== text) {
-      const changed = diffLines(originalText, text).filter((line) => line.kind !== 'same')
-      if (changed.length > 0) {
-        setSaveDiff(changed)
-        setPendingSave(text)
+      if (goal === 'switch' && !dirty) {
+        performSwitch()
         return
       }
-    }
 
-    void commitSave(text)
-  }, [editor, hostDoc, dirty, readOnly, originalText, saveWarned, commitSave, currentMarkdown])
+      const { normalized, withEol } = prepareSave()
+      const losses = originalText !== null ? activeLosses(originalText, normalized, baselineLossesRef.current) : []
+      if (losses.length > 0 && !saveWarned) {
+        setPendingConfirm({ normalized, withEol, target: goal, losses })
+        return
+      }
+      void runSave({ normalized, withEol, target: goal, losses: [] })
+    },
+    [editor, hostDoc, dirty, originalText, saveWarned, prepareSave, runSave, performSwitch],
+  )
+
+  /** 确认回调：唯一置 saveWarned 的地方 */
+  const confirmSave = useCallback(() => {
+    const pending = pendingConfirm
+    if (!pending) return
+    setSaveWarned(true)
+    setPendingConfirm(null)
+    void runSave(pending)
+  }, [pendingConfirm, runSave])
+
+  /** 取消：不写任何字节，也不动 dirty */
+  const cancelConfirm = useCallback(() => setPendingConfirm(null), [])
+
+  const saveFile = useCallback(() => {
+    if (hostDoc?.ready) {
+      requestSave(hostDoc.writable ? 'host' : 'saveAs')
+      return
+    }
+    requestSave('file')
+  }, [hostDoc, requestSave])
 
   const saveFileRef = useRef<() => void>(() => {})
   useEffect(() => {
     saveFileRef.current = saveFile
   }, [saveFile])
 
-  /** 另存为：不管当前有没有句柄，都重新选一个落点 */
-  const saveAsCopy = useCallback(async () => {
-    if (!editor) return
-    const normalized = currentMarkdown().replace(/\r\n/g, '\n')
-    const withEol = eolRef.current === 'crlf' ? normalized.replace(/\n/g, '\r\n') : normalized
-    try {
-      const result = await saveAsFile(docName, withEol)
-      if (result === null) {
-        setNotice({ text: '已取消保存。', kind: 'info' })
-        return
-      }
-      if (result === 'unsupported') {
-        saveBlob(docName, withEol, 'text/markdown;charset=utf-8')
-        setNotice({
-          text: '无法确认落点：已交给浏览器下载。要写回文件，请换一个支持选择保存位置的浏览器。',
-          kind: 'info',
-          persist: true,
-        })
-        return
-      }
-      finishSaved(result.name, result, normalized, withEol)
-    } catch (error) {
-      setNotice({ text: `保存失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
-    }
-  }, [editor, currentMarkdown, docName, finishSaved, saveBlob])
-
   useEffect(() => {
-    saveAsCopyRef.current = () => void saveAsCopy()
-  }, [saveAsCopy])
+    saveAsCopyRef.current = () => requestSave('saveAs')
+  }, [requestSave])
 
   /** 宿主文档：把一次写回发给宿主；同一时间只有一个 id 在飞 */
   const sendHostSave = useCallback(
@@ -1684,7 +1751,7 @@ export default function App() {
       if (!webview || !hostDoc?.ready || !hostDoc.writable) return
       if (pendingIdsRef.current.size > 0) {
         // 保存中再按一次：只记最新一份，回包后补发
-        pendingSaveRef.current = { text }
+        pendingHostSave.current = { text }
         return
       }
       const id = (nextSaveIdRef.current += 1)
@@ -1725,8 +1792,10 @@ export default function App() {
       }
       baselineRef.current = sent.text
       setOriginalText(sent.text)
+      rawTextRef.current = sent.text
+      baselineLossesRef.current = []
+      setRisks([])
       setDirty(false)
-      setSaveWarned(true)
       setSaving(false)
       setSaveError(null)
       setHostDoc((previous) => (previous ? { ...previous, mtime: Number(payload.mtime ?? previous.mtime) } : previous))
@@ -1766,8 +1835,8 @@ export default function App() {
         setSaveError(hostErrorCopy(String(data.error ?? 'IO')))
       }
       // 保存中按过的那一次：用最新正文补发
-      const queued = pendingSaveRef.current
-      pendingSaveRef.current = null
+      const queued = pendingHostSave.current
+      pendingHostSave.current = null
       if (queued) sendHostSaveRef.current(queued.text)
       flushHostSaveWaiters()
     }
@@ -1789,23 +1858,14 @@ export default function App() {
   }, [pendingSwitch, loadIntoEditor])
 
   const saveAndSwitch = useCallback(() => {
-    const next = pendingSwitch
-    setPendingSwitch(null)
-    void commitSave(currentMarkdown()).then(() => {
-      if (!next) return
-      if (next.after) {
-        next.after()
-        return
-      }
-      loadIntoEditor(next.text, next.name, next.file)
-    })
-  }, [pendingSwitch, commitSave, currentMarkdown, loadIntoEditor])
+    requestSave('switch')
+  }, [requestSave])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const mod = event.ctrlKey || event.metaKey
       const key = event.key.toLowerCase()
-      const dialogOpen = settingsOpen || shortcutsOpen || pendingSave !== null || pendingSwitch !== null
+      const dialogOpen = settingsOpen || shortcutsOpen || pendingConfirm !== null || pendingSwitch !== null
       const productCombo =
         (mod && !event.shiftKey && !event.altKey && key === 's') ||
         (mod && event.altKey && !event.shiftKey && ['n', 'o', 's', 'e'].includes(key)) ||
@@ -1832,9 +1892,8 @@ export default function App() {
           setShortcutsOpen(false)
           return
         }
-        if (pendingSave !== null) {
-          setPendingSave(null)
-          setSaveDiff([])
+        if (pendingConfirm !== null) {
+          setPendingConfirm(null)
           return
         }
         if (pendingSwitch !== null) {
@@ -1942,7 +2001,7 @@ export default function App() {
     findOpen,
     settingsOpen,
     shortcutsOpen,
-    pendingSave,
+    pendingConfirm,
     pendingSwitch,
     menuOpen,
     exportOpen,
@@ -2033,7 +2092,13 @@ export default function App() {
       if (!editor) return
       if (viewMode === 'source' && next !== 'source') applySource()
       if (next === 'source') {
-        const text = viewMode === 'source' ? sourceText : currentMarkdown()
+        // 未编辑时显示文件原文（引用式链接定义还在）；编辑过才显示当前内容
+        const text =
+          viewMode === 'source'
+            ? sourceText
+            : !dirty && rawTextRef.current !== null
+              ? rawTextRef.current
+              : currentMarkdown()
         sourceBaselineRef.current = text
         setSourceText(text)
       }
@@ -2044,12 +2109,23 @@ export default function App() {
       }
       setViewMode(next)
     },
-    [editor, viewMode, sourceText, currentMarkdown, applySource],
+    [editor, viewMode, sourceText, dirty, currentMarkdown, applySource],
   )
 
   const toggleSource = useCallback(() => {
     switchView(sourceMode ? 'edit' : 'source')
   }, [switchView, sourceMode])
+
+  /** 从横幅/确认框进源码：强制显示文件原文，不显示编辑器的整理结果 */
+  const openSourceOriginal = useCallback(() => {
+    if (!editor) return
+    const text = rawTextRef.current ?? originalText ?? currentMarkdown()
+    sourceBaselineRef.current = text
+    setSourceText(text)
+    setFocusMode(false)
+    setTypewriterMode(false)
+    setViewMode('source')
+  }, [editor, originalText, currentMarkdown])
 
   const togglePreview = useCallback(() => {
     switchView(previewMode ? 'edit' : 'preview')
@@ -2632,7 +2708,13 @@ export default function App() {
           <button
             type="button"
             className={sourceMode ? 'is-on' : ''}
-            title="显示原始 Markdown"
+            title={
+              sourceMode
+                ? '回到编辑视图'
+                : dirty
+                  ? '源码：你的改动 + 编辑器整理结果（不是文件原文）'
+                  : '源码：显示文件原文'
+            }
             onClick={toggleSource}
           >
             源码
@@ -2768,11 +2850,13 @@ export default function App() {
               </button>
             </div>
           )}
-          {risks.length > 0 && viewMode === 'edit' && (
-            <div className="risk-banner">
-              <span>这篇用到 {risks.join('、')}，编辑器读不全，保存会改写。</span>
-              <button type="button" onClick={toggleSource}>
-                改用源码模式
+          {risks.length > 0 && (
+            <div className="risk-banner" role="status">
+              <span>
+                这篇载入时就有会被改写的结构（{risks.length} 类）：{risks.join('；')}
+              </span>
+              <button type="button" onClick={openSourceOriginal}>
+                在源码模式打开原文
               </button>
               <button type="button" className="risk-dismiss" onClick={() => setRisks([])}>
                 知道了
@@ -2782,6 +2866,11 @@ export default function App() {
 
           {sourceMode ? (
             <div className="doc-layout source-layout">
+              {dirty && (
+                <p className="source-hint">
+                  源码里是你的改动 + 编辑器整理结果，不是文件原文；点顶部「在源码模式打开原文」可恢复原文。
+                </p>
+              )}
               <textarea
                 className="source-editor"
                 value={sourceText}
@@ -2893,15 +2982,13 @@ export default function App() {
       )}
 
       <SaveDialog
-        open={pendingSave !== null}
-        diff={saveDiff}
-        onConfirm={() => {
-          if (pendingSave) void commitSave(pendingSave)
-        }}
-        onCancel={() => {
-          // 取消这次保存：保留脏标记，下次保存会重新提示，不当作用户已经看过
-          setPendingSave(null)
-          setSaveDiff([])
+        open={pendingConfirm !== null}
+        losses={pendingConfirm?.losses ?? []}
+        onConfirm={confirmSave}
+        onCancel={cancelConfirm}
+        onOpenSource={() => {
+          cancelConfirm()
+          openSourceOriginal()
         }}
       />
 

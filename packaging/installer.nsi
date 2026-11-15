@@ -17,8 +17,12 @@ Unicode true
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Sidelight"
 !define WEBVIEW2_CLIENT "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 
+!ifndef OUTFILE
+  !define OUTFILE "..\release\Sidelight-${APPVERSION}-win-x64-setup.exe"
+!endif
+
 Name "${APPNAME}"
-OutFile "..\release\Sidelight-${APPVERSION}-win-x64-setup.exe"
+OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\Programs\Sidelight"
 InstallDirRegKey HKCU "Software\Sidelight" "InstallDir"
 RequestExecutionLevel user
@@ -28,6 +32,7 @@ ShowInstDetails show
 ShowUninstDetails show
 
 !insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -103,10 +108,50 @@ do_copy:
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
 SectionEnd
 
+; Optional .md association: the section is unselected by default, so a silent install never writes it.
+; Only HKCU Software\Classes: no machine-wide writes, no per-user association lists, no default handler.
+Section /o "在「打开方式」中加入 Sidelight" SEC_ASSOC
+!ifdef ASSOC_DRYRUN
+  ; Test build: replace the 10 registry writes with a plan file, never touch the registry.
+  FileOpen $9 "$INSTDIR\assoc-plan.txt" w
+  FileWrite $9 "Software\Classes\Sidelight.md|Sidelight Markdown 文档$\r$\n"
+  FileWrite $9 "Software\Classes\Sidelight.md\FriendlyTypeName|Sidelight Markdown 文档$\r$\n"
+  FileWrite $9 "Software\Classes\Sidelight.md\DefaultIcon|$INSTDIR\Sidelight.exe,0$\r$\n"
+  FileWrite $9 'Software\Classes\Sidelight.md\shell\open\command|"$INSTDIR\Sidelight.exe" "%1"$\r$\n'
+  FileWrite $9 "Software\Classes\.md\OpenWithProgids|Sidelight.md$\r$\n"
+  FileWrite $9 "Software\Classes\Applications\Sidelight.exe\ApplicationName|${APPNAME}$\r$\n"
+  FileWrite $9 "Software\Classes\Applications\Sidelight.exe\ApplicationCompany|${PUBLISHER}$\r$\n"
+  FileWrite $9 "Software\Classes\Applications\Sidelight.exe\ApplicationIcon|$INSTDIR\Sidelight.exe,0$\r$\n"
+  FileWrite $9 'Software\Classes\Applications\Sidelight.exe\shell\open\command|"$INSTDIR\Sidelight.exe" "%1"$\r$\n'
+  FileWrite $9 "Software\Classes\Applications\Sidelight.exe\SupportedTypes|.md$\r$\n"
+  FileClose $9
+!else
+  WriteRegStr HKCU "Software\Classes\Sidelight.md" "" "Sidelight Markdown 文档"
+  WriteRegStr HKCU "Software\Classes\Sidelight.md" "FriendlyTypeName" "Sidelight Markdown 文档"
+  WriteRegStr HKCU "Software\Classes\Sidelight.md\DefaultIcon" "" "$INSTDIR\Sidelight.exe,0"
+  WriteRegStr HKCU "Software\Classes\Sidelight.md\shell\open\command" "" '"$INSTDIR\Sidelight.exe" "%1"'
+  WriteRegStr HKCU "Software\Classes\.md\OpenWithProgids" "Sidelight.md" ""
+  WriteRegStr HKCU "Software\Classes\Applications\Sidelight.exe" "ApplicationName" "${APPNAME}"
+  WriteRegStr HKCU "Software\Classes\Applications\Sidelight.exe" "ApplicationCompany" "${PUBLISHER}"
+  WriteRegStr HKCU "Software\Classes\Applications\Sidelight.exe" "ApplicationIcon" "$INSTDIR\Sidelight.exe,0"
+  WriteRegStr HKCU "Software\Classes\Applications\Sidelight.exe\shell\open\command" "" '"$INSTDIR\Sidelight.exe" "%1"'
+  WriteRegStr HKCU "Software\Classes\Applications\Sidelight.exe\SupportedTypes" ".md" ""
+!endif
+SectionEnd
+
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_ASSOC} "在资源管理器的「打开方式」列表中加入 Sidelight。不改变 .md 的默认程序。"
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
+
 Section "Uninstall"
   Delete "$SMPROGRAMS\Sidelight.lnk"
   RMDir /r "$INSTDIR"
   DeleteRegKey HKCU "${UNINST_KEY}"
+  ; Association cleanup: only our value/progid; /ifempty keeps other apps' candidates (e.g. VSCode.md).
+  DeleteRegValue HKCU "Software\Classes\.md\OpenWithProgids" "Sidelight.md"
+  DeleteRegKey /ifempty HKCU "Software\Classes\.md\OpenWithProgids"
+  DeleteRegKey HKCU "Software\Classes\Sidelight.md"
+  DeleteRegKey HKCU "Software\Classes\Applications\Sidelight.exe"
   DeleteRegKey HKCU "Software\Sidelight"
   ; User data under %LOCALAPPDATA%\Sidelight (WebView2 profile) is intentionally kept.
 SectionEnd

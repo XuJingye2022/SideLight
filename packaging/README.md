@@ -5,13 +5,14 @@
 | 包 | 需要管理员 | 装到哪 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `Sidelight-<版本>-win-x64-portable.zip` | 否 | 解压目录 | 免安装。见 `packaging/README.txt`（zip 里叫 `README.txt`）。 |
-| `Sidelight-<版本>-win-x64-setup.exe` | **否** | `%LOCALAPPDATA%\Programs\Sidelight` | per-user 安装包。有开始菜单快捷方式与卸载项，只写 HKCU。 |
+| `Sidelight-<版本>-win-x64-setup.exe` | **否** | `%LOCALAPPDATA%\Programs\Sidelight` | per-user 安装包。有开始菜单快捷方式与卸载项，只写 HKCU。关联 `.md` 是安装时可选，默认不选。 |
 
 ## 安装
 
 1. 双击 `Sidelight-<版本>-win-x64-setup.exe`。
 2. Windows 可能弹「Windows 已保护你的电脑」——exe 没有代码签名，点「更多信息」→「仍要运行」。
 3. 安装位置默认 `%LOCALAPPDATA%\Programs\Sidelight`，可以改，但必须是当前用户可写的目录。
+4. 组件页有「在「打开方式」中加入 Sidelight」，**默认不勾**；勾了也只是把 Sidelight 加进 `.md` 的「打开方式」候选，不会改 `.md` 的默认程序。
 4. 装完从开始菜单「Sidelight」启动。
 
 **需要 Microsoft WebView2 运行时。** Windows 11 自带；没有的话安装器会弹提示并**中止安装**（不会装出一个打不开的程序）。下载：<https://go.microsoft.com/fwlink/p/?LinkId=2124703>，装完再运行安装器。
@@ -20,7 +21,7 @@
 
 设置 → 应用 → 已安装的应用 → Sidelight → 卸载；或开始菜单右键卸载；或直接运行 `%LOCALAPPDATA%\Programs\Sidelight\uninstall.exe`。
 
-卸载会删除程序目录、开始菜单快捷方式与 HKCU 卸载项；**不会删** `%LOCALAPPDATA%\Sidelight`（WebView2 配置、缓存与本地草稿）。要彻底清掉，卸载后手动删这个目录。
+卸载会删除程序目录、开始菜单快捷方式与 HKCU 卸载项，并删掉关联登记的 ProgID 与「打开方式」候选；**不会**改你自己设的 `.md` 默认程序，也**不会删** `%LOCALAPPDATA%\Sidelight`（WebView2 配置、缓存与本地草稿）。要彻底清掉，卸载后手动删这个目录。
 
 ## 静默安装（自动化用）
 
@@ -52,5 +53,5 @@ powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 
 - 未签名：首次运行会被 SmartScreen 拦一次。
 - 不写 HKLM，不需要管理员。
-- 不做 `.md` 文件关联：本轮不做。方案备忘（`OpenWithProgids` 只加「打开方式」候选、不承诺默认程序、`/S` 静默安装不写关联）留待产品负责人确认。
-- 体积预算：安装包硬线 850,000 B；0.19.0 预计 +3 KB（宿主写回代码），超出硬线时先打印载荷占比，不抬线。
+- `.md` 关联只做 opt-in 的「打开方式」候选：默认不勾、`/S` 不写、不碰 `UserChoice`/`FileExts`/`.md` 默认程序；卸载用 `/ifempty` 保留别人的候选。`FileExts` 的 MRU 若用户手动选过一次可能残留，属已知限制。
+- 体积预算：安装包硬线 850,000 B；0.20.0 关联节实测 +2,369 B（794,843 → 797,212），超出硬线时先打印载荷占比，不抬线。

@@ -1,4 +1,6 @@
-﻿# 打 per-user NSIS 安装包。只读现有 dist 与 host\bin；缺 NSIS 就下官方 3.11 zip 到 .tmp。
+﻿param([switch]$AssocDryRun)
+
+# 打 per-user NSIS 安装包。只读现有 dist 与 host\bin；缺 NSIS 就下官方 3.11 zip 到 .tmp。
 # 版本号从 package.json 只读。硬报警线 850,000 B（超线打印载荷占比并 exit 1）。
 $ErrorActionPreference = 'Stop'
 
@@ -46,9 +48,15 @@ foreach ($f in $payloadNames) {
 $bytes += (Get-ChildItem (Join-Path $root 'dist') -Recurse -File | Measure-Object Length -Sum).Sum
 $estKb = [int][Math]::Ceiling($bytes / 1024)
 
+if ($AssocDryRun) {
+    # 测试包：关联节的 10 条写入换成清单文件，输出到 .tmp，不进 release/。
+    $defines = @("/DASSOC_DRYRUN", "/DOUTFILE=..\.tmp\assoc-dryrun-setup.exe")
+} else {
+    $defines = @()
+}
 Push-Location $root
 try {
-    & $makensis /V2 "/DAPPVERSION=$version" "/DESTSIZE=$estKb" 'packaging\installer.nsi'
+    & $makensis /V2 "/DAPPVERSION=$version" "/DESTSIZE=$estKb" @defines 'packaging\installer.nsi'
     $code = $LASTEXITCODE
 } finally {
     Pop-Location
@@ -56,6 +64,16 @@ try {
 if ($code -ne 0) {
     Write-Host "makensis 失败，退出码 $code"
     exit $code
+}
+
+if ($AssocDryRun) {
+    $dry = Join-Path $root '.tmp\assoc-dryrun-setup.exe'
+    if (-not (Test-Path $dry)) {
+        Write-Host "没有 dry-run 产物：$dry"
+        exit 1
+    }
+    Write-Host ("assoc-dryrun={0} B  {1}" -f (Get-Item $dry).Length, $dry)
+    exit 0
 }
 
 $setup = Join-Path $root "release\Sidelight-$version-win-x64-setup.exe"

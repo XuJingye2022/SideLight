@@ -133,6 +133,45 @@ $userDataKept = (Test-Path $userData) -and (Test-Path $marker)
 if ($userDataKept) { Pass "用户数据保留（$userData）" } else { Fail "卸载删掉了用户数据目录：$userData" }
 if (-not $hklmBefore -and -not $hklmAfterInstall) { Pass '不写 HKLM 卸载项' } else { Fail "HKLM 卸载项：before=$hklmBefore afterInstall=$hklmAfterInstall" }
 
+# 8) T4: 关联 opt-in 的静态断言 + dry-run 包静默安装
+$nsiPath = Join-Path $root 'packaging\installer.nsi'
+$nsiText = Get-Content $nsiPath -Raw
+$writes = ([regex]::Matches($nsiText, 'WriteRegStr HKCU "Software\\Classes')).Count
+$deletes = ([regex]::Matches($nsiText, 'DeleteReg(Value|Key)[^\r\n]*Software\\Classes')).Count
+$hklmWrites = ([regex]::Matches($nsiText, 'WriteReg(Str|DWORD) HKLM')).Count
+$hklmReads = ([regex]::Matches($nsiText, 'ReadRegStr\s+\$0\s+HKLM')).Count
+$userChoice = ([regex]::Matches($nsiText, 'UserChoice')).Count
+$components = ([regex]::Matches($nsiText, 'MUI_PAGE_COMPONENTS')).Count
+$optionalSection = ([regex]::Matches($nsiText, 'Section /o ')).Count
+if ($writes -eq 10 -and $deletes -eq 4 -and $hklmWrites -eq 0 -and $hklmReads -ge 1 -and $userChoice -eq 0 -and $components -eq 1 -and $optionalSection -eq 1) {
+    Pass "关联静态断言：10 条 HKCU\Software\Classes 写 / 4 条对称删 / 无 HKLM 写 / 保留 HKLM 读 / 无 UserChoice / 组件页 + Section /o"
+} else {
+    Fail "关联静态断言失败：writes=$writes deletes=$deletes hklmWrite=$hklmWrites hklmRead=$hklmReads userChoice=$userChoice components=$components optional=$optionalSection"
+}
+
+$dry = Join-Path $root '.tmp\assoc-dryrun-setup.exe'
+if (Test-Path $dry) {
+    $dryDir = Join-Path $root '.tmp\install-assoc-dryrun'
+    if (Test-Path $dryDir) { Remove-Item $dryDir -Recurse -Force }
+    $dryProc = Start-Process -FilePath $dry -ArgumentList '/S', "/D=$dryDir" -PassThru -Wait
+    Start-Sleep -Milliseconds 600
+    $plan = Join-Path $dryDir 'assoc-plan.txt'
+    $dryExe = Join-Path $dryDir 'Sidelight.exe'
+    if ($dryProc.ExitCode -eq 0 -and (Test-Path $dryExe) -and -not (Test-Path $plan)) {
+        Pass 'dry-run /S 安装：组件默认不勾，assoc-plan.txt 不存在（静默不写关联）'
+    } else {
+        Fail "dry-run /S 断言失败：exit=$($dryProc.ExitCode) exe=$(Test-Path $dryExe) plan=$(Test-Path $plan)"
+    }
+    $dryUninst = Join-Path $dryDir 'uninstall.exe'
+    if (Test-Path $dryUninst) {
+        Start-Process -FilePath $dryUninst -ArgumentList '/S' -PassThru -Wait | Out-Null
+        $deadline2 = (Get-Date).AddSeconds(20)
+        while ((Test-Path $dryDir) -and (Get-Date) -lt $deadline2) { Start-Sleep -Milliseconds 300 }
+    }
+    if (-not (Test-Path $dryDir)) { Pass 'dry-run 包卸载清理' } else { Fail 'dry-run 包卸载残留' }
+} else {
+    Unverified 'dry-run 包不存在（先跑 packaging\installer.ps1 -AssocDryRun）'
+}
 Remove-Item $marker -Force -ErrorAction SilentlyContinue
 
 if ($script:failed -gt 0) {
