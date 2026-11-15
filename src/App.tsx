@@ -27,8 +27,12 @@ import { CloseGuardDialog } from './components/CloseGuardDialog.tsx'
 // 查找条与大纲面板只在打开时加载，不占首屏
 const FindBar = lazy(() => import('./components/FindBar.tsx').then((module) => ({ default: module.FindBar })))
 const Outline = lazy(() => import('./components/Outline.tsx').then((module) => ({ default: module.Outline })))
-import { SettingsDialog } from './components/SettingsDialog.tsx'
-import { ShortcutsDialog } from './components/ShortcutsDialog.tsx'
+const SettingsDialog = lazy(() =>
+  import('./components/SettingsDialog.tsx').then((module) => ({ default: module.SettingsDialog })),
+)
+const ShortcutsDialog = lazy(() =>
+  import('./components/ShortcutsDialog.tsx').then((module) => ({ default: module.ShortcutsDialog })),
+)
 import { StatusBar } from './components/StatusBar.tsx'
 import { useDialogFocus } from './components/useDialogFocus.ts'
 import { errorCopy, messageOf, streamAnnotations, streamChat, type ChatMessage } from './lib/ai.ts'
@@ -60,7 +64,6 @@ import { searchWeb } from './lib/search.ts'
 import { hasKey, loadSettings, saveSettings, type Settings } from './lib/settings.ts'
 import { countText, type TextStats } from './lib/wordcount.ts'
 import {
-  demoWorkspace,
   flattenFiles,
   parentDirectory,
   pickFile,
@@ -86,7 +89,7 @@ declare global {
 const DOC_KEY = 'sidelight.doc.v1'
 
 /** 第一次打开时正文就是示例，文档名也说明这一点，别让三处说法互相矛盾 */
-const DEMO_DOC_NAME = '示例 · 未命名.md'
+const DEMO_DOC_NAME = '示例 · 侧灯.md'
 
 /**
  * 删除线只绑 Mod-Shift-x。Tiptap 自带的 Strike 用 Mod-Shift-s，
@@ -115,7 +118,7 @@ const ReusableTable = Table.extend({
 
 const SAMPLE = `# 侧灯
 
-这是 Sidelight 的原型。左边写，右边批注。
+这是 Sidelight 的示例文档。左边写，右边批注。
 选中一段文字，按 Ctrl + Enter。侧灯会在对应的句子旁边留一条边注。
 ## 为什么叫侧灯
 
@@ -503,6 +506,8 @@ export default function App() {
   const autoSaveGenerationRef = useRef(0)
   /** 切换文档请求的序号：等在飞保存期间又发生改名/再次切换时，旧请求作废 */
   const loadEpochRef = useRef(0)
+  /** 新建空文档在首次手动保存前没有基线：不允许自动保存写盘 */
+  const hasSavedBaselineRef = useRef(false)
   const performingCommitRef = useRef<Promise<unknown> | null>(null)
   /** 最近打开：请求 id → resolve；同一行在飞时忽略重复点击 */
   const recentRequestsRef = useRef(new Map<string, (data: { ok?: boolean; error?: string }) => void>())
@@ -750,7 +755,7 @@ export default function App() {
       // 有磁盘目录时，再往 .sidelight/drafts 写一份。
       const file = fileRef.current
       const space = workspaceRef.current
-      if (file?.path && space && !space.demo) {
+      if (file?.path && space) {
         if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
         draftTimerRef.current = setTimeout(() => {
           void (async () => {
@@ -1443,6 +1448,17 @@ export default function App() {
     }
   }, [sourceMode, sourceText])
 
+  // 首屏把光标送进正文：对话框/查找/切换确认打开时不抢焦点
+  useEffect(() => {
+    if (!editor) return
+    const frame = requestAnimationFrame(() => {
+      if (settingsOpen || shortcutsOpen || findOpen || pendingConfirm || pendingSwitch) return
+      if (document.activeElement && document.activeElement !== document.body) return
+      document.querySelector<HTMLElement>('.ProseMirror')?.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [editor])
+
   useEffect(() => {
     if (!editor) return
     let frame = 0
@@ -1515,7 +1531,7 @@ export default function App() {
     async (file: WorkspaceFileNode | null) => {
       if (!editor || !file?.path) return
       const space = workspaceRef.current
-      if (!space || space.demo) return
+      if (!space || !space.rootHandle) return
       const dir = await parentDirectory(space, file.path)
       if (!dir) return
       const raw = await readCache(dir, 'annotations', cacheKey(file.name), legacyKeyFor(file.name))
@@ -1556,6 +1572,7 @@ export default function App() {
       footnotesRef.current = footnoteSplit.footnotes
       setOriginalText(text.length > 0 ? text : null)
       rawTextRef.current = text.length > 0 ? text : null
+      hasSavedBaselineRef.current = false
       setSaveWarned(false)
       setDraftShown(false)
       setAnalysisGoal('')
@@ -1644,7 +1661,7 @@ export default function App() {
         setWorkspace(next)
         setSidebarTab('files')
         setNotice(null)
-        if (next.rootHandle && !next.demo) {
+        if (next.rootHandle) {
           void import('./lib/trash.ts').then(({ ensureTrashDir }) =>
             ensureTrashDir(next.rootHandle!).then((result) => {
               setTrashReason(result.dir ? null : (result.error ?? '回收站不可用。'))
@@ -1686,52 +1703,57 @@ export default function App() {
     [requestLoad],
   )
 
-  /** 刷新文件树：重读目录、按 path 重绑句柄；找不到就清掉可写句柄 */
+  /** 刷新文件树：adopt=按新路径重绑（新建/另存为/改名）；check=找不到就清成只能另存为 */
   const refreshTree = useCallback(
-    async (options?: { skipPath?: string }): Promise<Workspace | null> => {
-    const space = workspaceRef.current
-    if (!space || space.demo || !space.rootHandle) return null
-    if (refreshingRef.current) return null
-    refreshingRef.current = true
-    setTreeRefreshing(true)
-    cancelAutoSaveRef.current()
-    try {
-      const next = await refreshWorkspace(space)
-      if (!next) {
-        setNotice({ text: '读不到文件夹了。请点「打开其他文件夹」重新授权。', kind: 'error' })
-        return null
-      }
-      const before = flattenFiles(space.root)
-      const after = flattenFiles(next.root)
-      const afterByPath = new Map(after.map((file) => [file.path, file]))
-      setWorkspace(next)
-      let missingName: string | null = null
-      if (activeFile && !deletingRef.current) {
-        const rebound = afterByPath.get(activeFile.path) ?? (options?.skipPath ? afterByPath.get(options.skipPath) : undefined)
-        if (rebound) {
-          setActiveFile(rebound)
-          saveTargetRef.current = rebound.handle ? { handle: rebound.handle, name: rebound.name } : null
-        } else {
-          setActiveFile(null)
-          saveTargetRef.current = null
-          missingName = activeFile.name
+    async (options?: { mode?: 'adopt' | 'check'; activePath?: string }): Promise<Workspace | null> => {
+      const space = workspaceRef.current
+      if (!space || !space.rootHandle) return null
+      if (refreshingRef.current) return null
+      refreshingRef.current = true
+      setTreeRefreshing(true)
+      cancelAutoSaveRef.current()
+      try {
+        const next = await refreshWorkspace(space)
+        if (!next) {
+          setNotice({ text: '读不到文件夹了。请点「打开其他文件夹」重新授权。', kind: 'error' })
+          return null
         }
+        const before = flattenFiles(space.root)
+        const after = flattenFiles(next.root)
+        const afterByPath = new Map(after.map((file) => [file.path, file]))
+        setWorkspace(next)
+        const mode = options?.mode ?? 'check'
+        const targetPath = options?.activePath ?? (deletingRef.current ? null : activeFile?.path)
+        let missingName: string | null = null
+        if (targetPath) {
+          const rebound = afterByPath.get(targetPath)
+          if (rebound) {
+            setActiveFile(rebound)
+            saveTargetRef.current = rebound.handle ? { handle: rebound.handle, name: rebound.name } : null
+          } else if (mode === 'check') {
+            setActiveFile(null)
+            saveTargetRef.current = null
+            missingName = activeFile?.name ?? targetPath.split('/').pop() ?? targetPath
+          }
+          // adopt 找不到时保留调用方刚设置的新值，不拿旧闭包清空
+        }
+        const added = after.filter((file) => !before.some((old) => old.path === file.path)).length
+        const gone = before.filter((file) => !afterByPath.has(file.path)).length
+        if (added > 0 || gone > 0) show(`已刷新：新增 ${added} 个，消失 ${gone} 个`)
+        if (missingName) {
+          setNotice({
+            text: `「${missingName}」已不在磁盘上（可能已删除、改名或移走），保存只能另存为。`,
+            kind: 'error',
+          })
+        }
+        return next
+      } finally {
+        refreshingRef.current = false
+        setTreeRefreshing(false)
       }
-      const added = after.filter((file) => !before.some((old) => old.path === file.path)).length
-      const gone = before.filter((file) => !afterByPath.has(file.path)).length
-      if (added > 0 || gone > 0) show(`已刷新：新增 ${added} 个，消失 ${gone} 个`)
-      if (missingName) {
-        setNotice({
-          text: `「${missingName}」已不在磁盘上（可能已删除、改名或移走），保存只能另存为。`,
-          kind: 'error',
-        })
-      }
-      return next
-    } finally {
-      refreshingRef.current = false
-      setTreeRefreshing(false)
-    }
-  }, [activeFile, show])
+    },
+    [activeFile, show],
+  )
 
   /** 重命名提交前：等在飞保存、停草稿计时、递增两套 generation */
   const prepareRename = useCallback(async () => {
@@ -1775,7 +1797,7 @@ export default function App() {
       }
 
       const space = workspaceRef.current
-      if (space && !space.demo && oldFile.name !== newName && cacheKey(oldFile.name) !== cacheKey(newName)) {
+      if (space && oldFile.name !== newName && cacheKey(oldFile.name) !== cacheKey(newName)) {
         try {
           const dir = await parentDirectory(space, oldFile.path)
           if (dir) {
@@ -1800,14 +1822,14 @@ export default function App() {
         }
       }
 
-      await refreshTree({ skipPath: newPath })
+      await refreshTree({ mode: 'adopt', activePath: newPath })
     },
     [activeFile, refreshTree],
   )
 
   const createFolder = useCallback(async () => {
     const space = workspaceRef.current
-    const root = space && !space.demo ? space.rootHandle : null
+    const root = space ? space.rootHandle : null
     if (!root) return
     const input = window.prompt('新建文件夹的名字')
     const name = (input ?? '').trim()
@@ -1832,7 +1854,7 @@ export default function App() {
   const removeFile = useCallback(
     async (node: WorkspaceFileNode) => {
       const space = workspaceRef.current
-      const root = space && !space.demo ? space.rootHandle : null
+      const root = space ? space.rootHandle : null
       if (!root) return
       deletingRef.current = true
       autoSaveGenerationRef.current += 1
@@ -1920,8 +1942,8 @@ export default function App() {
   const startNewDocument = useCallback(async () => {
     await waitForHostSave()
     const space = workspaceRef.current
-    const root = space && !space.demo ? space.rootHandle : null
-    if (!space || space.demo || !root || space.root?.kind !== 'dir') {
+    const root = space ? space.rootHandle : null
+    if (!space || !root || space.root?.kind !== 'dir') {
       loadIntoEditor('', '未命名.md', null)
       // 纯键盘流程：新建后直接能打字
       requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
@@ -1930,9 +1952,12 @@ export default function App() {
     try {
       const name = nextNewName(space)
       const handle = await root.getFileHandle(name, { create: true })
-      const file: WorkspaceFileNode = { kind: 'file', name, path: name, handle }
+      const path = `${space.name}/${name}`
+      const file: WorkspaceFileNode = { kind: 'file', name, path, handle }
       loadIntoEditor('', name, file)
-      await refreshTree()
+      setActiveFile(file)
+      saveTargetRef.current = { handle, name }
+      await refreshTree({ mode: 'adopt', activePath: path })
       show(`已新建 ${name}`)
       // 纯键盘流程：新建后直接能打字
       requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
@@ -2000,6 +2025,7 @@ export default function App() {
       })
       setOriginalText(withEol)
       rawTextRef.current = withEol
+      hasSavedBaselineRef.current = true
       // 刚写入的内容就是新基线：不再有已知结构损失
       // 源码模式保存的是原文：保留载入时的结构损失基线，切回富文本后仍要拦
       if (!keepLosses) {
@@ -2469,7 +2495,7 @@ export default function App() {
     }
     const file = fileRef.current
     const space = workspaceRef.current
-    if (file?.path && space && !space.demo) {
+    if (file?.path && space) {
       const dir = await parentDirectory(space, file.path)
       if (dir) {
         await writeCache(dir, 'draft', cacheKey(file.name), text)
@@ -2496,6 +2522,8 @@ export default function App() {
       return
     }
     if (!dirtyRef.current) return
+    // 新建后还没有任何基线（0 字节、没保存过）：首次手动保存前绝不自动写盘
+    if (originalText === null && !hasSavedBaselineRef.current) return
     const hasFileTarget = Boolean(saveTargetRef.current ?? activeFile?.handle)
     if (!(hostDoc?.ready && hostDoc.writable) && !hasFileTarget) return
 
@@ -3551,6 +3579,7 @@ export default function App() {
             >
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   exportAs('html')
                   exportTriggerRef.current?.focus()
@@ -3560,6 +3589,7 @@ export default function App() {
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   exportAs('markdown')
                   exportTriggerRef.current?.focus()
@@ -3569,6 +3599,7 @@ export default function App() {
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   exportAs('text')
                   exportTriggerRef.current?.focus()
@@ -3578,6 +3609,7 @@ export default function App() {
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   setExportOpen(false)
                   exportTriggerRef.current?.focus()
@@ -3799,43 +3831,66 @@ export default function App() {
       <div className="workbench">
         <div className={`sidebar${treeCollapsed ? ' is-collapsed' : ''}`}>
           {!treeCollapsed && (
-            <div className="sidebar-tabs">
-              <button
-                type="button"
-                className={sidebarTab === 'files' ? 'is-active' : ''}
-                onClick={() => setSidebarTab('files')}
-              >
-                文件
-              </button>
-              <button
-                type="button"
-                className={sidebarTab === 'outline' ? 'is-active' : ''}
-                onClick={() => setSidebarTab('outline')}
-              >
-                大纲
-              </button>
+            <div className="sidebar-tabs" role="tablist" aria-label="侧栏">
+              {(['files', 'outline'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  id={`sidebar-tab-${tab}`}
+                  aria-selected={sidebarTab === tab}
+                  aria-controls={`sidebar-${tab}`}
+                  tabIndex={sidebarTab === tab ? 0 : -1}
+                  className={sidebarTab === tab ? 'is-active' : ''}
+                  onClick={() => setSidebarTab(tab)}
+                  onKeyDown={(event) => {
+                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                    event.preventDefault()
+                    const next =
+                      event.key === 'Home'
+                        ? 'files'
+                        : event.key === 'End'
+                          ? 'outline'
+                          : tab === 'files'
+                            ? 'outline'
+                            : 'files'
+                    setSidebarTab(next)
+                    requestAnimationFrame(() => document.getElementById(`sidebar-tab-${next}`)?.focus())
+                  }}
+                >
+                  {tab === 'files' ? '文件' : '大纲'}
+                </button>
+              ))}
             </div>
           )}
 
-          {sidebarTab === 'files' || treeCollapsed ? (
-            <FileTree
-              workspace={workspace}
-              activePath={activeFile?.path ?? null}
-              collapsed={treeCollapsed}
-              onToggle={() => setTreeCollapsed((value) => !value)}
-              onOpenFolder={openFolder}
-              onNewFile={newDocument}
-              onNewFolder={() => void createFolder()}
-              onRefresh={() => void refreshTree()}
-              onDeleteFile={(file) => void removeFile(file)}
-              trashReason={trashReason}
-              refreshing={treeRefreshing}
-              onBeforeRename={prepareRename}
-              onRenameFile={(file, newName) => void handleRenamedFile(file, newName)}
-              onOpenFile={openWorkspaceFile}
-            />
-          ) : (
-            <aside className="file-tree outline-pane">
+          <FileTree
+            panelId="sidebar-files"
+            hidden={sidebarTab !== 'files' && !treeCollapsed}
+            inert={sidebarTab !== 'files' && !treeCollapsed}
+            workspace={workspace}
+            activePath={activeFile?.path ?? null}
+            collapsed={treeCollapsed}
+            onToggle={() => setTreeCollapsed((value) => !value)}
+            onOpenFolder={openFolder}
+            onNewFile={newDocument}
+            onNewFolder={() => void createFolder()}
+            onRefresh={() => void refreshTree()}
+            onDeleteFile={(file) => void removeFile(file)}
+            trashReason={trashReason}
+            refreshing={treeRefreshing}
+            onBeforeRename={prepareRename}
+            onRenameFile={(file, newName) => void handleRenamedFile(file, newName)}
+            onOpenFile={openWorkspaceFile}
+          />
+
+          {sidebarTab === 'outline' && !treeCollapsed && (
+            <aside
+              id="sidebar-outline"
+              role="tabpanel"
+              aria-labelledby="sidebar-tab-outline"
+              className="file-tree outline-pane"
+            >
               <div className="file-tree-list">
                 <Suspense fallback={null}>
                   <Outline items={outline} activeId={activeOutline} onJump={jumpTo} />
@@ -3914,6 +3969,9 @@ export default function App() {
           ) : (
             <div className="doc-layout">
               <div className="doc-column">
+                {!sourceMode && !previewMode && stats.chars === 0 && (
+                  <div className="editor-placeholder" aria-hidden="true">从这一句开始写</div>
+                )}
                 <EditorContent editor={editor} />
               </div>
               <MarginRail
@@ -4228,18 +4286,42 @@ export default function App() {
         />
       )}
 
-      <SettingsDialog
-        open={settingsOpen}
-        settings={settings}
-        onSave={commitSettings}
-        onClose={() => setSettingsOpen(false)}
-        onShowShortcuts={() => {
-          setSettingsOpen(false)
-          setShortcutsOpen(true)
-        }}
-      />
+      {settingsOpen && (
+        <Suspense
+          fallback={
+            <div className="overlay">
+              <div className="dialog" aria-busy="true">
+                <p>正在打开设置…</p>
+              </div>
+            </div>
+          }
+        >
+          <SettingsDialog
+            open
+            settings={settings}
+            onSave={commitSettings}
+            onClose={() => setSettingsOpen(false)}
+            onShowShortcuts={() => {
+              setSettingsOpen(false)
+              setShortcutsOpen(true)
+            }}
+          />
+        </Suspense>
+      )}
 
-      <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      {shortcutsOpen && (
+        <Suspense
+          fallback={
+            <div className="overlay">
+              <div className="dialog" aria-busy="true">
+                <p>正在打开快捷键…</p>
+              </div>
+            </div>
+          }
+        >
+          <ShortcutsDialog open onClose={() => setShortcutsOpen(false)} />
+        </Suspense>
+      )}
     </div>
   )
 }

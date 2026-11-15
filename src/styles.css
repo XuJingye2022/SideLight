@@ -193,8 +193,13 @@ main.doc-scroll:focus {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: min(42vw, 460px);
   padding-left: 10px;
   border-left: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: var(--ink-faint);
 }
@@ -247,6 +252,18 @@ main.doc-scroll:focus {
 
 .doc-column {
   min-width: 0;
+  position: relative;
+}
+
+.editor-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 0 2px;
+  color: var(--ink-faint);
+  pointer-events: none;
+  user-select: none;
 }
 
 /* ---------- 文件树 ---------- */
@@ -285,24 +302,6 @@ main.doc-scroll:focus {
   letter-spacing: 0.06em;
   color: var(--ink-faint);
   text-transform: none;
-}
-
-/* 示例工作区徽标：和真实文件夹一眼分开 */
-.file-badge {
-  flex: none;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--accent-wash);
-  color: var(--accent-ink);
-  font-size: var(--text-xs);
-  font-weight: 600;
-}
-
-.file-tree-demo-note {
-  margin: 2px 10px 8px 14px;
-  font-size: var(--text-xs);
-  line-height: 1.6;
-  color: var(--ink-faint);
 }
 
 .file-tree-head-actions {
@@ -445,6 +444,12 @@ main.doc-scroll:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tree-empty-dir {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--ink-faint);
 }
 
 .tree-row {

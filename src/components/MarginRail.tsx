@@ -82,7 +82,11 @@ export function MarginRail({
         </div>
       )}
 
-      {unresolved > 0 && <p className="rail-notice">有 {unresolved} 条没能在正文里定位，已丢弃。</p>}
+      {unresolved > 0 && (
+        <p className="rail-notice">
+          {simulated ? '这段太短，选中一段正文再试。' : `有 ${unresolved} 条没能在正文里定位，已丢弃。`}
+        </p>
+      )}
 
       {simulated && <p className="rail-notice-mock">未配置 API Key，下面是本地模拟批注，不调用模型</p>}
 

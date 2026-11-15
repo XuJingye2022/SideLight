@@ -2,6 +2,18 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
+## 0.28.0 — 2026-11-16
+
+【体积与 SHA256 见 Release 页的 `SHA256SUMS-0.28.0.txt`；本机构建约 setup 817,886 B / zip 901,866 B。】
+
+新建文件保存修复、首次使用与延后项收尾、发布自动化；首屏 gzip **283,775 B**（≤285,000，余 1,225 B）。
+
+- 新建文件保存：修「打开 a.md → ＋新建 → 保存」把 a.md 覆盖的问题；新文件首次手动保存前保持 0 字节；外部删除/改名后 `Ctrl+S` 不再写旧路径；`refreshWorkspace` 分 `adopt` / `check` 两种语义。
+- 首次使用：焦点与占位、文档身份一致、模拟批注去重、demo 死代码清理。
+- 延后项收尾：侧栏 `tablist`、文件树展开态、空文件夹提示、超长文件名、导出菜单。
+- 发布自动化：新增 `release.yml`（tag `v*` 或手动 `publish`）；preflight 校验 tag = `package.json` = CHANGELOG；Windows / macOS 构建只上传 artifact；单个 release job 生成 `SHA256SUMS` 并 `sha256sum -c` 后发布，同 tag 重跑幂等（`overwrite_files`）。
+- CI：`windows-host` 与 `macos-host` 转为必过；`install-verify` 仍只手动触发。
+- 测试 16 个文件 205 条；体积与 SHA256 见 Release 页的 `SHA256SUMS-0.28.0.txt`（本机构建约 setup 817,886 B / zip 901,866 B）。
 ## 0.27.0 — 2026-11-16
 
 跨平台：Windows 与 macOS 各一套原生宿主。

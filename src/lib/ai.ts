@@ -253,6 +253,16 @@ export function mockItems(context: ContextPayload): ParsedAnnotation[] {
 
   const pool = sentences.length > 0 ? sentences : [context.selection.trim()].filter((line) => line.length > 0)
   if (pool.length === 0) return []
+  // 单句/短段落只给一条，避免同一 quote 重复出现
+  if (pool.length === 1) {
+    return [
+      {
+        kind: 'evaluation',
+        quote: clip(pool[0], 22),
+        note: '这句是整段的重心，位置偏后；读者读到才知道你要说什么。',
+      },
+    ]
+  }
 
   const items: ParsedAnnotation[] = [
     { kind: 'meta', quote: '', note: '我判断这段的意图是：给一个观点补理由。' },

@@ -22,7 +22,6 @@ export type Workspace = {
   root: WorkspaceNode | null
   /** 用户选中的文件夹句柄，示例工作区没有 */
   rootHandle: FileSystemDirectoryHandle | null
-  demo: boolean
 }
 
 // TS 的 DOM 类型里没有这两个选择器函数，这里补本地声明，再用 typeof 收窄
@@ -65,7 +64,6 @@ const MARKDOWN_SUFFIXES = ['.md', '.markdown']
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' })
 
 // 示例文件没有句柄，正文放在这张表里，readNode 按 path 取回
-const demoTexts = new Map<string, string>()
 
 function pickerWindow(): PickerWindow {
   return window
@@ -128,7 +126,7 @@ export async function pickWorkspace(): Promise<Workspace | null> {
   }
 
   const root = await readDirectory(handle, '')
-  return { name: handle.name, root, rootHandle: handle, demo: false }
+  return { name: handle.name, root, rootHandle: handle }
 }
 
 /**
@@ -242,9 +240,6 @@ export async function readNode(file: WorkspaceFileNode): Promise<string> {
     return blob.text()
   }
 
-  const demo = demoTexts.get(file.path)
-  if (demo !== undefined) return demo
-
   throw new Error(`「${file.name}」没有可以读取的位置。`)
 }
 
@@ -285,99 +280,6 @@ export async function saveAsFile(name: string, text: string): Promise<SaveAsResu
   await writable.write(text)
   await writable.close()
   return { handle, name: handle.name || name }
-}
-
-const DEMO_NAME = '示例文集'
-
-const DEMO_FILES: Array<{ name: string; text: string }> = [
-  {
-    name: '开始写.md',
-    text: [
-      '# 开始写',
-      '',
-      '把光标放在这里，直接开始。不问你标题，也不弹出模板。',
-      '',
-      '写完选中一段，按 Ctrl + Enter，右边会给三条意见。',
-      '',
-      '> 这个示例文件夹只活在内存里，改动不会写回磁盘。',
-    ].join('\n'),
-  },
-  {
-    name: '关于侧灯.md',
-    text: [
-      '## 侧灯是什么',
-      '',
-      '侧灯是桌子上的第二盏灯。主灯照你，侧灯照你写下的字。',
-      '',
-      '它只读正文，不改正文。你写，它看。',
-      '',
-      '- 左边写',
-      '- 右边补光',
-    ].join('\n'),
-  },
-  {
-    name: '交稿前看一眼.md',
-    text: [
-      '# 交稿前看一眼',
-      '',
-      '1. 每段第一句，先把结论放出来。',
-      '2. 并列超过三条，改成列表。',
-      '3. 结尾回扣开头，读者才落得下心。',
-      '',
-      '这三条来自编辑的经验，不是规则。',
-    ].join('\n'),
-  },
-  {
-    name: '带元数据的笔记.md',
-    text: [
-      '---',
-      'title: 周记',
-      'tags: [随笔, 生活]',
-      'created: 2026-11-10',
-      '---',
-      '',
-      '# 周记',
-      '',
-      '这周读完了《长日将尽》。有三成的时间花在通勤上。',
-      '',
-      '按 <kbd>Ctrl</kbd> + Enter 就能让侧灯看这一段。',
-      '',
-      '脚注也属于 Markdown[^1]。',
-      '',
-      '[^1]: 第一条脚注。',
-    ].join('\n'),
-  },
-  {
-    name: '参考与出处.md',
-    text: [
-      '# 参考与出处',
-      '',
-      '这篇用了引用式链接。编辑器读不全，保存时会改写成行内链接。',
-      '',
-      '官方文档在 [Tiptap][tiptap]，内核是 [ProseMirror][pm]。',
-      '',
-      '[tiptap]: https://tiptap.dev',
-      '[pm]: https://prosemirror.net',
-    ].join('\n'),
-  },
-]
-
-/**
- * 纯内存的示例文件夹。三个文件，没有句柄，正文存在模块里。
- */
-export function demoWorkspace(): Workspace {
-  const files: WorkspaceFileNode[] = DEMO_FILES.map((file) => {
-    const path = joinPath(DEMO_NAME, file.name)
-    demoTexts.set(path, file.text)
-    return { kind: 'file', name: file.name, path, handle: null }
-  })
-
-  return {
-    name: DEMO_NAME,
-    root: { kind: 'dir', name: DEMO_NAME, path: DEMO_NAME, handle: null, children: files },
-    rootHandle: null,
-    demo: true,
-  }
 }
 
 /**

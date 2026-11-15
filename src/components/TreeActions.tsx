@@ -122,6 +122,7 @@ export function RenameInput({
         }}
         value={value}
         disabled={busy}
+        className="tree-rename-input"
         aria-label={`重命名 ${file.name}`}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
@@ -143,6 +144,7 @@ export function RenameInput({
       />
       {error && (
         <span
+          className="tree-rename-error"
           style={{
             flex: 'none',
             maxWidth: 210,

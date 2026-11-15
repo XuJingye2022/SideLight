@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -38,8 +39,6 @@ jobs:
     # 固定 2022：2026 年 windows-latest 迁到 VS 2026 / Server 2025，csc 路径与镜像都在变
     runs-on: windows-2022
     timeout-minutes: 25
-    # 首次接入不阻塞主流程；连续 3 次绿后删掉这一行，改为阻断
-    continue-on-error: true
     defaults:
       run:
         shell: pwsh
@@ -104,8 +103,7 @@ jobs:
           if-no-files-found: error
 
   macos-host:
-    # 首跑不阻塞主流程；CI 编译是 macOS 宿主的唯一验证（本机没有 Swift/macOS）
-    continue-on-error: true
+    # CI 编译是 macOS 宿主的唯一验证（本机没有 Swift/macOS）；已转为必过
     runs-on: macos-latest
     timeout-minutes: 30
     defaults:

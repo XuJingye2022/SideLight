@@ -30,6 +30,9 @@ type Props = {
   onDeleteFile: (file: WorkspaceFileNode) => void
   onBeforeRename: () => Promise<void>
   onRenameFile: (file: WorkspaceFileNode, newName: string) => void
+  panelId?: string
+  hidden?: boolean
+  inert?: boolean
 }
 
 type Row = { node: WorkspaceNode; level: number }
@@ -65,6 +68,9 @@ export function FileTree({
   onDeleteFile,
   onBeforeRename,
   onRenameFile,
+  panelId,
+  hidden,
+  inert,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [newMenuOpen, setNewMenuOpen] = useState(false)
@@ -194,7 +200,13 @@ export function FileTree({
 
   if (collapsed) {
     return (
-      <aside className="file-tree file-tree-collapsed" aria-label="文件树">
+      <aside
+        className="file-tree file-tree-collapsed"
+        aria-label="文件树"
+        {...(panelId ? { id: panelId, role: 'tabpanel' as const, 'aria-labelledby': 'sidebar-tab-files' } : {})}
+        hidden={hidden}
+        inert={inert}
+      >
         <button type="button" onClick={onToggle} aria-label="展开文件树" title="展开文件树">
           ›
         </button>
@@ -204,12 +216,18 @@ export function FileTree({
 
   if (!workspace) {
     return (
-      <aside className="file-tree" aria-label="文件树">
+      <aside
+        className="file-tree"
+        aria-label="文件树"
+        {...(panelId ? { id: panelId, role: 'tabpanel' as const, 'aria-labelledby': 'sidebar-tab-files' } : {})}
+        hidden={hidden}
+        inert={inert}
+      >
         <div className="file-tree-empty">
-          <p className="file-tree-empty-title">现在打开的是示例</p>
+          <p className="file-tree-empty-title">还没有打开文件夹</p>
           <p className="file-tree-empty-sub">打开一个文件夹后，保存会写回原文件</p>
           <div className="file-tree-actions">
-            <button type="button" style={{ width: '100%' }} onClick={onOpenFolder}>
+            <button type="button" className="file-tree-open-wide" style={{ width: '100%' }} onClick={onOpenFolder}>
               打开文件夹…
             </button>
           </div>
@@ -318,7 +336,11 @@ export function FileTree({
         </div>
         {open && (
           <div role="group" className="tree-group">
-            {node.children.map((child) => renderRow({ node: child, level: level + 1 }))}
+            {node.children.length === 0 ? (
+              <p className="tree-empty-dir" role="none">这个文件夹里没有 Markdown 文件</p>
+            ) : (
+              node.children.map((child) => renderRow({ node: child, level: level + 1 }))
+            )}
           </div>
         )}
       </div>
@@ -326,21 +348,23 @@ export function FileTree({
   }
 
   return (
-    <aside className="file-tree" aria-label="文件树">
+    <aside
+      className="file-tree"
+      aria-label="文件树"
+      {...(panelId ? { id: panelId, role: 'tabpanel' as const, 'aria-labelledby': 'sidebar-tab-files' } : {})}
+      hidden={hidden}
+      inert={inert}
+    >
       <header className="file-tree-head">
         <span className="file-tree-name" title={workspace.name}>
           {workspace.name}
         </span>
-        {workspace.demo && <span className="file-badge">示例</span>}
         <button type="button" onClick={onToggle} aria-label="收起文件树" title="收起文件树">
           ‹
         </button>
       </header>
 
-      {workspace.demo ? (
-        <p className="file-tree-demo-note">改动不写盘，保存会另存为</p>
-      ) : (
-        <div className="file-tree-head-actions">
+      <div className="file-tree-head-actions">
           <div className="tree-new-wrap">
             <button
               type="button"
@@ -385,7 +409,6 @@ export function FileTree({
             </button>
           </div>
         </div>
-      )}
 
       <div
         ref={treeRef}

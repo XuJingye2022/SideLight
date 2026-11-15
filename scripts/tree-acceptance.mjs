@@ -2,7 +2,7 @@ import { chromium } from 'playwright-core'
 
 const URL = process.env.SIDELIGHT_URL ?? 'http://localhost:5173'
 const CDP = process.env.SIDELIGHT_CDP ?? 'http://127.0.0.1:9222'
-const OUT = 'shots/round-13'
+const OUT = 'shots/round-14'
 
 const results = []
 const check = (label, ok, extra = '') => {
@@ -566,10 +566,28 @@ const sha = (page, path) => page.evaluate((value) => window.__fs.sha(value), pat
   check('折叠祖先仍只有 1 个 tab 站', (await page.evaluate(() => document.querySelectorAll('[role="tree"] [tabindex="0"]').length)) === 1)
   await page.screenshot({ path: `${OUT}/t2-indent.png` })
 
-  await page.getByRole('button', { name: '大纲', exact: true }).click()
+  await page.locator('[role="treeitem"]', { hasText: '项目' }).click()
+  await page.waitForTimeout(300)
+  await page.getByRole('tab', { name: '大纲' }).click()
   await page.waitForTimeout(500)
   const current = await page.locator('.outline-item[aria-current="location"]').count()
   check('大纲活动项 aria-current="location"', current >= 1, String(current))
+
+  // T3 P3/P4：tablist 语义、方向键、切回后展开态不丢、隐藏面板 inert
+  const tabsInfo = await page.evaluate(() => ({
+    tablist: document.querySelector('.sidebar-tabs')?.getAttribute('role'),
+    selected: [...document.querySelectorAll('[role="tab"]')].map((node) => node.getAttribute('aria-selected')),
+  }))
+  check('侧栏 tablist/tab aria-selected 就位', tabsInfo.tablist === 'tablist' && tabsInfo.selected.join(',') === 'false,true', JSON.stringify(tabsInfo))
+  await page.getByRole('tab', { name: '文件' }).click()
+  await page.waitForTimeout(400)
+  const back = await page.evaluate(() => ({
+    hasTree: Boolean(document.querySelector('[role="tree"]')),
+    hidden: document.querySelector('[role="tree"]')?.closest('[role="tabpanel"]')?.hasAttribute('hidden') ?? null,
+    expanded: document.querySelectorAll('[role="treeitem"][aria-expanded="true"]').length,
+  }))
+  check('切回文件后展开态仍保留、面板可见', back.hasTree && back.hidden === false, JSON.stringify(back))
+  await page.screenshot({ path: `${OUT}/t3-tablist.png` })
   await page.screenshot({ path: `${OUT}/t3-outline-current.png` })
   await context.close()
 }

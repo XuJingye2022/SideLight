@@ -126,7 +126,7 @@ let exported = ''
 try {
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 4000 }),
-    page.getByRole('button', { name: 'HTML', exact: true }).click(),
+    page.getByRole('menuitem', { name: 'HTML', exact: true }).click(),
   ])
   exported = download.suggestedFilename()
 } catch {
