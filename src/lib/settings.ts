@@ -16,6 +16,8 @@ export type Settings = {
   searchApiKey: string
   /** 批注用的系统提示词，用户可改 */
   analysisPrompt: string
+  /** 停笔 2 秒自动保存（默认开；有结构损失时只提示，不写） */
+  autoSave: boolean
 }
 
 const STORAGE_KEY = 'sidelight.settings.v1'
@@ -32,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   searchProvider: 'off',
   searchApiKey: '',
   analysisPrompt: DEFAULT_ANALYSIS_PROMPT,
+  autoSave: true,
 }
 
 export function clampFontSize(value: number): number {
@@ -60,6 +63,7 @@ export function loadSettings(): Settings {
         typeof parsed.analysisPrompt === 'string' && parsed.analysisPrompt.trim().length > 0
           ? parsed.analysisPrompt
           : DEFAULT_ANALYSIS_PROMPT,
+      autoSave: parsed.autoSave !== false,
     }
   } catch {
     return { ...DEFAULT_SETTINGS }

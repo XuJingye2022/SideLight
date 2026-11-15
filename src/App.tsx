@@ -24,6 +24,7 @@ import { MarginRail } from './components/MarginRail.tsx'
 import { Outline } from './components/Outline.tsx'
 import { PreviewPane } from './components/PreviewPane.tsx'
 import { SaveDialog } from './components/SaveDialog.tsx'
+import { CloseGuardDialog } from './components/CloseGuardDialog.tsx'
 import { SettingsDialog } from './components/SettingsDialog.tsx'
 import { ShortcutsDialog } from './components/ShortcutsDialog.tsx'
 import { StatusBar } from './components/StatusBar.tsx'
@@ -37,7 +38,7 @@ import {
   type Annotation,
   type ParsedAnnotation,
 } from './lib/annotations.ts'
-import { cacheKey, readCache, removeCache, writeCache } from './lib/cache.ts'
+import { cacheKey, legacyKeyFor, readCache, removeCache, writeCache } from './lib/cache.ts'
 import { buildChunkContext, buildContext, splitSelection, type Block, type ContextPayload } from './lib/context.ts'
 import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } from './lib/decorations.ts'
 import { MathInputRules } from './lib/mathInput.ts'
@@ -214,6 +215,12 @@ type HostDocResponse = {
   error?: string
 }
 
+/** .NET ticks（100ns，0001 起）→ JS 毫秒；宿主 `/__doc`、`/__draft` 用 ticks */
+function ticksToMillis(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return Date.now()
+  return value > 1e15 ? Math.round((value - 621355968000000000) / 10000) : value
+}
+
 /** 宿主写回的错误码 → 用户能读懂的一句话 */
 function hostErrorCopy(code: string): string {
   switch (code) {
@@ -355,6 +362,16 @@ export default function App() {
   /** 宿主文档（`/__doc` 成功才有）；null 表示普通浏览器文档 */
   const [hostDoc, setHostDoc] = useState<HostDoc | null>(null)
   const [hostError, setHostError] = useState<string | null>(null)
+  /** 宿主草稿比原文件新：先问恢复还是丢弃 */
+  const [hostDraftPrompt, setHostDraftPrompt] = useState<{ text: string; mtime: number } | null>(null)
+  const [draftRestored, setDraftRestored] = useState(false)
+  /** 关窗三选一：宿主请求排队/显示中 */
+  const [closeRequested, setCloseRequested] = useState(false)
+  const [closeGuardOpen, setCloseGuardOpen] = useState(false)
+  /** 自动保存排队与状态（状态栏 chip） */
+  const [autoSaveScheduled, setAutoSaveScheduled] = useState(false)
+  const [autoSaveState, setAutoSaveState] = useState<'idle' | 'saved' | 'manual' | 'failed' | 'external'>('idle')
+  const [autoSavedAt, setAutoSavedAt] = useState<number | null>(null)
   /** 冷启动时发现未保存草稿：先问用户保留草稿还是继续打开宿主文件 */
   const [draftPrompt, setDraftPrompt] = useState<{ fileName: string; savedAt: number } | null>(null)
   const hostPayloadRef = useRef<HostDocResponse | null>(null)
@@ -396,6 +413,25 @@ export default function App() {
   const toggleSourceRef = useRef<() => void>(() => {})
   const togglePreviewRef = useRef<() => void>(() => {})
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 宿主草稿：generation 用过期的回包一律丢弃 */
+  const draftGenerationRef = useRef(0)
+  const draftPendingRef = useRef<{ id: number; generation: number; ack: Promise<void>; resolve: () => void } | null>(null)
+  const nextDraftIdRef = useRef(0)
+  const draftSuppressedRef = useRef(false)
+  const scheduleHostDraftRef = useRef<(text: string) => void>(() => {})
+  const scheduleAutoSaveRef = useRef<() => void>(() => {})
+  const cancelAutoSaveRef = useRef<() => void>(() => {})
+  const clearHostDraftRef = useRef<() => Promise<void>>(async () => {})
+  /** 同步的「宿主写回在飞」标记：state 下一次渲染才更新，auto 判定要用它 */
+  const savingRef = useRef(false)
+  const hostDocRef = useRef<HostDoc | null>(null)
+  /** 自动保存：2 秒防抖 + 输入法组合保护 */
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const composeUntilRef = useRef(0)
+  const autoFailCountRef = useRef(0)
+  const fileMtimeRef = useRef(0)
+  /** onUpdate 里同步维护，自动保存定时器不读可能过期的 state */
+  const dirtyRef = useRef(false)
   const railToggleRef = useRef<HTMLButtonElement | null>(null)
   /** 宿主文档模式：onUpdate 不再往 localStorage 写整篇正文（大文件会撑爆配额） */
   const hostModeRef = useRef(false)
@@ -478,8 +514,13 @@ export default function App() {
 
   // 宿主文档：窗口标题显示文件名（转发/另存为后会跟着变）
   useEffect(() => {
+    hostDocRef.current = hostDoc
     document.title = hostDoc?.ready ? `${hostDoc.fileName} — Sidelight` : 'Sidelight'
   }, [hostDoc])
+
+  useEffect(() => {
+    dirtyRef.current = dirty
+  }, [dirty])
 
   // 切换文档的确认框与另外两个对话框共用一套焦点逻辑
   useDialogFocus(pendingSwitch !== null, switchDialogRef)
@@ -579,7 +620,11 @@ export default function App() {
       // 载入文档的那次替换带 addToHistory:false，不算用户改动。
       if (transaction?.getMeta('addToHistory') === false) return
       // 脏 = 当前正文与保存基线不等：撤销回原样会自动变干净，不再要求必存一次
-      if (baselineRef.current !== null) setDirty(contentRef.current().replace(/\r\n/g, '\n') !== baselineRef.current)
+      if (baselineRef.current !== null) {
+        const dirtyNow = contentRef.current().replace(/\r\n/g, '\n') !== baselineRef.current
+        dirtyRef.current = dirtyNow
+        setDirty(dirtyNow)
+      }
       setOutline(extractOutline(current.state.doc))
       setStats(countText(current.state.doc.textContent))
 
@@ -595,6 +640,12 @@ export default function App() {
         }
       }
 
+      // 宿主文档：草稿交给宿主写到文档同目录的 .sidelight/drafts
+      if (hostModeRef.current) {
+        draftSuppressedRef.current = false
+        scheduleHostDraftRef.current(draft.replace(/\r\n/g, '\n'))
+      }
+
       // 有磁盘目录时，再往 .sidelight/drafts 写一份。
       const file = fileRef.current
       const space = workspaceRef.current
@@ -603,10 +654,18 @@ export default function App() {
         draftTimerRef.current = setTimeout(() => {
           void (async () => {
             const dir = await parentDirectory(space, file.path)
-            if (dir) await writeCache(dir, 'draft', cacheKey(file.name), draft)
+            if (dir) {
+              const key = cacheKey(file.name)
+              await writeCache(dir, 'draft', key, draft)
+              const legacy = legacyKeyFor(file.name)
+              if (legacy) await removeCache(dir, 'draft', legacy)
+            }
           })()
         }, 800)
       }
+
+      // 停笔 2 秒自动保存（默认开；有结构损失/输入法组合/模态时不动）
+      scheduleAutoSaveRef.current()
     },
     onSelectionUpdate: ({ editor: current }) => {
       const { from, to } = current.state.selection
@@ -702,6 +761,10 @@ export default function App() {
       setReadOnly(!writable)
       setSaveWarned(false)
       setDraftShown(false)
+      cancelAutoSaveRef.current()
+      setAutoSaveState('idle')
+      setAutoSavedAt(null)
+      setDraftRestored(false)
       setDirty(false)
       setSaveError(null)
       setHostError(null)
@@ -795,6 +858,32 @@ export default function App() {
           `文件过大，暂不支持（上限 ${MAX_HOST_DOC_LENGTH / (1024 * 1024)} MB）。这个文件约 ${megabytes} MB，这次没有载入正文；请用别的编辑器处理，或先用工具把它拆小。`,
         )
         return
+      }
+
+      // 宿主草稿：比原文件新就先问恢复/丢弃（404 = 没有草稿）
+      try {
+        const draftResponse = await fetch('/__draft', { cache: 'no-store' })
+        if (draftResponse.ok) {
+          const draftData = (await draftResponse.json()) as {
+            v?: number
+            exists?: boolean
+            text?: string
+            mtime?: number
+          }
+          if (
+            draftData?.v === 1 &&
+            draftData.exists === true &&
+            typeof draftData.text === 'string' &&
+            Number(draftData.mtime ?? 0) > Number(data.mtime ?? 0) &&
+            draftData.text !== data.text
+          ) {
+            hostPayloadRef.current = data
+            setHostDraftPrompt({ text: draftData.text, mtime: Number(draftData.mtime ?? 0) })
+            return
+          }
+        }
+      } catch {
+        // 草稿接口不可用就算了，正文优先
       }
 
       // 冷启动：localStorage 里有未保存草稿且与宿主正文不同，先问一句再覆盖
@@ -1111,7 +1200,10 @@ export default function App() {
           await removeCache(dir, 'annotations', cacheKey(file.name))
           return
         }
-        await writeCache(dir, 'annotations', cacheKey(file.name), JSON.stringify(annotations))
+        const key = cacheKey(file.name)
+      await writeCache(dir, 'annotations', key, JSON.stringify(annotations))
+      const legacy = legacyKeyFor(file.name)
+      if (legacy) await removeCache(dir, 'annotations', legacy)
       })()
     }, 600)
     return () => clearTimeout(timer)
@@ -1310,7 +1402,7 @@ export default function App() {
       if (!space || space.demo) return
       const dir = await parentDirectory(space, file.path)
       if (!dir) return
-      const raw = await readCache(dir, 'annotations', cacheKey(file.name))
+      const raw = await readCache(dir, 'annotations', cacheKey(file.name), legacyKeyFor(file.name))
       if (!raw) return
 
       try {
@@ -1371,6 +1463,23 @@ export default function App() {
       ).replace(/\r\n/g, '\n')
       setDocName(name)
       setActiveFile(file)
+      // 换文档：停掉自动保存与草稿计时，旧文档的回包不能写进新文档
+      cancelAutoSaveRef.current()
+      setAutoSaveState('idle')
+      setAutoSavedAt(null)
+      setDraftRestored(false)
+      draftGenerationRef.current += 1
+      draftSuppressedRef.current = false
+      if (draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current)
+        draftTimerRef.current = null
+      }
+      fileMtimeRef.current = 0
+      if (file?.handle) {
+        void file.handle.getFile().then((blob) => {
+          fileMtimeRef.current = blob.lastModified
+        })
+      }
       // 换成普通文档：宿主模式结束，之后保存不再写回 argv 文件
       setHostDoc(null)
       hostModeRef.current = false
@@ -1546,17 +1655,21 @@ export default function App() {
       // 刚写入的内容就是新基线：不再有已知结构损失
       baselineLossesRef.current = []
       setRisks([])
+      setDraftRestored(false)
       setDraftShown(false)
       setDirty(false)
       // 另存为之后有了新落点，只读横幅可以撤掉
       setReadOnly(false)
       // 另存为成功：告诉宿主忘掉 argv 路径，之后 Ctrl+S 走句柄/另存为
       if (hostDoc) {
+        void clearHostDraftRef.current()
         window.chrome?.webview?.postMessage({ v: 1, type: 'forget' })
         hostModeRef.current = false
         setHostDoc(null)
         document.title = `${name} — Sidelight`
       }
+      autoFailCountRef.current = 0
+      setAutoSaveState('idle')
       setNotice({
         text: `已保存 ${name}`,
         kind: 'info',
@@ -1587,14 +1700,14 @@ export default function App() {
         if (target) {
           await writeNode({ kind: 'file', name: target.name, path: activeFile?.path ?? target.name, handle: target.handle }, withEol)
           finishSaved(target.name, target, normalized, withEol)
-          return
+          return true
         }
 
         const result = await saveAsFile(docName, withEol)
         if (result === null) {
           // 用户取消：不留「已保存」的假象
           setNotice({ text: '已取消保存。', kind: 'info' })
-          return
+          return false
         }
         if (result === 'unsupported') {
           saveBlob(docName, withEol, 'text/markdown;charset=utf-8')
@@ -1604,11 +1717,13 @@ export default function App() {
             persist: true,
             action: { label: '另存为', onClick: () => saveAsCopyRef.current() },
           })
-          return
+          return false
         }
         finishSaved(result.name, result, normalized, withEol)
+        return true
       } catch (error) {
         setNotice({ text: `保存失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
+        return false
       }
     },
     [activeFile, docName, finishSaved, saveBlob],
@@ -1692,6 +1807,7 @@ export default function App() {
   const requestSave = useCallback(
     (target: SaveTarget) => {
       if (!editor) return
+      cancelAutoSaveRef.current()
       let goal = target
       if (goal === 'host' && (hostDoc === null || !hostDoc.ready)) return
       if (goal === 'host' && hostDoc && !hostDoc.writable) goal = 'saveAs'
@@ -1727,6 +1843,250 @@ export default function App() {
   /** 取消：不写任何字节，也不动 dirty */
   const cancelConfirm = useCallback(() => setPendingConfirm(null), [])
 
+  /* ---------- 宿主草稿（T1） ---------- */
+
+  const scheduleHostDraft = useCallback((text: string) => {
+    if (!hostModeRef.current || draftSuppressedRef.current) return
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
+    draftTimerRef.current = setTimeout(() => {
+      const webview = window.chrome?.webview
+      if (!webview || !hostModeRef.current || draftSuppressedRef.current) return
+      const id = (nextDraftIdRef.current += 1)
+      const generation = draftGenerationRef.current
+      let resolveAck: () => void = () => {}
+      const ack = new Promise<void>((resolve) => {
+        resolveAck = resolve
+      })
+      draftPendingRef.current = { id, generation, ack, resolve: resolveAck }
+      webview.postMessage({ v: 1, type: 'draft-save', id, text })
+    }, 800)
+  }, [])
+
+  useEffect(() => {
+    scheduleHostDraftRef.current = scheduleHostDraft
+  }, [scheduleHostDraft])
+
+  /** 保存成功后清宿主草稿：先停计时器、等当前 draft-save 回包（最多 1 s），再发 clear */
+  const clearHostDraft = useCallback(async () => {
+    if (draftTimerRef.current) {
+      clearTimeout(draftTimerRef.current)
+      draftTimerRef.current = null
+    }
+    const pending = draftPendingRef.current
+    if (pending) {
+      await Promise.race([pending.ack, new Promise<void>((resolve) => setTimeout(resolve, 1000))])
+    }
+    draftGenerationRef.current += 1
+    draftSuppressedRef.current = true
+    draftPendingRef.current = null
+    window.chrome?.webview?.postMessage({ v: 1, type: 'draft-clear', id: (nextDraftIdRef.current += 1) })
+  }, [])
+
+  const recoverHostDraft = useCallback(() => {
+    const payload = hostPayloadRef.current
+    const draft = hostDraftPrompt
+    if (!payload || !draft) return
+    // 基线仍取原文件：草稿不是原文
+    applyHostPayload(payload)
+    const split = splitFrontmatter(draft.text)
+    const footnoteSplit = extractFootnotes(split.body)
+    setFrontmatter(split.frontmatter)
+    frontmatterRef.current = split.frontmatter
+    setFootnotes(footnoteSplit.footnotes)
+    footnotesRef.current = footnoteSplit.footnotes
+    setMarkdown(footnoteSplit.body)
+    setDirty(true)
+    setDraftRestored(true)
+    setHostDraftPrompt(null)
+    hostPayloadRef.current = null
+  }, [applyHostPayload, hostDraftPrompt, setMarkdown])
+
+  const discardHostDraft = useCallback(() => {
+    const payload = hostPayloadRef.current
+    hostPayloadRef.current = null
+    setHostDraftPrompt(null)
+    void clearHostDraft()
+    if (payload) applyHostPayload(payload)
+  }, [applyHostPayload, clearHostDraft])
+
+  /* ---------- 自动保存（T3） ---------- */
+
+  const cancelAutoSave = useCallback(() => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+      autoSaveTimerRef.current = null
+    }
+    setAutoSaveScheduled(false)
+  }, [])
+
+  const writeDraftFallback = useCallback(async (text: string) => {
+    if (hostModeRef.current) {
+      scheduleHostDraftRef.current(text)
+      return
+    }
+    const file = fileRef.current
+    const space = workspaceRef.current
+    if (file?.path && space && !space.demo) {
+      const dir = await parentDirectory(space, file.path)
+      if (dir) {
+        await writeCache(dir, 'draft', cacheKey(file.name), text)
+        return
+      }
+    }
+    // 单文件打开拿不到目录：退回 localStorage，至少关窗还能恢复
+    try {
+      localStorage.setItem(DOC_KEY, JSON.stringify({ text, name: docNameRef.current, savedAt: Date.now() }))
+    } catch {
+      // 配额满就算了，状态栏已经提示失败
+    }
+  }, [])
+
+  const runAutoSave = useCallback(async () => {
+    setAutoSaveScheduled(false)
+    if (!settings.autoSave || !editor) return
+    if (Date.now() < composeUntilRef.current) return
+    if (autoFailCountRef.current >= 3) return
+    if (saving || pendingIdsRef.current.size > 0 || savingRef.current) return
+    if (pendingConfirm !== null || pendingSwitch !== null || closeRequested || closeGuardOpen || settingsOpen) {
+      return
+    }
+    if (!dirtyRef.current) return
+    const hasFileTarget = Boolean(saveTargetRef.current ?? activeFile?.handle)
+    if (!(hostDoc?.ready && hostDoc.writable) && !hasFileTarget) return
+
+    const { normalized, withEol } = prepareSave()
+    const losses = originalText !== null ? activeLosses(originalText, normalized, baselineLossesRef.current) : []
+    if (losses.length > 0) {
+      // 有结构损失：只提示「需手动保存」，绝不弹确认框
+      setAutoSaveState('manual')
+      return
+    }
+
+    if (hostDoc?.ready && hostDoc.writable) {
+      // 宿主：先比 mtime，外部改过就不覆盖
+      try {
+        const response = await fetch('/__doc', { cache: 'no-store' })
+        if (response.ok) {
+          const fresh = (await response.json()) as HostDocResponse
+          if (Number(fresh.mtime ?? 0) > hostDoc.mtime) {
+            setAutoSaveState('external')
+            return
+          }
+        }
+      } catch {
+        // 取不到就按原 mtime 继续，写回失败还有草稿兜底
+      }
+      sendHostSaveRef.current(normalized)
+      setAutoSaveState('saved')
+      setAutoSavedAt(Date.now())
+      autoFailCountRef.current = 0
+      return
+    }
+
+    const ok = await performCommit(normalized, withEol)
+    if (ok) {
+      setAutoSaveState('saved')
+      setAutoSavedAt(Date.now())
+      autoFailCountRef.current = 0
+    } else {
+      autoFailCountRef.current += 1
+      setAutoSaveState('failed')
+      void writeDraftFallback(normalized)
+    }
+  }, [
+    activeFile,
+    closeGuardOpen,
+    closeRequested,
+    editor,
+    hostDoc,
+    originalText,
+    pendingConfirm,
+    pendingSwitch,
+    performCommit,
+    prepareSave,
+    saving,
+    settings.autoSave,
+    settingsOpen,
+    writeDraftFallback,
+  ])
+
+  const scheduleAutoSave = useCallback(() => {
+    if (!settings.autoSave) return
+    cancelAutoSave()
+    setAutoSaveScheduled(true)
+    autoSaveTimerRef.current = setTimeout(() => {
+      void runAutoSave()
+    }, 2000)
+  }, [cancelAutoSave, runAutoSave, settings.autoSave])
+
+  useEffect(() => {
+    scheduleAutoSaveRef.current = scheduleAutoSave
+    cancelAutoSaveRef.current = cancelAutoSave
+    clearHostDraftRef.current = clearHostDraft
+  }, [scheduleAutoSave, cancelAutoSave, clearHostDraft])
+
+  // 输入法组合：组合期间与结束后 400 ms 内都不写盘
+  useEffect(() => {
+    if (!editor) return
+    const dom = editor.view.dom
+    const onStart = () => {
+      composeUntilRef.current = Number.POSITIVE_INFINITY
+    }
+    const onEnd = () => {
+      composeUntilRef.current = Date.now() + 400
+      // 组合结束后重新排一次自动保存：组合期间 onUpdate 被 400ms 门槛挡住
+      scheduleAutoSaveRef.current()
+    }
+    dom.addEventListener('compositionstart', onStart)
+    dom.addEventListener('compositionend', onEnd)
+    return () => {
+      dom.removeEventListener('compositionstart', onStart)
+      dom.removeEventListener('compositionend', onEnd)
+    }
+  }, [editor])
+
+  /* ---------- 关窗保护（T2） ---------- */
+
+  const cancelCloseGuard = useCallback(() => {
+    setCloseGuardOpen(false)
+    window.chrome?.webview?.postMessage({ v: 1, type: 'close-answer', action: 'cancel' })
+  }, [])
+
+  const saveDraftAndClose = useCallback(() => {
+    const { normalized } = prepareSave()
+    setCloseGuardOpen(false)
+    window.chrome?.webview?.postMessage({ v: 1, type: 'close-answer', action: 'save-draft', text: normalized })
+  }, [prepareSave])
+
+  const discardAndClose = useCallback(() => {
+    setCloseGuardOpen(false)
+    window.chrome?.webview?.postMessage({ v: 1, type: 'close-answer', action: 'discard' })
+  }, [])
+
+  // close-request 排队：其它模态或写回还没结束就先记下，结束后再弹
+  useEffect(() => {
+    if (!closeRequested || closeGuardOpen) return
+    if (pendingConfirm !== null || pendingSwitch !== null || saving || settingsOpen || shortcutsOpen) return
+    setCloseRequested(false)
+    setCloseGuardOpen(true)
+  }, [closeRequested, closeGuardOpen, pendingConfirm, pendingSwitch, saving, settingsOpen, shortcutsOpen])
+
+  // 浏览器关页：只在真的会丢改动时拦；自动保存排队/写回中不打扰
+  useEffect(() => {
+    if (!(dirty && !autoSaveScheduled && !saving)) {
+      window.onbeforeunload = null
+      return
+    }
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.onbeforeunload = handler
+    return () => {
+      window.onbeforeunload = null
+    }
+  }, [dirty, autoSaveScheduled, saving])
+
   const saveFile = useCallback(() => {
     if (hostDoc?.ready) {
       requestSave(hostDoc.writable ? 'host' : 'saveAs')
@@ -1756,6 +2116,7 @@ export default function App() {
       }
       const id = (nextSaveIdRef.current += 1)
       pendingIdsRef.current.add(id)
+      savingRef.current = true
       sentTextRef.current = { id, text }
       setSaving(true)
       setSaveError(null)
@@ -1765,6 +2126,7 @@ export default function App() {
         if (!pendingIdsRef.current.has(id)) return
         pendingIdsRef.current.delete(id)
         saveTimersRef.current.delete(id)
+        savingRef.current = pendingIdsRef.current.size > 0
         setSaving(false)
         setSaveError('保存超时：宿主 10 秒没有回应。改动还在，可以重试。')
         flushHostSaveWaiters()
@@ -1786,6 +2148,7 @@ export default function App() {
       sentTextRef.current = null
       // 文档已经换走（宿主模式结束）：旧回包只丢掉，不动新文档的 dirty 与提示
       if (!hostDoc?.ready) {
+        savingRef.current = false
         setSaving(false)
         setSaveError(null)
         return
@@ -1797,8 +2160,14 @@ export default function App() {
       setRisks([])
       setDirty(false)
       setSaving(false)
+      savingRef.current = false
       setSaveError(null)
       setHostDoc((previous) => (previous ? { ...previous, mtime: Number(payload.mtime ?? previous.mtime) } : previous))
+      autoFailCountRef.current = 0
+      setAutoSaveState('idle')
+      setAutoSavedAt(null)
+      setDraftRestored(false)
+      void clearHostDraft()
       // 正在等切文档：不弹「已保存」，免得新文档上挂着旧文档的成功提示
       if (hostSaveWaitersRef.current.length === 0) {
         setNotice({ text: `已保存到 ${hostDoc.fileName}`, kind: 'info', persist: true })
@@ -1819,7 +2188,22 @@ export default function App() {
       const data = event.data as
         | { v?: number; type?: string; id?: number; ok?: boolean; error?: string; mtime?: number }
         | null
-      if (!data || data.v !== 1 || data.type !== 'save-result') return
+      if (!data || data.v !== 1) return
+
+      if (data.type === 'close-request') {
+        setCloseRequested(true)
+        return
+      }
+
+      if (data.type === 'draft-save-result') {
+        const pending = draftPendingRef.current
+        if (!pending || pending.id !== data.id) return
+        pending.resolve()
+        if (pending.generation === draftGenerationRef.current) draftPendingRef.current = null
+        return
+      }
+
+      if (data.type !== 'save-result') return
       const id = Number(data.id)
       if (!pendingIdsRef.current.has(id)) return // 晚到/旧回包一律丢弃
       pendingIdsRef.current.delete(id)
@@ -1828,6 +2212,7 @@ export default function App() {
         clearTimeout(timer)
         saveTimersRef.current.delete(id)
       }
+      savingRef.current = pendingIdsRef.current.size > 0
       if (data.ok === true) {
         hostSaveSuccessRef.current(id, { mtime: data.mtime })
       } else {
@@ -2096,7 +2481,7 @@ export default function App() {
         const text =
           viewMode === 'source'
             ? sourceText
-            : !dirty && rawTextRef.current !== null
+            : (!dirty || draftRestored) && rawTextRef.current !== null
               ? rawTextRef.current
               : currentMarkdown()
         sourceBaselineRef.current = text
@@ -2109,7 +2494,7 @@ export default function App() {
       }
       setViewMode(next)
     },
-    [editor, viewMode, sourceText, dirty, currentMarkdown, applySource],
+    [editor, viewMode, sourceText, dirty, draftRestored, currentMarkdown, applySource],
   )
 
   const toggleSource = useCallback(() => {
@@ -2970,6 +3355,27 @@ export default function App() {
         typewriterMode={typewriterMode}
         hasFrontmatter={frontmatter.length > 0}
         hostFileName={hostDoc?.ready ? hostDoc.fileName : undefined}
+        draftRestored={draftRestored}
+        autoSaveLabel={
+          autoSaveScheduled
+            ? '自动保存排队中'
+            : autoSaveState === 'saved'
+              ? `已自动保存 ${new Date(autoSavedAt ?? Date.now()).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+              : autoSaveState === 'manual'
+                ? '需手动保存'
+                : autoSaveState === 'failed'
+                  ? '自动保存失败'
+                  : autoSaveState === 'external'
+                    ? '文件已被外部修改'
+                    : undefined
+        }
+        autoSaveTone={
+          autoSaveState === 'failed' || autoSaveState === 'external'
+            ? 'error'
+            : autoSaveState === 'manual'
+              ? 'warn'
+              : 'ok'
+        }
         draftLabel={
           draftShown && initial.savedAt > 0
             ? `草稿 ${new Date(initial.savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
@@ -2990,6 +3396,45 @@ export default function App() {
           cancelConfirm()
           openSourceOriginal()
         }}
+      />
+
+      {hostDraftPrompt && (
+        <div className="overlay" role="presentation" onMouseDown={discardHostDraft}>
+          <div
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="恢复宿主草稿"
+            aria-labelledby="host-draft-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2 id="host-draft-title">有比原文件更新的草稿</h2>
+            <p className="dialog-note">
+              保存于{' '}
+              {new Date(ticksToMillis(hostDraftPrompt.mtime)).toLocaleTimeString('zh-CN', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+              。恢复它，还是丢弃并打开原文件？
+            </p>
+            <div className="dialog-actions">
+              <button type="button" onClick={discardHostDraft}>
+                丢弃草稿
+              </button>
+              <button type="button" className="primary" onClick={recoverHostDraft}>
+                恢复草稿
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <CloseGuardDialog
+        open={closeGuardOpen}
+        fileName={hostDoc?.fileName ?? docName}
+        onCancel={cancelCloseGuard}
+        onSaveDraft={saveDraftAndClose}
+        onDiscard={discardAndClose}
       />
 
       {draftPrompt && (
@@ -3039,7 +3484,7 @@ export default function App() {
                 取消
               </button>
               <button type="button" onClick={discardAndSwitch}>
-                放弃改动
+                不保存
               </button>
               <button type="button" className="primary" onClick={saveAndSwitch}>
                 保存并切换

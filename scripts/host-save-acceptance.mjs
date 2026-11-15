@@ -109,6 +109,8 @@ const stateOf = (page) =>
     pickerCalls: window.__host?.pickerCalls ?? 0,
   }))
 const dirty = (page) => page.evaluate(() => window.__slState?.dirty)
+/** 只数写回消息；draft-save / draft-clear / forget 是另一些协议消息 */
+const saves = (info) => info.messages.filter((message) => message.type === 'save')
 const typeAtEnd = async (page, text) => {
   await page.locator('.editor').click()
   await page.keyboard.press('Control+End')
@@ -139,9 +141,9 @@ if (only !== 'host') {
   await page.keyboard.press('Control+s')
   await page.waitForTimeout(400)
   const posted = await stateOf(page)
-  const message = posted.messages[0]
+  const message = saves(posted)[0]
   const keys = message ? Object.keys(message).sort() : []
-  check('保存发 save 消息', Boolean(message) && message.type === 'save' && message.v === 1, JSON.stringify(keys))
+  check('保存发 1 条 save 消息', saves(posted).length === 1 && message.type === 'save' && message.v === 1, JSON.stringify(keys))
   check('save 消息不含路径字段', keys.every((key) => ['id', 'text', 'type', 'v'].includes(key)), JSON.stringify(keys))
   check('save 消息 text 是 LF 且含新字', typeof message?.text === 'string' && message.text.includes('X') && !message.text.includes('\r'))
   check('保存中按钮显示「保存中…」', (posted.saveButton ?? '').includes('保存中'), posted.saveButton ?? 'none')
@@ -166,8 +168,8 @@ if (only !== 'host') {
   await page.keyboard.press('Control+s')
   await page.waitForTimeout(300)
   let info = await stateOf(page)
-  check('保存中再按一次：只发一条消息', info.messages.length === 1, String(info.messages.length))
-  const firstId = info.messages[0].id
+  check('保存中再按一次：只发 1 条 save 消息', saves(info).length === 1, String(saves(info).length))
+  const firstId = saves(info)[0].id
   await page.evaluate((id) => window.__reply({ v: 1, type: 'save-result', id: id + 99, ok: true }), firstId)
   await page.waitForTimeout(300)
   info = await stateOf(page)
@@ -175,8 +177,8 @@ if (only !== 'host') {
   await page.evaluate((id) => window.__reply({ v: 1, type: 'save-result', id, ok: true, mtime: 3000 }), firstId)
   await page.waitForTimeout(500)
   info = await stateOf(page)
-  check('正确回包后补发排队的那次', info.messages.length === 2, String(info.messages.length))
-  await page.evaluate((id) => window.__reply({ v: 1, type: 'save-result', id, ok: true, mtime: 3001 }), info.messages[1].id)
+  check('正确回包后补发排队的那次', saves(info).length === 2, String(saves(info).length))
+  await page.evaluate((id) => window.__reply({ v: 1, type: 'save-result', id, ok: true, mtime: 3001 }), saves(info)[1].id)
   await page.waitForTimeout(400)
   check('排队保存完成后 dirty=false', (await dirty(page)) === false)
   await context.close()
@@ -203,7 +205,7 @@ if (only !== 'host') {
   await typeAtEnd(failedPage.page, '失败')
   await failedPage.page.keyboard.press('Control+s')
   await failedPage.page.waitForTimeout(300)
-  const failId = (await stateOf(failedPage.page)).messages[0].id
+  const failId = saves(await stateOf(failedPage.page))[0].id
   await failedPage.page.evaluate((id) => {
     window.__reply({ v: 1, type: 'save-result', id, ok: false, error: 'PATH_CHANGED' })
   }, failId)
@@ -345,11 +347,11 @@ if (only !== 'host') {
   await page.waitForTimeout(300)
   const switchOpen = await page.locator('.dialog[aria-label="切换文档"]').count()
   check('保存中新建：弹未保存确认', switchOpen === 1)
-  await page.locator('.dialog[aria-label="切换文档"] button', { hasText: '放弃改动' }).click()
+  await page.locator('.dialog[aria-label="切换文档"] button', { hasText: '不保存' }).click()
   await page.waitForTimeout(300)
   // 让保存回包到达（新文档还没载入，因为守卫在等它）
   const pendingInfo = await stateOf(page)
-  await page.evaluate((id) => window.__reply({ v: 1, type: 'save-result', id, ok: true, mtime: 5000 }), pendingInfo.messages[0].id)
+  await page.evaluate((id) => window.__reply({ v: 1, type: 'save-result', id, ok: true, mtime: 5000 }), saves(pendingInfo)[0].id)
   await page.waitForTimeout(1600)
   const afterSwitch = await stateOf(page)
   check('保存中切文档：新文档正文为空', (afterSwitch.editor ?? '') === '', (afterSwitch.editor ?? '').slice(0, 10))

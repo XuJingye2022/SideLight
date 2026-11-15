@@ -93,7 +93,7 @@ const settle = async () => {
       continue
     }
     if (await page.locator('.dialog[aria-label="切换文档"]').count()) {
-      await page.locator('.dialog[aria-label="切换文档"] button', { hasText: '放弃改动' }).click()
+      await page.locator('.dialog[aria-label="切换文档"] button', { hasText: '不保存' }).click()
       await page.waitForTimeout(500)
       continue
     }
@@ -286,9 +286,9 @@ check('正文输入 ? 不弹一览', typingState.dialog === 0 && typingState.tex
 await settle()
 await page.keyboard.press('Control+Alt+N')
 await page.waitForTimeout(600)
-// 脏文档会先确认；选「放弃改动」继续新建
+// 脏文档会先确认；选「不保存」继续新建
 if (await page.locator('.dialog[aria-label="切换文档"]').count()) {
-  await page.locator('.dialog[aria-label="切换文档"] button', { hasText: '放弃改动' }).click()
+  await page.locator('.dialog[aria-label="切换文档"] button', { hasText: '不保存' }).click()
   await page.waitForTimeout(600)
 }
 await page.keyboard.type('键盘链路-KB')

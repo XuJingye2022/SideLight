@@ -6,6 +6,7 @@ import {
   cacheKey,
   cachePath,
   ensureCacheDir,
+  legacyCacheKey,
   readCache,
   removeCache,
   writeCache,
@@ -26,15 +27,34 @@ test('连续特殊字符合并成一个 -，首尾的 - 去掉', () => {
   assert.equal(cacheKey('--封面@@@照片--.jpg'), '封面-照片')
 })
 
-test('键超过 40 字符时截断', () => {
+test('键超过 40 字符时取前 36 位并加 4 位哈希（与宿主一致）', () => {
   const key = cacheKey(`${'中'.repeat(50)}.md`)
-  assert.equal(key, '中'.repeat(40))
-  assert.equal(key.length, 40)
+  assert.equal(key, `${'中'.repeat(36)}-c15f`)
+  assert.equal(key.length, 41)
+})
+
+test('长名键与宿主 CacheKey 逐字节一致', () => {
+  // 期望值来自 host/Program.cs 的 FNV-1a（UTF-8 字节，hash & 0xFFFF，x4）
+  assert.equal(cacheKey(`${'a'.repeat(45)}-甲.md`), `${'a'.repeat(36)}-fa3a`)
+  assert.equal(cacheKey(`${'a'.repeat(45)}-乙.md`), `${'a'.repeat(36)}-e3cb`)
+})
+
+test('长名同前缀不撞键', () => {
+  const first = cacheKey(`${'a'.repeat(45)}-甲.md`)
+  const second = cacheKey(`${'a'.repeat(45)}-乙.md`)
+  assert.notEqual(first, second)
+})
+
+test('40 字符以内与旧算法逐字节相同', () => {
+  for (const name of ['周记.md', '屏幕 截图（2）.png', 'a'.repeat(40) + '.md', '关于侧灯.markdown']) {
+    assert.equal(cacheKey(name), legacyCacheKey(name))
+  }
 })
 
 test('截断后末尾的 - 也去掉', () => {
   const name = `${'a'.repeat(39)} @b.md`
-  assert.equal(cacheKey(name), 'a'.repeat(39))
+  assert.equal(cacheKey(name), `${'a'.repeat(36)}-8011`)
+  assert.equal(legacyCacheKey(name), 'a'.repeat(39))
 })
 
 test('没有扩展名时整名当键', () => {
@@ -245,6 +265,21 @@ test('文件不存在时 readCache 返回 null', async () => {
   assert.equal(await writeCache(root.handle, 'draft', '周记', '正文'), true)
 
   assert.equal(await readCache(root.handle, 'draft', '不存在的键'), null)
+})
+
+test('旧键存在时 readCache 回读、搬到新键并删旧键', async () => {
+  const root = fakeDir('工作区')
+  const name = `${'a'.repeat(45)}.md`
+  const newKey = cacheKey(name)
+  const oldKey = legacyCacheKey(name)
+  assert.notEqual(newKey, oldKey)
+
+  assert.equal(await writeCache(root.handle, 'draft', oldKey, '旧草稿'), true)
+  assert.equal(await readCache(root.handle, 'draft', newKey, oldKey), '旧草稿')
+
+  // 迁移之后旧键消失、新键可直接读
+  assert.equal(root.dirs.get(CACHE_DIR)?.dirs.get('drafts')?.files.has(`${oldKey}.md`), false)
+  assert.equal(await readCache(root.handle, 'draft', newKey), '旧草稿')
 })
 
 // ---------- 失败路径 ----------

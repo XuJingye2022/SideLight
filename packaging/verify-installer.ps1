@@ -5,6 +5,17 @@
 # 安装目录用 /D 指到工作区 .tmp\install-verify，避免写 %LOCALAPPDATA%\Programs（沙箱可能拒写）。
 $ErrorActionPreference = 'Stop'
 
+# 从本会话启动 exe 时绕过 ShellExecute：某些环境会给未签名 exe 弹「打开文件 - 安全警告」，
+# 静默安装会被这个模态框卡住。CreateProcess 路径不触发 Attachment Manager。
+function Start-NoShell([string]$file, [string]$arguments) {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $file
+    $psi.Arguments = $arguments
+    $psi.UseShellExecute = $false
+    $psi.WorkingDirectory = Split-Path -Parent $file
+    return [System.Diagnostics.Process]::Start($psi)
+}
+
 $root = Split-Path -Parent $PSScriptRoot
 $version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
 $setup = Join-Path $root "release\Sidelight-$version-win-x64-setup.exe"
@@ -56,7 +67,7 @@ Set-Content -Path $marker -Value 'keep-me' -Encoding UTF8
 # 3) 静默安装到工作区（/D 必须是最后一个参数，且不加引号）
 Get-Process Sidelight -ErrorAction SilentlyContinue | Stop-Process -Force
 if (Test-Path $instdir) { Remove-Item $instdir -Recurse -Force }
-$install = Start-Process -FilePath $setup -ArgumentList '/S', "/D=$instdir" -PassThru -Wait
+$install = Start-NoShell $setup "/S /D=$instdir"; $install.WaitForExit()
 Start-Sleep -Milliseconds 800
 $files = @('Sidelight.exe', 'Sidelight.exe.config', 'sidelight.ico', 'uninstall.exe', 'Microsoft.Web.WebView2.Core.dll', 'WebView2Loader.dll', 'www\index.html')
 $missing = @($files | Where-Object { -not (Test-Path (Join-Path $instdir $_)) })
@@ -72,7 +83,7 @@ $appDetail = ''
 $title = ''
 $httpStatus = 0
 if (Test-Path (Join-Path $instdir 'Sidelight.exe')) {
-    $app = Start-Process -FilePath (Join-Path $instdir 'Sidelight.exe') -PassThru
+    $app = Start-NoShell (Join-Path $instdir 'Sidelight.exe') ''
     $deadline = (Get-Date).AddSeconds(30)
     while ((Get-Date) -lt $deadline) {
         $app.Refresh()
@@ -113,7 +124,7 @@ $hklmAfterInstall = Test-Path $hklmKey
 # 6) 静默卸载
 $uninst = Join-Path $instdir 'uninstall.exe'
 if (Test-Path $uninst) {
-    Start-Process -FilePath $uninst -ArgumentList '/S' -PassThru -Wait | Out-Null
+    $u = Start-NoShell $uninst '/S'; $u.WaitForExit()
     $deadline = (Get-Date).AddSeconds(30)
     while ((Test-Path $instdir) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
 }
@@ -153,7 +164,7 @@ $dry = Join-Path $root '.tmp\assoc-dryrun-setup.exe'
 if (Test-Path $dry) {
     $dryDir = Join-Path $root '.tmp\install-assoc-dryrun'
     if (Test-Path $dryDir) { Remove-Item $dryDir -Recurse -Force }
-    $dryProc = Start-Process -FilePath $dry -ArgumentList '/S', "/D=$dryDir" -PassThru -Wait
+    $dryProc = Start-NoShell $dry "/S /D=$dryDir"; $dryProc.WaitForExit()
     Start-Sleep -Milliseconds 600
     $plan = Join-Path $dryDir 'assoc-plan.txt'
     $dryExe = Join-Path $dryDir 'Sidelight.exe'
@@ -164,7 +175,7 @@ if (Test-Path $dry) {
     }
     $dryUninst = Join-Path $dryDir 'uninstall.exe'
     if (Test-Path $dryUninst) {
-        Start-Process -FilePath $dryUninst -ArgumentList '/S' -PassThru -Wait | Out-Null
+        $u = Start-NoShell $dryUninst '/S'; $u.WaitForExit()
         $deadline2 = (Get-Date).AddSeconds(20)
         while ((Test-Path $dryDir) -and (Get-Date) -lt $deadline2) { Start-Sleep -Milliseconds 300 }
     }

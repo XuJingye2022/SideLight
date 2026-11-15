@@ -54,4 +54,4 @@ powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 - 未签名：首次运行会被 SmartScreen 拦一次。
 - 不写 HKLM，不需要管理员。
 - `.md` 关联只做 opt-in 的「打开方式」候选：默认不勾、`/S` 不写、不碰 `UserChoice`/`FileExts`/`.md` 默认程序；卸载用 `/ifempty` 保留别人的候选。`FileExts` 的 MRU 若用户手动选过一次可能残留，属已知限制。
-- 体积预算：安装包硬线 850,000 B；0.20.0 关联节实测 +2,369 B（794,843 → 797,212），超出硬线时先打印载荷占比，不抬线。
+- 体积预算：安装包硬线 850,000 B；0.21.0 实测 803,335 B（余量 46,665 B），超出硬线时先打印载荷占比，不抬线。

@@ -69,6 +69,16 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
           <p className="field-hint">点一下就预览；保存后记住，取消会还原。</p>
         </div>
 
+        <label className="field field-check">
+          <input
+            type="checkbox"
+            checked={draft.autoSave}
+            onChange={(event) => update({ autoSave: event.target.checked })}
+          />
+          <span>自动保存（停笔 2 秒）</span>
+        </label>
+        <p className="field-hint">只写回已打开的文件；宿主文档另存草稿。有格式损失时只提示，不写。</p>
+
         <label className="field">
           <span>接口地址</span>
           <input

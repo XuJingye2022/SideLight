@@ -45,6 +45,14 @@ static class Program
     static readonly Dictionary<string, string> saveResults = new Dictionary<string, string>();
     static readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 64 * 1024 * 1024 };
 
+    // 关窗三选一：await 页面 dirty 后问一次；closePending 防重入，5 s 无答案只保留窗口。
+    static Form mainForm;
+    static bool closeConfirmed;
+    static bool closePending;
+    static System.Windows.Forms.Timer closeTimer;
+    static readonly System.Text.RegularExpressions.Regex UnsafeKey =
+        new System.Text.RegularExpressions.Regex(@"[^a-zA-Z0-9\u4e00-\u9fa5_-]");
+
     [STAThread]
     static void Main(string[] args)
     {
@@ -128,6 +136,8 @@ static class Program
 
         form.Load += delegate { InitWebView(www, dataDir); };
         form.Shown += delegate { StartPipeServer(); };
+        mainForm = form;
+        form.FormClosing += OnFormClosing;
         form.FormClosed += delegate { Log("form closed"); };
 
         Application.Run(form);
@@ -256,6 +266,11 @@ static class Program
                 if (target == "/__doc")
                 {
                     HandleDocRequest(stream, method, host);
+                    return;
+                }
+                if (target == "/__draft")
+                {
+                    HandleDraftRequest(stream, method, host);
                     return;
                 }
                 if (target.Length == 0 || target == "/") target = "/index.html";
@@ -562,6 +577,11 @@ static class Program
                 Log("doc forgotten");
                 return;
             }
+            if (type == "draft-save" || type == "draft-clear" || type == "close-answer")
+            {
+                HandleDraftMessage(senderCore, type, msg);
+                return;
+            }
             if (type != "save") return;
 
             string id = msg.ContainsKey("id") ? Convert.ToString(msg["id"]) : Guid.NewGuid().ToString("N");
@@ -726,6 +746,286 @@ static class Program
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern bool MoveFileEx(string existingFileName, string newFileName, uint flags);
+    // 关窗：先取消关闭，再 await 页面 dirty；"0" 直接关，"1"/unknown 只发一次 close-request。
+    static async void OnFormClosing(object sender, FormClosingEventArgs e)
+    {
+        if (closeConfirmed) return;
+        e.Cancel = true;
+        if (closePending)
+        {
+            Log("close ignored pending");
+            return;
+        }
+        closePending = true;
+        Log("close requested");
+        string dirty = await ReadDirtyAsync();
+        if (dirty == "0")
+        {
+            Log("close dirty=0");
+            closeConfirmed = true;
+            closePending = false;
+            CloseMainForm();
+            return;
+        }
+        Log("close dirty=" + dirty);
+        SendCloseRequest();
+    }
+
+    static void SendCloseRequest()
+    {
+        CoreWebView2 core = web == null ? null : web.CoreWebView2;
+        if (core == null)
+        {
+            Log("close-request skipped webview null");
+            closePending = false;
+            return;
+        }
+        Dictionary<string, object> msg = new Dictionary<string, object>();
+        msg["v"] = 1;
+        msg["type"] = "close-request";
+        try { core.PostWebMessageAsJson(json.Serialize(msg)); }
+        catch (Exception ex)
+        {
+            Log("close-request failed " + ex.GetType().Name);
+            closePending = false;
+            return;
+        }
+        if (closeTimer != null) { closeTimer.Stop(); closeTimer.Dispose(); }
+        closeTimer = new System.Windows.Forms.Timer();
+        closeTimer.Interval = 5000;
+        closeTimer.Tick += delegate
+        {
+            closeTimer.Stop();
+            Log("close-request timeout 5s");
+        };
+        closeTimer.Start();
+    }
+
+    static void CloseMainForm()
+    {
+        if (mainForm == null) return;
+        try
+        {
+            mainForm.BeginInvoke(new Action(delegate
+            {
+                closeConfirmed = true;
+                mainForm.Close();
+            }));
+        }
+        catch (Exception ex)
+        {
+            Log("close failed " + ex.GetType().Name);
+        }
+    }
+
+    static void HandleDraftMessage(CoreWebView2 senderCore, string type, Dictionary<string, object> msg)
+    {
+        string id = msg.ContainsKey("id") ? Convert.ToString(msg["id"]) : Guid.NewGuid().ToString("N");
+        if (type == "close-answer")
+        {
+            string action = msg.ContainsKey("action") ? Convert.ToString(msg["action"]) : null;
+            Log("close-answer action=" + action);
+            if (closeTimer != null) { closeTimer.Stop(); closeTimer.Dispose(); closeTimer = null; }
+            if (action == "cancel")
+            {
+                closePending = false;
+                return;
+            }
+            if (action == "discard")
+            {
+                string clearError = ClearDraft();
+                if (clearError != null) Log("draft clear failed error=" + clearError);
+                closeConfirmed = true;
+                closePending = false;
+                CloseMainForm();
+                return;
+            }
+            if (action == "save-draft")
+            {
+                string text = msg.ContainsKey("text") ? Convert.ToString(msg["text"]) : null;
+                long bytes = 0;
+                long mtime = 0;
+                string error = text == null ? "BAD_REQUEST" : WriteDraft(text, out bytes, out mtime);
+                if (error == null)
+                {
+                    closeConfirmed = true;
+                    closePending = false;
+                    CloseMainForm();
+                }
+                else
+                {
+                    closePending = false;
+                    Log("close save-draft failed error=" + error);
+                    try
+                    {
+                        MessageBox.Show(mainForm, "草稿写入失败（" + error + "）。\n窗口保持打开，请先「另存为」。", "Sidelight",
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                    catch (Exception) { }
+                }
+                return;
+            }
+            closePending = false;
+            return;
+        }
+
+        if (type == "draft-save")
+        {
+            string text = msg.ContainsKey("text") ? Convert.ToString(msg["text"]) : null;
+            long bytes = 0;
+            long mtime = 0;
+            string error = text == null ? "BAD_REQUEST" : WriteDraft(text, out bytes, out mtime);
+            Dictionary<string, object> reply = new Dictionary<string, object>();
+            reply["v"] = 1;
+            reply["type"] = "draft-save-result";
+            reply["id"] = id;
+            reply["ok"] = error == null;
+            if (error == null) { reply["bytes"] = bytes; reply["mtime"] = mtime; }
+            else { reply["error"] = error; }
+            if (senderCore != null) senderCore.PostWebMessageAsJson(json.Serialize(reply));
+            return;
+        }
+
+        if (type == "draft-clear")
+        {
+            string error = ClearDraft();
+            Dictionary<string, object> reply = new Dictionary<string, object>();
+            reply["v"] = 1;
+            reply["type"] = "draft-clear-result";
+            reply["id"] = id;
+            reply["ok"] = error == null;
+            if (error != null) reply["error"] = error;
+            if (senderCore != null) senderCore.PostWebMessageAsJson(json.Serialize(reply));
+            return;
+        }
+    }
+
+    // 与 src/lib/cache.ts 的 cacheKey() 同一套：去扩展名、非法字符换 -、合并 -、40 截断，超长加 4 位哈希。
+    static string CacheKey(string fileName)
+    {
+        string name = Path.GetFileName(fileName == null ? "" : fileName);
+        int dot = name.LastIndexOf('.');
+        string body = dot > 0 ? name.Substring(0, dot) : name;
+        string cleaned = UnsafeKey.Replace(body, "-");
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, "-{2,}", "-").Trim('-');
+        if (cleaned.Length == 0) return "untitled";
+        if (cleaned.Length <= 40) return cleaned;
+        string head = cleaned.Substring(0, 36).TrimEnd('-');
+        return head + "-" + Fnv1a4(cleaned);
+    }
+
+    static string Fnv1a4(string value)
+    {
+        uint hash = 2166136261;
+        byte[] bytes = Encoding.UTF8.GetBytes(value);
+        for (int index = 0; index < bytes.Length; index++)
+        {
+            hash ^= bytes[index];
+            hash *= 16777619;
+        }
+        return (hash & 0xFFFF).ToString("x4");
+    }
+
+    static string DraftPath()
+    {
+        if (currentPath == null) return null;
+        string resolved = Resolve(currentPath);
+        string dir = Path.GetDirectoryName(resolved);
+        string key = CacheKey(Path.GetFileName(resolved));
+        return Path.Combine(Path.Combine(Path.Combine(dir, ".sidelight"), "drafts"), key + ".md");
+    }
+
+    static string WriteDraft(string text, out long bytes, out long mtime)
+    {
+        bytes = 0;
+        mtime = 0;
+        if (currentPath == null) return "NO_PATH";
+        if (text.Length > 6 * 1024 * 1024) return "TOO_LARGE";
+        string path = DraftPath();
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            byte[] payload = new UTF8Encoding(false).GetBytes(text);
+            AtomicWrite(path, payload);
+            FileInfo info = new FileInfo(path);
+            bytes = info.Length;
+            mtime = info.LastWriteTimeUtc.Ticks;
+            Log("draft saved file=" + SafeFileName(path) + " bytes=" + payload.Length);
+            return null;
+        }
+        catch (UnauthorizedAccessException) { return "NO_PATH"; }
+        catch (IOException) { return "IO"; }
+        catch (Exception) { return "IO"; }
+    }
+
+    static string ClearDraft()
+    {
+        if (currentPath == null) return "NO_PATH";
+        string path = DraftPath();
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+            Log("draft cleared file=" + SafeFileName(path));
+            return null;
+        }
+        catch (UnauthorizedAccessException) { return "NO_PATH"; }
+        catch (IOException) { return "IO"; }
+        catch (Exception) { return "IO"; }
+    }
+
+    static void HandleDraftRequest(NetworkStream stream, string method, string host)
+    {
+        if (method != "GET")
+        {
+            WriteResponse(stream, 405, null, null, false);
+            return;
+        }
+        if (!string.Equals(host, "127.0.0.1:" + port, StringComparison.OrdinalIgnoreCase))
+        {
+            Log("draft refused reason=host host=" + host);
+            WriteResponse(stream, 403, null, null, false);
+            return;
+        }
+        if (currentPath == null)
+        {
+            WriteResponse(stream, 404, "application/json; charset=utf-8", BuildErrorJson("NO_DOC"), false);
+            return;
+        }
+        string path = DraftPath();
+        if (path == null || !File.Exists(path))
+        {
+            Dictionary<string, object> none = new Dictionary<string, object>();
+            none["v"] = 1;
+            none["exists"] = false;
+            WriteResponse(stream, 404, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json.Serialize(none)), false);
+            return;
+        }
+        FileInfo info = new FileInfo(path);
+        if (info.Length > 6 * 1024 * 1024)
+        {
+            WriteResponse(stream, 413, "application/json; charset=utf-8", BuildErrorJson("TOO_LARGE"), false);
+            return;
+        }
+        string text;
+        try { text = StrictUtf8.GetString(File.ReadAllBytes(path)); }
+        catch (DecoderFallbackException)
+        {
+            WriteResponse(stream, 409, "application/json; charset=utf-8", BuildErrorJson("ENCODING"), false);
+            return;
+        }
+        catch (IOException)
+        {
+            WriteResponse(stream, 409, "application/json; charset=utf-8", BuildErrorJson("IO"), false);
+            return;
+        }
+        Dictionary<string, object> draft = new Dictionary<string, object>();
+        draft["v"] = 1;
+        draft["exists"] = true;
+        draft["mtime"] = info.LastWriteTimeUtc.Ticks;
+        draft["size"] = info.Length;
+        draft["text"] = text;
+        WriteResponse(stream, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json.Serialize(draft)), false);
+    }
     static void WriteResponse(NetworkStream stream, int status, string mime, byte[] body, bool headOnly)
     {
         string reason = "Error";
