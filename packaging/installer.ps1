@@ -5,6 +5,7 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
+New-Item -ItemType Directory -Force -Path (Join-Path $root 'release') | Out-Null
 $version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
 $payloadNames = @(
     'Sidelight.exe',

@@ -1,7 +1,17 @@
-# CHANGELOG
+﻿# CHANGELOG
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
+## 0.22.0 — 2026-11-16
+
+最近打开、日志脱敏与 CI 首跑修复。
+
+- 最近打开：宿主记住最近 8 篇（同路径去重并置顶）；`/__recent` 只回哈希 `id`、`name` 与 `/` 分隔的目录，不含路径与 `openedAt`；支持清除、撤销一次、逐条移除；失效文件回 `STALE` / `FILE_GONE`。浏览器里不显示。
+- 日志：所有路径点只记 basename（含 `forward applied`、`pipe sent` 不再记载荷）；首次启动把旧 `host.log` 归档为 `host.log.bad` 并写 `log migrated`，之后超过 1 MB 轮转 `host.log.1`。
+- CI：`windows-host` 下载前建 `.tmp`；`installer.ps1` 自动建 `release/`；首跑只手动 dispatch `windows-host`，`install-verify` 等其绿并 `if: success()`；仍不设必过。
+- 数据与隐私：README 新增「数据与隐私」节，只写事实，**待产品负责人确认后**再作为对外承诺。
+- 测试 16 个文件 192 条；体积：构建产物 1,404,769 B；安装包 809,542 B（SHA256 `0F8579D374D58897C91E4D3E26D6E5A428AA174586EAD7119DB1EEE74FA1DF42`）、便携 zip 887,922 B（SHA256 `A31D7FDA68E9A16AB630BC6FA3823AEC08E775413DCB8254F1613DD2FB3ED25E`）。
+- 未验：真人重启后最近列表、`recent.json` 写失败、网络盘失效、卸载保留该目录、日志迁移的真机场景。
 ## 0.21.0 — 2026-11-15
 
 宿主文档的草稿兜底与关窗三选一。
@@ -11,7 +21,7 @@
 - 自动保存只覆盖安全子集：有差异门风险时不自动写盘。
 - 设置与菜单的临界问题修复（详见本轮 A 组报告）。
 - 草稿只存本机、不发网络；卸载不删文档目录里的 `.sidelight`。
-- 测试 16 个文件 192 条；体积：构建产物 1,398,672 B；安装包 803,335 B（SHA256 `C9F9793F32EC818254DCF389C9DFC4992C5B92E51717ED43C9A6D8ABE78323C0`）、便携 zip 880,851 B（SHA256 `AFA109BFF7242BE67EA6FF992BF606AA23E17FB345475D68EB32E151D90FC674`）。
+- 测试 16 个文件 192 条；体积：产物体积与校验和见 0.22.0。
 - 未验：真实 Alt+F4、注销/关机、真实 IME 组合输入下的关窗，`save-draft` 写失败（只读目录）的可见错误路径。
 ## 0.20.0 — 2026-11-15
 
@@ -21,7 +31,7 @@
 - `.md` 关联改成 opt-in：安装器多一个组件页，默认不勾「在「打开方式」中加入 Sidelight」；勾选只写 HKCU `Software\Classes`（ProgID `Sidelight.md` + `.md\OpenWithProgids` + `Applications\Sidelight.exe`），不碰 `UserChoice`、`FileExts` 与 `.md` 默认程序；`/S` 静默安装不写。
 - 卸载对称删除关联登记：`OpenWithProgids` 用 `/ifempty`，保留其他候选（如 `VSCode.md`）。
 - 关联方案与边界见 [ADR-0007](adr/0007-markdown-association.md)。
-- 测试 16 个文件 192 条；体积：构建产物 1,398,672 B；安装包 803,335 B（SHA256 `C9F9793F32EC818254DCF389C9DFC4992C5B92E51717ED43C9A6D8ABE78323C0`）、便携 zip 880,851 B（SHA256 `AFA109BFF7242BE67EA6FF992BF606AA23E17FB345475D68EB32E151D90FC674`）。
+- 测试 16 个文件 192 条；体积：产物体积与校验和见 0.22.0。
 - 未验：勾选关联后「打开方式」是否出现、卸载后是否残留、真人交互安装、宿主写回真实场景；`.md` 双击直接打开本轮不做。
 ## 0.19.0 — 2026-11-15
 

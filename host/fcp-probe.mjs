@@ -239,7 +239,7 @@ async function main() {
   const mark = logText().length
   const timeOriginBefore = await p2.evaluate(() => performance.timeOrigin)
   spawnHost([join(TMP, 'forward.md')])
-  const applied = await waitLog(/forward applied/, mark, 20000)
+  const applied = await waitLog(/open applied source=forward|forward applied/, mark, 20000)
   await waitLog(/navigation starting/, mark, 20000)
   let fcp2 = -1
   for (let i = 0; i < 200; i++) {

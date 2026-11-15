@@ -1,4 +1,4 @@
-# Sidelight 安装包（Windows x64）
+﻿# Sidelight 安装包（Windows x64）
 
 两种包，二选一：
 
@@ -21,7 +21,7 @@
 
 设置 → 应用 → 已安装的应用 → Sidelight → 卸载；或开始菜单右键卸载；或直接运行 `%LOCALAPPDATA%\Programs\Sidelight\uninstall.exe`。
 
-卸载会删除程序目录、开始菜单快捷方式与 HKCU 卸载项，并删掉关联登记的 ProgID 与「打开方式」候选；**不会**改你自己设的 `.md` 默认程序，也**不会删** `%LOCALAPPDATA%\Sidelight`（WebView2 配置、缓存与本地草稿）。要彻底清掉，卸载后手动删这个目录。
+卸载会删除程序目录、开始菜单快捷方式与 HKCU 卸载项，并删掉关联登记的 ProgID 与「打开方式」候选；**不会**改你自己设的 `.md` 默认程序，也**不会删** `%LOCALAPPDATA%\Sidelight`（WebView2 配置、缓存、`recent.json` 最近列表与日志；这些只在本机，删除该目录可彻底清掉）。要彻底清掉，卸载后手动删这个目录。
 
 ## 静默安装（自动化用）
 
@@ -54,4 +54,4 @@ powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 - 未签名：首次运行会被 SmartScreen 拦一次。
 - 不写 HKLM，不需要管理员。
 - `.md` 关联只做 opt-in 的「打开方式」候选：默认不勾、`/S` 不写、不碰 `UserChoice`/`FileExts`/`.md` 默认程序；卸载用 `/ifempty` 保留别人的候选。`FileExts` 的 MRU 若用户手动选过一次可能残留，属已知限制。
-- 体积预算：安装包硬线 850,000 B；0.21.0 实测 803,335 B（余量 46,665 B），超出硬线时先打印载荷占比，不抬线。
+- 体积预算：安装包硬线 850,000 B；0.22.0 实测 808,897 B（余量 41,103 B），超出硬线时先打印载荷占比，不抬线。

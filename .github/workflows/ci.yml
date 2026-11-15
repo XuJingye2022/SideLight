@@ -61,7 +61,9 @@ jobs:
           key: tools-wv2-${{ env.WV2_VERSION }}-nsis-3.11
 
       - name: Fetch WebView2 SDK (pinned)
+        # Invoke-WebRequest 不建父目录：先建 .tmp，否则首次必红
         run: |
+          New-Item -ItemType Directory -Force .tmp | Out-Null
           if (-not (Test-Path .tmp/wv2/lib/net462/Microsoft.Web.WebView2.Core.dll)) {
             Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/$env:WV2_VERSION" -OutFile .tmp/wv2.zip -UseBasicParsing
             $h = (Get-FileHash .tmp/wv2.zip -Algorithm SHA256).Hash
@@ -101,7 +103,9 @@ jobs:
 
   install-verify:
     # 会写 HKCU 与开始菜单；只在手动触发时跑，替掉本地三项 UNVERIFIED
-    if: github.event_name == 'workflow_dispatch'
+    # 首跑计划：先只手动 dispatch windows-host；它连续绿 3 次后再跑本任务。
+    # 失败时跳过而不是连带必红（仍不设必过）。
+    if: github.event_name == 'workflow_dispatch' && success()
     needs: windows-host
     runs-on: windows-2022
     timeout-minutes: 20

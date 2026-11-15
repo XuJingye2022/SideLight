@@ -32,13 +32,14 @@
 - 新建与另存为：顶栏「文件」菜单有新建、另存为、打开文件、打开文件夹；文件树头有「＋ 新建文件」。没有文件句柄时保存走系统保存对话框，保存成功有持久提示。
 - 双击 `.md` 由宿主打开时可以直接写回原文件：宿主提供正文与编码元数据，保存是原子替换，BOM、换行与编码不变。
 - 宿主文档有草稿兜底：编辑时写到文档同目录 `.sidelight/drafts/`，关窗时有未保存改动会问「取消 / 存草稿 / 丢弃」。草稿只存本机，不发网络；卸载不删文档目录里的 `.sidelight`。
+- 最近打开：桌面版（宿主）记住最近 8 篇，可清除与撤销；浏览器里不显示。宿主模式里用「打开文件…」经页面文件选择器打开的文件不进最近列表。
 - 保存：`Ctrl + S`。富文本模式下，如果保存会改写引用式链接、表格对齐、多行脚注等写法，保存会被拦下并列出差异类别、要求确认：选「改用源码模式保存」写原文，或取消。正常编辑（改值、删行）不弹。双击打开的文档也走这道拦截。
 - 草稿与批注存在文档同级（打开文件夹时在工作区根目录）的 `.sidelight/` 里：`drafts/<名字>.md` 与 `annotations/<名字>.json`；保存成功后删草稿，重开文档恢复批注（有磁盘句柄时，未验证）。没有磁盘句柄（示例文件）时退回浏览器本地存储。
 - 设置里填接口地址、API Key、模型名，走 OpenAI 兼容协议。没填时走模拟流。
 
 ## 现在不能做什么
 
-- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。安装用 `release/Sidelight-0.21.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
+- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。安装用 `release/Sidelight-0.22.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
 - `.md` 默认不关联。安装时勾选「在「打开方式」中加入 Sidelight」后，右键 `.md` 的「打开方式」里会多一项；默认程序仍要在 Windows 设置里自己选，安装器不改它。
 - 密钥存在浏览器 localStorage，没有加密，也没有系统钥匙串。
 - 富文本模式会改写引用式链接、表格对齐、多行脚注等写法，但不会静默改写：打开时提示，保存前要求确认。要原样保存，用源码模式。
@@ -50,9 +51,19 @@
 
 与 Typora 的逐项对照在 [docs/typora-gap.md](docs/typora-gap.md)：当前已有 21 项，缺 18 项（未含 `.md` 关联）。
 
+## 数据与隐私
+
+（待产品负责人确认后再作为对外承诺。以下只写当前实现的事实。）
+
+- 最近文件存在 `%LOCALAPPDATA%\Sidelight\recent.json`：只有本机路径、打开时间、文件大小与修改时间；不上传，不写进正文，也不进导出。页面只拿哈希 id，不拿路径。
+- 「清除」立即清空列表（可撤销一次）；`recent.json` 删掉，但日志与草稿不受影响。
+- 日志可能含文件名：宿主 `host.log` 只记 basename，超过 1 MB 轮转为 `host.log.1`；删除 `host.log*` 可清。
+- 草稿与批注在文档同目录 `.sidelight/`：草稿 `drafts/`，批注 `annotations/`；只在本机，不发网络。
+- 卸载保留 `%LOCALAPPDATA%\Sidelight`（WebView2 配置、`recent.json`）；要彻底清掉，卸载后手动删。
+- 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
 ## 依赖与体积
 
-打包产物约 1.33 MiB（1,398,672 B）：JS 1.1 MB、KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联成 data URI）、其余是 HTML 与 CSS。
+打包产物约 1.34 MiB（1,404,769 B）：JS 1.1 MB、KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联成 data URI）、其余是 HTML 与 CSS。
 
 **为什么不拆 KaTeX**：`@tiptap/extension-mathematics` 顶层静态 `import katex`，扩展在编辑器首帧就要注册，拆包必须换惰性 shim 并异步化三处渲染，0.18.0 不做；构建用 `chunkSizeWarningLimit: 1200` 显式设告警线（主 chunk 约 1.10 MB 是首屏必需，1200 留约 100 kB 余量）。
 
@@ -63,7 +74,7 @@
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
 
-宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 803,335 B（SHA256 `C9F9793F32EC818254DCF389C9DFC4992C5B92E51717ED43C9A6D8ABE78323C0`）、便携 zip 880,851 B（SHA256 `AFA109BFF7242BE67EA6FF992BF606AA23E17FB345475D68EB32E151D90FC674`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
+宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 809,542 B（SHA256 `0F8579D374D58897C91E4D3E26D6E5A428AA174586EAD7119DB1EEE74FA1DF42`）、便携 zip 887,922 B（SHA256 `A31D7FDA68E9A16AB630BC6FA3823AEC08E775413DCB8254F1613DD2FB3ED25E`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
 
 ## 跑起来
 
@@ -133,6 +144,6 @@ frontmatter、脚注定义、行内 HTML 与公式逐字节保真。引用式链
 
 1. 行内 HTML 渲染（现在是保真不渲染）。
 2. 中文输入法：浏览器与宿主各验一遍组合输入、候选窗、组合期间开对话框。
-3. 数据保真：富文本拦截与源码模式原文写回（结果见 CHANGELOG 0.21.0）。
+3. 数据保真：富文本拦截与源码模式原文写回（结果见 CHANGELOG 0.22.0）。
 
 之后是主题与自定义快捷键。桌面壳仍是 C# WebView2 宿主；Tauri 只在拿到管理员/MSVC 或改由 CI 出包时重新评估（见 [ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 文末）。

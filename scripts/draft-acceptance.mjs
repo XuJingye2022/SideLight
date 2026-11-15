@@ -478,14 +478,27 @@ await mkdirp(OUT)
     return items.map((item) => {
       const rect = item.getBoundingClientRect()
       return {
+        text: item.textContent?.trim() ?? '',
+        recent: item.classList.contains('recent-item'),
         height: rect.height,
         whiteSpace: getComputedStyle(item).whiteSpace,
         overflow: item.scrollWidth - item.clientWidth,
       }
     })
   })
-  check('T4 文件菜单四项高度 ≤ 40', menu.length === 4 && menu.every((item) => item.height <= 40), JSON.stringify(menu.map((item) => item.height)))
-  check('T4 文件菜单不折行', menu.every((item) => item.whiteSpace === 'nowrap'))
+  const actions = ['新建', '另存为…', '打开文件…', '打开文件夹…']
+  const actionRows = menu.filter((item) => !item.recent && actions.some((label) => item.text.startsWith(label)))
+  check(
+    'T4 文件菜单四个动作都在（按名称，不写死条数）',
+    actionRows.length === 4,
+    JSON.stringify(menu.map((item) => item.text.slice(0, 12))),
+  )
+  check('T4 动作项高度 ≤ 40', actionRows.every((item) => item.height <= 40), JSON.stringify(actionRows.map((item) => item.height)))
+  check(
+    'T4 动作项不折行',
+    actionRows.every((item) => item.whiteSpace === 'nowrap'),
+    JSON.stringify(actionRows.map((item) => item.whiteSpace)),
+  )
   check('T4 文件菜单不横向溢出', menu.every((item) => item.overflow <= 1), JSON.stringify(menu.map((item) => item.overflow)))
   await page.screenshot({ path: `${OUT}/t4-file-menu-1366.png` })
   await context.close()

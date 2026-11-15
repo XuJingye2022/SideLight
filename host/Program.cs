@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -6,6 +6,7 @@ using System.IO.Pipes;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,6 +35,7 @@ static class Program
     // 转发队列：WebView2 没就绪或正在导航时收到的路径先排队，导航完成后重放。
     static readonly Queue<string> forwardQueue = new Queue<string>();
     static bool navReady;
+    static bool argvOpened;
     static bool portableDataDir;
     static string fatalInitError;
 
@@ -53,15 +55,37 @@ static class Program
     static readonly System.Text.RegularExpressions.Regex UnsafeKey =
         new System.Text.RegularExpressions.Regex(@"[^a-zA-Z0-9\u4e00-\u9fa5_-]");
 
+    // 最近打开：状态目录、recent.json、内存表；页面只拿哈希 id，不拿路径。
+    class RecentItem
+    {
+        public string Id;
+        public string Path;
+        public string Name;
+        public string Dir;
+        public long Seq;
+        public long OpenedAt;
+        public long Size;
+        public long Mtime;
+    }
+
+    static string stateDir;
+    static string stateKind = "none";
+    static string recentPath;
+    static List<RecentItem> recentItems = new List<RecentItem>();
+    static long recentSeq;
+    static List<RecentItem> recentSnapshot;
+    static string recentLastError;
+
     [STAThread]
     static void Main(string[] args)
     {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
-        Log("start args=" + string.Join(" | ", args));
+        MigrateLog();
+        InitState();
+        Log("start args=" + string.Join(" | ", Array.ConvertAll(args, new Converter<string, string>(LogPath))));
 
         pendingFile = args.Length > 0 ? Resolve(args[0]) : null;
-        if (pendingFile != null) SetCurrentDoc(pendingFile);
 
         // 单实例：优先全局命名对象，被拒绝时退回会话级。拿不到就把 argv 转给第一个实例。
         foreach (string candidate in new string[] { @"Global\Sidelight", @"Local\Sidelight" })
@@ -74,6 +98,7 @@ static class Program
                 {
                     heldMutex = m;
                     Log("primary mutex=" + candidate);
+                    if (pendingFile != null) SetCurrentDoc(pendingFile);
                     break;
                 }
                 m.Close();
@@ -100,7 +125,7 @@ static class Program
         string www = Path.Combine(baseDir, "www");
         if (!File.Exists(Path.Combine(www, "index.html")))
         {
-            Log("startup failed reason=no-www path=" + Path.Combine(www, "index.html"));
+            Log("startup failed reason=no-www file=" + LogPath(Path.Combine(www, "index.html")));
             RunErrorForm("缺少运行文件 www/index.html。请重新解压完整的 zip。日志：" + logPath);
             return;
         }
@@ -203,7 +228,7 @@ static class Program
         Thread thread = new Thread(AcceptLoop);
         thread.IsBackground = true;
         thread.Start();
-        Log("loopback listening http://127.0.0.1:" + port + "/ www=" + wwwRoot);
+        Log("loopback listening port=" + port);
     }
 
     static void AcceptLoop()
@@ -271,6 +296,11 @@ static class Program
                 if (target == "/__draft")
                 {
                     HandleDraftRequest(stream, method, host);
+                    return;
+                }
+                if (target == "/__recent")
+                {
+                    HandleRecentRequest(stream, method, host);
                     return;
                 }
                 if (target.Length == 0 || target == "/") target = "/index.html";
@@ -580,6 +610,11 @@ static class Program
             if (type == "draft-save" || type == "draft-clear" || type == "close-answer")
             {
                 HandleDraftMessage(senderCore, type, msg);
+                return;
+            }
+            if (type == "open-recent" || type == "recent-remove" || type == "recent-clear" || type == "recent-restore")
+            {
+                HandleRecentMessage(senderCore, type, msg);
                 return;
             }
             if (type != "save") return;
@@ -1026,6 +1061,157 @@ static class Program
         draft["text"] = text;
         WriteResponse(stream, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json.Serialize(draft)), false);
     }
+    static void ReplyRecent(CoreWebView2 senderCore, string type, string id, bool ok, string error)
+    {
+        Dictionary<string, object> reply = new Dictionary<string, object>();
+        reply["v"] = 1;
+        reply["type"] = type + "-result";
+        reply["id"] = id;
+        reply["ok"] = ok;
+        if (error != null) reply["error"] = error;
+        if (senderCore != null) senderCore.PostWebMessageAsJson(json.Serialize(reply));
+    }
+
+    static void HandleRecentMessage(CoreWebView2 senderCore, string type, Dictionary<string, object> msg)
+    {
+        string id = msg.ContainsKey("id") ? Convert.ToString(msg["id"]) : Guid.NewGuid().ToString("N");
+        if (msg.ContainsKey("path") || msg.ContainsKey("fileName") || msg.ContainsKey("file"))
+        {
+            Log("recent rejected error=BAD_REQUEST");
+            ReplyRecent(senderCore, type, id, false, "BAD_REQUEST");
+            return;
+        }
+        if (stateDir == null)
+        {
+            ReplyRecent(senderCore, type, id, false, "NO_STATE_DIR");
+            return;
+        }
+        if (type == "open-recent")
+        {
+            long seq = msg.ContainsKey("seq") ? Convert.ToInt64(msg["seq"]) : -1;
+            RecentItem item = recentItems.Find(delegate(RecentItem candidate) { return candidate.Id == id; });
+            if (item == null || item.Seq != seq)
+            {
+                ReplyRecent(senderCore, type, id, false, "STALE");
+                return;
+            }
+            HandleOpenRecent(senderCore, id, item.Path);
+            return;
+        }
+        if (type == "recent-remove")
+        {
+            long seq = msg.ContainsKey("seq") ? Convert.ToInt64(msg["seq"]) : -1;
+            RecentItem item = recentItems.Find(delegate(RecentItem candidate) { return candidate.Id == id; });
+            if (item == null || item.Seq != seq)
+            {
+                ReplyRecent(senderCore, type, id, false, "STALE");
+                return;
+            }
+            recentItems.Remove(item);
+            string error = SaveRecent();
+            ReplyRecent(senderCore, type, id, error == null, error);
+            return;
+        }
+        if (type == "recent-clear")
+        {
+            recentSnapshot = new List<RecentItem>(recentItems);
+            List<RecentItem> previous = new List<RecentItem>(recentItems);
+            recentItems.Clear();
+            string error = SaveRecent();
+            if (error != null) recentItems = previous;
+            ReplyRecent(senderCore, type, id, error == null, error);
+            return;
+        }
+        if (type == "recent-restore")
+        {
+            if (recentSnapshot == null)
+            {
+                ReplyRecent(senderCore, type, id, false, "STALE");
+                return;
+            }
+            recentItems = new List<RecentItem>(recentSnapshot);
+            recentSnapshot = null;
+            string error = SaveRecent();
+            ReplyRecent(senderCore, type, id, error == null, error);
+            return;
+        }
+        ReplyRecent(senderCore, type, id, false, "BAD_REQUEST");
+    }
+
+    static async void HandleOpenRecent(CoreWebView2 senderCore, string id, string path)
+    {
+        string error = await OpenByPath(path, "recent");
+        ReplyRecent(senderCore, "open-recent", id, error == null, error);
+    }
+
+    // argv / 单实例转发 / 最近打开共用：脏确认 → 读元数据 → 注入 → 记录。
+    static async Task<string> OpenByPath(string path, string source)
+    {
+        return await OpenByPath(path, source, true);
+    }
+
+    static async Task<string> OpenByPath(string path, string source, bool inject)
+    {
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+        {
+            Log("open failed source=" + source + " reason=missing file=" + LogPath(path));
+            return "FILE_GONE";
+        }
+        DocMeta meta = null;
+        try { meta = ReadDocMeta(path); }
+        catch (DocException ex)
+        {
+            Log("open failed source=" + source + " file=" + LogPath(path) + " error=" + ex.Code);
+            return ex.Code;
+        }
+        catch (Exception)
+        {
+            Log("open failed source=" + source + " file=" + LogPath(path) + " error=IO");
+            return "IO";
+        }
+        string dirty = await ReadDirtyAsync();
+        if (dirty != "0")
+        {
+            Log("open dirty=" + dirty + " source=" + source + " file=" + LogPath(path));
+            DialogResult answer = MessageBox.Show(
+                "当前文档有未保存的改动。打开 " + Path.GetFileName(path) + " 会替换它。",
+                "Sidelight",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes)
+            {
+                Log("open cancelled source=" + source + " file=" + LogPath(path));
+                return "CANCELLED";
+            }
+        }
+        SetCurrentDoc(path);
+        if (currentDocErrorCode != null) return currentDocErrorCode;
+        if (!inject)
+        {
+            // argv：正文已由 document-created 脚本注入过，这里只统一元数据与最近记录，避免多一次 reload。
+            RecordOpen(path);
+            Log("open applied source=" + source + " file=" + LogPath(path));
+            return null;
+        }
+        try
+        {
+            string script = BuildApplyScript(meta.Text, Path.GetFileName(path), false);
+            Task exec = web.CoreWebView2.ExecuteScriptAsync(script);
+            exec.ContinueWith(delegate(Task prev)
+            {
+                if (prev.IsFaulted) Log("open exec failed " + prev.Exception.GetBaseException().Message);
+            });
+            RecordOpen(path);
+            Log("open applied source=" + source + " file=" + LogPath(path));
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log("open failed source=" + source + " " + ex.GetType().Name);
+            return "IO";
+        }
+    }
     static void WriteResponse(NetworkStream stream, int status, string mime, byte[] body, bool headOnly)
     {
         string reason = "Error";
@@ -1058,7 +1244,7 @@ static class Program
         }
         catch (Exception ex)
         {
-            Log("data dir candidate failed " + dir + " " + ex.Message);
+            Log("data dir candidate failed name=" + LogPath(dir));
             return null;
         }
         finally
@@ -1088,7 +1274,7 @@ static class Program
             {
                 string kind = i == 0 ? "localappdata" : (i == 1 ? "temp" : "portable");
                 portableDataDir = i == 2;
-                Log("data dir=" + ok + " kind=" + kind);
+                Log("data dir kind=" + kind);
                 return ok;
             }
         }
@@ -1151,11 +1337,11 @@ static class Program
                 string dlDir = Environment.GetEnvironmentVariable("SIDELIGHT_DOWNLOAD_DIR");
                 if (string.IsNullOrEmpty(dlDir)) dlDir = ResolveDownloadDir();
                 core.Profile.DefaultDownloadFolderPath = dlDir;
-                Log("default download dir=" + dlDir);
+                Log("default download dir set");
             }
             catch (Exception ex)
             {
-                Log("default download dir failed " + ex.Message);
+                Log("default download dir failed");
             }
             core.PermissionRequested += OnPermissionRequested;
             core.DownloadStarting += OnDownloadStarting;
@@ -1179,7 +1365,7 @@ static class Program
             else if (pendingFile != null)
             {
                 string reason = pendingFile.Length >= 240 ? "too-long" : "missing";
-                Log("open failed path=" + pendingFile + " reason=" + reason);
+                Log("open failed file=" + LogPath(pendingFile) + " reason=" + reason);
                 form.Text = "Sidelight — 打不开：" + SafeFileName(pendingFile);
             }
 
@@ -1238,18 +1424,18 @@ static class Program
                 lastDownloadDir = dir;
                 e.ResultFilePath = Path.Combine(dir, name);
                 e.Handled = true;
-                Log("download starting name=" + name + " result=" + e.ResultFilePath + " handled=true mode=env");
+                Log("download starting name=" + name + " result=" + LogPath(e.ResultFilePath) + " handled=true mode=env");
                 try
                 {
                     CoreWebView2DownloadOperation op = e.DownloadOperation;
                     op.StateChanged += delegate(object s2, object e2)
                     {
-                        Log("download state=" + op.State + " reason=" + op.InterruptReason + " bytes=" + op.BytesReceived + " path=" + op.ResultFilePath);
+                        Log("download state=" + op.State + " reason=" + op.InterruptReason + " bytes=" + op.BytesReceived + " path=" + LogPath(op.ResultFilePath));
                     };
                 }
                 catch (Exception ex2)
                 {
-                    Log("download state hook failed " + ex2.Message);
+                    Log("download state hook failed " + ex2.GetType().Name);
                 }
                 return;
             }
@@ -1270,7 +1456,7 @@ static class Program
                 lastDownloadDir = Path.GetDirectoryName(dialog.FileName);
                 e.ResultFilePath = dialog.FileName;
                 e.Handled = true;
-                Log("download starting name=" + name + " result=" + dialog.FileName + " handled=true mode=dialog");
+                Log("download starting name=" + name + " result=" + LogPath(dialog.FileName) + " handled=true mode=dialog");
             }
         }
         catch (Exception ex)
@@ -1295,14 +1481,26 @@ static class Program
             return;
         }
         navReady = true;
+        if (!argvOpened && pendingFile != null)
+        {
+            argvOpened = true;
+            ApplyArgvOpenAsync(pendingFile);
+        }
         if (forwardQueue.Count == 0) return;
         // 只应用最后一个路径：reload 期间连续转发时，用户想要的是最后那一份。
         string next = null;
         while (forwardQueue.Count > 0) next = forwardQueue.Dequeue();
-        Log("forward drained " + next);
+        Log("forward drained file=" + LogPath(next));
         ApplyForwardAsync(next);
     }
 
+    // argv 的正文已由 document-created 脚本先注入；导航完成后统一走 OpenByPath，
+    // 复用同一套元数据/注入/RecordOpen，保证最近列表与日志都有 source=argv。
+    static async void ApplyArgvOpenAsync(string path)
+    {
+        string error = await OpenByPath(path, "argv", false);
+        if (error != null && error != "CANCELLED") Log("argv open failed error=" + error + " file=" + LogPath(path));
+    }
     // 只在首个顶层导航注入一次；重载后靠 sessionStorage 守卫直接返回，避免无限重载。
     static string BuildApplyScript(string text, string name, bool oneShotGuard)
     {
@@ -1346,12 +1544,12 @@ static class Program
 
     static void EnqueueForwardOnUi(string path)
     {
-        if (string.IsNullOrEmpty(path) || !File.Exists(path)) { Log("forward ignored " + path); return; }
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) { Log("forward ignored file=" + LogPath(path)); return; }
         if (!navReady)
         {
-            if (forwardQueue.Contains(path)) { Log("forward duplicate queued " + path); return; }
+            if (forwardQueue.Contains(path)) { Log("forward duplicate queued file=" + LogPath(path)); return; }
             forwardQueue.Enqueue(path);
-            Log("forward queued " + path);
+            Log("forward queued file=" + LogPath(path));
             return;
         }
         ApplyForwardAsync(path);
@@ -1393,48 +1591,9 @@ static class Program
     #pragma warning disable 4014
     static async void ApplyForwardAsync(string path)
     {
-        try
-        {
-            string dirty = await ReadDirtyAsync();
-            if (dirty == "0")
-            {
-                Log("forward dirty=0 " + path);
-            }
-            else
-            {
-                Log("forward dirty=" + dirty + " " + path);
-                string name = Path.GetFileName(path);
-                DialogResult answer = MessageBox.Show(
-                    "当前文档有未保存的改动。打开 " + name + " 会替换它。",
-                    "Sidelight",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Warning,
-                    MessageBoxDefaultButton.Button2);
-                if (answer != DialogResult.Yes)
-                {
-                    Log("forward cancelled " + path);
-                    return;
-                }
-                Log("forward confirmed " + path);
-            }
-
-            // 先更新 currentPath/currentMeta，再注入 + reload：前端 reload 后 fetch /__doc 才对得上这一份。
-            SetCurrentDoc(path);
-            string text = File.ReadAllText(path, Encoding.UTF8);
-            string script = BuildApplyScript(text, Path.GetFileName(path), false);
-            Task exec = web.CoreWebView2.ExecuteScriptAsync(script);
-            exec.ContinueWith(delegate(Task prev)
-            {
-                if (prev.IsFaulted) Log("forward failed exec " + prev.Exception.GetBaseException().Message);
-            });
-            Log("forward applied " + path);
-        }
-        catch (Exception ex)
-        {
-            Log("forward failed " + ex.Message);
-        }
+        string error = await OpenByPath(path, "forward");
+        if (error != null && error != "CANCELLED") Log("forward failed error=" + error + " file=" + LogPath(path));
     }
-
     static void StartPipeServer()
     {
         Thread thread = new Thread(delegate()
@@ -1452,7 +1611,7 @@ static class Program
                         if (line != null && line.Trim().Length > 0)
                         {
                             string path = Encoding.UTF8.GetString(Convert.FromBase64String(line.Trim()));
-                            Log("pipe received " + path);
+                            Log("pipe received file=" + LogPath(path));
                             EnqueueForward(path);
                         }
                     }
@@ -1484,7 +1643,7 @@ static class Program
                         StreamWriter writer = new StreamWriter(client, new UTF8Encoding(false));
                         writer.WriteLine(Convert.ToBase64String(Encoding.UTF8.GetBytes(payload)));
                         writer.Flush();
-                        Log("pipe sent " + payload);
+                        Log("pipe sent bytes=" + payload.Length);
                         return;
                     }
                 }
@@ -1504,6 +1663,12 @@ static class Program
     {
         try
         {
+            if (File.Exists(logPath) && new FileInfo(logPath).Length > 1024 * 1024)
+            {
+                string rotated = logPath + ".1";
+                try { if (File.Exists(rotated)) File.Delete(rotated); File.Move(logPath, rotated); }
+                catch (Exception) { }
+            }
             File.AppendAllText(logPath, DateTime.Now.ToString("HH:mm:ss.fff") + " " + message + "\r\n", Encoding.UTF8);
         }
         catch
@@ -1511,4 +1676,327 @@ static class Program
             // 日志失败不影响宿主。
         }
     }
+
+    // 日志只记 basename：完整路径会泄露用户名与目录结构。
+    static string LogPath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return path;
+        string name = Path.GetFileName(path);
+        return string.IsNullOrEmpty(name) ? "<dir>" : name;
+    }
+
+    static void MigrateLog()
+    {
+        try
+        {
+            string marker = logPath + ".migrated";
+            if (File.Exists(marker) || !File.Exists(logPath)) return;
+            string bad = logPath + ".bad";
+            try
+            {
+                if (File.Exists(bad)) File.Delete(bad);
+                File.Move(logPath, bad);
+            }
+            catch (Exception)
+            {
+                try { File.Delete(logPath); } catch (Exception) { }
+            }
+            File.WriteAllText(marker, DateTime.UtcNow.Ticks.ToString());
+            Log("log migrated");
+        }
+        catch (Exception) { }
+    }
+
+    static void InitState()
+    {
+        stateDir = ResolveStateDir(out stateKind);
+        if (stateDir == null)
+        {
+            Log("state dir kind=none");
+            return;
+        }
+        Log("state dir kind=" + stateKind);
+        recentPath = Path.Combine(stateDir, "recent.json");
+        LoadRecent();
+    }
+
+    static string ResolveStateDir(out string kind)
+    {
+        kind = "none";
+        string overrideDir = Environment.GetEnvironmentVariable("SIDELIGHT_STATE_DIR");
+        if (!string.IsNullOrEmpty(overrideDir))
+        {
+            kind = Environment.GetEnvironmentVariable("SIDELIGHT_STATE_KIND");
+            if (string.IsNullOrEmpty(kind)) kind = "temp";
+            if (TryWritable(overrideDir)) return overrideDir;
+            return null;
+        }
+        string local = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+        if (!string.IsNullOrEmpty(local))
+        {
+            string dir = Path.Combine(local, "Sidelight");
+            if (TryWritable(dir)) { kind = "localappdata"; return dir; }
+        }
+        string portable = Path.Combine(baseDir, "state");
+        if (TryWritable(portable)) { kind = "portable"; return portable; }
+        string temp = Environment.GetEnvironmentVariable("TEMP");
+        if (!string.IsNullOrEmpty(temp))
+        {
+            string dir = Path.Combine(temp, "Sidelight");
+            if (TryWritable(dir)) { kind = "temp"; return dir; }
+        }
+        return null;
+    }
+
+    static bool TryWritable(string dir)
+    {
+        try
+        {
+            Directory.CreateDirectory(dir);
+            string probe = Path.Combine(dir, ".write-probe-" + Guid.NewGuid().ToString("N"));
+            File.WriteAllText(probe, "1");
+            File.Delete(probe);
+            return true;
+        }
+        catch (Exception) { return false; }
+    }
+
+    static string NormalizePath(string path)
+    {
+        string full = Path.GetFullPath(path);
+        if (full.StartsWith(@"\\?\", StringComparison.Ordinal)) full = full.Substring(4);
+        return full;
+    }
+
+    static string IdFor(string normalized)
+    {
+        SHA256 sha = SHA256.Create();
+        byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(normalized.ToLowerInvariant()));
+        StringBuilder sb = new StringBuilder();
+        for (int index = 0; index < 8; index++) sb.Append(hash[index].ToString("x2"));
+        return sb.ToString();
+    }
+
+    static string Str(Dictionary<string, object> dict, string key)
+    {
+        return dict.ContainsKey(key) && dict[key] != null ? Convert.ToString(dict[key]) : "";
+    }
+
+    static long Long(Dictionary<string, object> dict, string key)
+    {
+        try { return dict.ContainsKey(key) && dict[key] != null ? Convert.ToInt64(dict[key]) : 0; }
+        catch (Exception) { return 0; }
+    }
+
+    static void LoadRecent()
+    {
+        recentItems = new List<RecentItem>();
+        recentSeq = 0;
+        if (recentPath == null || !File.Exists(recentPath)) return;
+        try
+        {
+            string raw = File.ReadAllText(recentPath, Encoding.UTF8);
+            Dictionary<string, object> root = json.Deserialize<Dictionary<string, object>>(raw);
+            if (root == null) throw new InvalidOperationException("empty");
+            recentSeq = Long(root, "seq");
+            object[] items = root.ContainsKey("items") ? root["items"] as object[] : null;
+            if (items != null)
+            {
+                foreach (object entry in items)
+                {
+                    Dictionary<string, object> dict = entry as Dictionary<string, object>;
+                    if (dict == null) continue;
+                    string path = Str(dict, "path");
+                    if (string.IsNullOrEmpty(path)) continue;
+                    RecentItem item = new RecentItem();
+                    item.Id = Str(dict, "id");
+                    item.Path = NormalizePath(path);
+                    item.Name = Str(dict, "name");
+                    item.Dir = Str(dict, "dir");
+                    item.Seq = Long(dict, "seq");
+                    item.OpenedAt = Long(dict, "openedAt");
+                    item.Size = Long(dict, "size");
+                    item.Mtime = Long(dict, "mtime");
+                    recentItems.Add(item);
+                }
+            }
+            Log("recent loaded count=" + recentItems.Count);
+        }
+        catch (Exception)
+        {
+            try
+            {
+                string bad = recentPath + ".bad-" + DateTime.UtcNow.Ticks;
+                File.Move(recentPath, bad);
+                Log("recent corrupt file=recent.json backup=" + LogPath(bad));
+            }
+            catch (Exception)
+            {
+                try { File.Delete(recentPath); } catch (Exception) { }
+                Log("recent corrupt file=recent.json deleted=true");
+            }
+            recentItems = new List<RecentItem>();
+            recentSeq = 0;
+        }
+    }
+
+    static string SaveRecent()
+    {
+        if (recentPath == null) return "NO_STATE_DIR";
+        try
+        {
+            Dictionary<string, object> root = new Dictionary<string, object>();
+            root["v"] = 1;
+            root["seq"] = recentSeq;
+            List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
+            foreach (RecentItem item in recentItems)
+            {
+                Dictionary<string, object> dict = new Dictionary<string, object>();
+                dict["id"] = item.Id;
+                dict["path"] = item.Path;
+                dict["name"] = item.Name;
+                dict["dir"] = item.Dir;
+                dict["seq"] = item.Seq;
+                dict["openedAt"] = item.OpenedAt;
+                dict["size"] = item.Size;
+                dict["mtime"] = item.Mtime;
+                list.Add(dict);
+            }
+            root["items"] = list;
+            AtomicWrite(recentPath, new UTF8Encoding(false).GetBytes(json.Serialize(root)));
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log("recent write failed " + ex.GetType().Name);
+            return "IO";
+        }
+    }
+
+    // 只在主实例、打开成功后调用：记录最近 8 篇，同路径去重并置顶。
+    static void RecordOpen(string path)
+    {
+        if (stateDir == null || string.IsNullOrEmpty(path)) return;
+        try
+        {
+            string normalized = NormalizePath(path);
+            recentItems.RemoveAll(delegate(RecentItem item) { return string.Equals(item.Path, normalized, StringComparison.OrdinalIgnoreCase); });
+            recentSeq += 1;
+            RecentItem entry = new RecentItem();
+            entry.Id = IdFor(normalized);
+            entry.Path = normalized;
+            entry.Name = Path.GetFileName(normalized);
+            entry.OpenedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            entry.Seq = recentSeq;
+            try
+            {
+                FileInfo info = new FileInfo(normalized);
+                entry.Size = info.Exists ? info.Length : 0;
+                entry.Mtime = info.Exists ? info.LastWriteTimeUtc.Ticks : 0;
+            }
+            catch (Exception) { }
+            recentItems.Insert(0, entry);
+            while (recentItems.Count > 8) recentItems.RemoveAt(recentItems.Count - 1);
+            recentLastError = SaveRecent();
+        }
+        catch (Exception ex)
+        {
+            Log("recent record failed " + ex.GetType().Name);
+        }
+    }
+
+    static string DirOf(string path, int take)
+    {
+        List<string> parts = new List<string>();
+        string dir;
+        try { dir = Path.GetDirectoryName(path); } catch (Exception) { return ""; }
+        while (!string.IsNullOrEmpty(dir) && parts.Count < take)
+        {
+            string name = Path.GetFileName(dir);
+            if (string.IsNullOrEmpty(name)) break;
+            parts.Insert(0, name);
+            DirectoryInfo parent = Directory.GetParent(dir);
+            if (parent == null) break;
+            dir = parent.FullName;
+        }
+        return string.Join("/", parts.ToArray());
+    }
+
+    // 响应里 dir 用 / 分隔、无盘符；同名同目录时扩到更多段。
+    static List<Dictionary<string, object>> BuildRecentView()
+    {
+        Dictionary<string, int> depth = new Dictionary<string, int>();
+        foreach (RecentItem item in recentItems) depth[item.Id] = 1;
+        for (int round = 0; round < 8; round++)
+        {
+            Dictionary<string, string> dirs = new Dictionary<string, string>();
+            Dictionary<string, List<RecentItem>> groups = new Dictionary<string, List<RecentItem>>();
+            foreach (RecentItem item in recentItems)
+            {
+                string dir = DirOf(item.Path, depth[item.Id]);
+                dirs[item.Id] = dir;
+                string key = item.Name.ToLowerInvariant() + "|" + dir.ToLowerInvariant();
+                if (!groups.ContainsKey(key)) groups[key] = new List<RecentItem>();
+                groups[key].Add(item);
+            }
+            bool changed = false;
+            foreach (KeyValuePair<string, List<RecentItem>> group in groups)
+            {
+                if (group.Value.Count < 2) continue;
+                foreach (RecentItem item in group.Value)
+                {
+                    if (depth[item.Id] >= 8) continue;
+                    depth[item.Id] += 1;
+                    changed = true;
+                }
+            }
+            if (!changed) break;
+        }
+        List<Dictionary<string, object>> list = new List<Dictionary<string, object>>();
+        foreach (RecentItem item in recentItems)
+        {
+            Dictionary<string, object> dict = new Dictionary<string, object>();
+            dict["id"] = item.Id;
+            dict["seq"] = item.Seq;
+            dict["name"] = item.Name;
+            dict["dir"] = DirOf(item.Path, depth[item.Id]);
+            list.Add(dict);
+        }
+        return list;
+    }
+
+    static void HandleRecentRequest(NetworkStream stream, string method, string host)
+    {
+        if (method != "GET")
+        {
+            WriteResponse(stream, 405, null, null, false);
+            return;
+        }
+        if (!string.Equals(host, "127.0.0.1:" + port, StringComparison.OrdinalIgnoreCase))
+        {
+            Log("recent refused reason=host");
+            WriteResponse(stream, 403, null, null, false);
+            return;
+        }
+        Dictionary<string, object> body = new Dictionary<string, object>();
+        body["v"] = 1;
+        if (stateDir == null)
+        {
+            body["state"] = "disabled";
+            body["items"] = new List<Dictionary<string, object>>();
+            body["reason"] = "NO_STATE_DIR";
+        }
+        else
+        {
+            body["state"] = stateKind == "temp" ? "volatile" : "ok";
+            body["items"] = BuildRecentView();
+            if (recentLastError != null)
+            {
+                body["lastError"] = recentLastError;
+                recentLastError = null;
+            }
+        }
+        WriteResponse(stream, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json.Serialize(body)), false);
+    }
+
 }

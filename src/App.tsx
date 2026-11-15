@@ -178,6 +178,8 @@ type Notice = {
   text: string
   kind: 'info' | 'error'
   action?: { label: string; onClick: () => void }
+  /** 多个动作（例如「从列表移除」「重试」）；与 action 可同时存在 */
+  actions?: Array<{ label: string; onClick: () => void }>
   /** true 时跳过 6 秒计时器：保存结果这类信息要一直留着 */
   persist?: boolean
   /** 自定义存活时长（毫秒），优先于默认 6 秒 */
@@ -200,6 +202,8 @@ type PendingConfirm = {
   withEol: string
   target: SaveTarget
   losses: Loss[]
+  /** 保存成功后执行（例如打开最近项）；取消或失败不执行 */
+  after?: () => void
 }
 
 /** 宿主文档的解析上限：marked 的行内正则对超长单行会在 8 MB 左右爆栈，这里留余量 */
@@ -213,6 +217,40 @@ type HostDocResponse = {
   readOnly?: boolean
   mtime?: number
   error?: string
+}
+
+/** 宿主 `/__recent` 的一条：页面只拿 id/seq/name/dir，没有完整路径 */
+type RecentItem = { id: string; seq: number; name: string; dir: string }
+
+type RecentState =
+  | { kind: 'no-host' }
+  | { kind: 'disabled'; reason: string }
+  | { kind: 'volatile'; items: RecentItem[]; reason?: string }
+  | { kind: 'ok'; items: RecentItem[]; reason?: string }
+  | { kind: 'error'; message: string }
+
+/** 宿主错误码 → 用户文案（只映射，不发明新码） */
+function recentError(error: string | undefined): string {
+  switch (error) {
+    case 'STALE':
+      return '最近记录已过期，正在刷新。'
+    case 'FILE_GONE':
+      return '文件不存在或已移动。'
+    case 'READONLY':
+      return '这个文件只能只读打开。'
+    case 'ENCODING':
+      return '文件编码无法识别。'
+    case 'TOO_LARGE':
+      return '文件超过 6 MB，暂不支持。'
+    case 'BAD_REQUEST':
+      return '请求被拒绝。'
+    case 'IO':
+      return '读取失败，可能是网络盘或权限问题。'
+    case 'NO_STATE_DIR':
+      return '最近记录功能不可用（没有可写状态目录）。'
+    default:
+      return '打开失败，请重试。'
+  }
 }
 
 /** .NET ticks（100ns，0001 起）→ JS 毫秒；宿主 `/__doc`、`/__draft` 用 ticks */
@@ -372,6 +410,9 @@ export default function App() {
   const [autoSaveScheduled, setAutoSaveScheduled] = useState(false)
   const [autoSaveState, setAutoSaveState] = useState<'idle' | 'saved' | 'manual' | 'failed' | 'external'>('idle')
   const [autoSavedAt, setAutoSavedAt] = useState<number | null>(null)
+  /** 最近打开：宿主才有的列表；浏览器里保持 no-host，整段不渲染 */
+  const [recent, setRecent] = useState<RecentState>({ kind: 'no-host' })
+  const [recentStaleId, setRecentStaleId] = useState<string | null>(null)
   /** 冷启动时发现未保存草稿：先问用户保留草稿还是继续打开宿主文件 */
   const [draftPrompt, setDraftPrompt] = useState<{ fileName: string; savedAt: number } | null>(null)
   const hostPayloadRef = useRef<HostDocResponse | null>(null)
@@ -424,6 +465,13 @@ export default function App() {
   const clearHostDraftRef = useRef<() => Promise<void>>(async () => {})
   /** 同步的「宿主写回在飞」标记：state 下一次渲染才更新，auto 判定要用它 */
   const savingRef = useRef(false)
+  /** 最近打开：请求 id → resolve；同一行在飞时忽略重复点击 */
+  const recentRequestsRef = useRef(new Map<string, (data: { ok?: boolean; error?: string }) => void>())
+  const nextRecentIdRef = useRef(0)
+  const recentOpeningRef = useRef<string | null>(null)
+  const lastClearIdRef = useRef<number | null>(null)
+  /** 宿主文档「保存并切换」：save-result ok 后再执行切换/打开最近项 */
+  const hostSwitchPendingRef = useRef(false)
   const hostDocRef = useRef<HostDoc | null>(null)
   /** 自动保存：2 秒防抖 + 输入法组合保护 */
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1797,15 +1845,23 @@ export default function App() {
         await performSaveAs(pending.normalized, pending.withEol)
         return
       }
-      await performCommit(pending.normalized, pending.withEol)
+      if (pending.target === 'switch' && hostDoc?.ready && hostDoc.writable) {
+        // 宿主文档：先写回，save-result ok 后再切换/打开最近项
+        hostSwitchPendingRef.current = true
+        sendHostSaveRef.current(pending.normalized)
+        return
+      }
+      const ok = await performCommit(pending.normalized, pending.withEol)
+      if (!ok) return
       if (pending.target === 'switch') performSwitch()
+      else pending.after?.()
     },
-    [performSaveAs, performCommit, performSwitch],
+    [hostDoc, performSaveAs, performCommit, performSwitch],
   )
 
   /** 四条保存路径的唯一入口：先过差异门，确认后才真正写 */
   const requestSave = useCallback(
-    (target: SaveTarget) => {
+    (target: SaveTarget, after?: () => void) => {
       if (!editor) return
       cancelAutoSaveRef.current()
       let goal = target
@@ -1813,6 +1869,11 @@ export default function App() {
       if (goal === 'host' && hostDoc && !hostDoc.writable) goal = 'saveAs'
       if (goal === 'host' && !dirty) {
         setNotice({ text: '没有改动，未写入。', kind: 'info', ttl: 1500 })
+        return
+      }
+      if (goal === 'switch' && after) {
+        // 脏文档点最近项：走统一的「保存并切换」确认，after 只挂在这条新目标上
+        setPendingSwitch({ text: '', name: '最近打开', file: null, after })
         return
       }
       if (goal === 'switch' && !dirty) {
@@ -1823,10 +1884,10 @@ export default function App() {
       const { normalized, withEol } = prepareSave()
       const losses = originalText !== null ? activeLosses(originalText, normalized, baselineLossesRef.current) : []
       if (losses.length > 0 && !saveWarned) {
-        setPendingConfirm({ normalized, withEol, target: goal, losses })
+        setPendingConfirm({ normalized, withEol, target: goal, losses, after })
         return
       }
-      void runSave({ normalized, withEol, target: goal, losses: [] })
+      void runSave({ normalized, withEol, target: goal, losses: [], after })
     },
     [editor, hostDoc, dirty, originalText, saveWarned, prepareSave, runSave, performSwitch],
   )
@@ -1842,6 +1903,149 @@ export default function App() {
 
   /** 取消：不写任何字节，也不动 dirty */
   const cancelConfirm = useCallback(() => setPendingConfirm(null), [])
+
+  /* ---------- 最近打开（T1/T2） ---------- */
+
+  const loadRecent = useCallback(async () => {
+    const webview = window.chrome?.webview
+    if (!webview) {
+      setRecent({ kind: 'no-host' })
+      return
+    }
+    try {
+      const response = await fetch('/__recent', { cache: 'no-store' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = (await response.json()) as {
+        v?: number
+        state?: string
+        items?: RecentItem[]
+        reason?: string
+      }
+      if (!data || data.v !== 1) throw new Error('BAD_RESPONSE')
+      if (data.state === 'disabled') {
+        setRecent({ kind: 'disabled', reason: data.reason || '最近记录功能不可用。' })
+        return
+      }
+      const items = (data.items ?? []).filter(
+        (item) => item && typeof item.id === 'string' && typeof item.seq === 'number' && typeof item.name === 'string',
+      )
+      setRecent({
+        kind: data.state === 'volatile' ? 'volatile' : 'ok',
+        items,
+        reason: data.reason,
+      })
+    } catch {
+      setRecent({ kind: 'error', message: '读不出来，重开应用再试。' })
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadRecent()
+  }, [loadRecent])
+
+  /**
+   * 最近记录协议：open/remove 的 id 是条目 id（字符串），回包按它匹配；
+   * clear/restore 没有条目 id，用自增请求 id 匹配。
+   */
+  const sendRecent = useCallback(
+    (type: string, payload: Record<string, unknown> = {}) =>
+      new Promise<{ ok: boolean; error?: string; id: number }>((resolve) => {
+        const webview = window.chrome?.webview
+        if (!webview) {
+          resolve({ ok: false, error: 'IO', id: 0 })
+          return
+        }
+        const isItemScoped = type === 'open-recent' || type === 'recent-remove'
+        const requestId = (nextRecentIdRef.current += 1)
+        const key = isItemScoped ? `${type}:${String(payload.id)}` : `${type}:${requestId}`
+        recentRequestsRef.current.set(key, (data) => resolve({ ok: data.ok === true, error: data.error, id: requestId }))
+        const message = isItemScoped
+          ? { v: 1, type, ...payload }
+          : { v: 1, type, id: requestId }
+        webview.postMessage(message)
+        setTimeout(() => {
+          if (recentRequestsRef.current.delete(key)) resolve({ ok: false, error: 'IO', id: requestId })
+        }, 10000)
+      }),
+    [],
+  )
+
+  const removeRecent = useCallback(
+    async (item: RecentItem) => {
+      const result = await sendRecent('recent-remove', { id: item.id, seq: item.seq })
+      if (result.ok) {
+        setNotice(null)
+        await loadRecent()
+        return
+      }
+      setNotice({ text: `移除失败：${recentError(result.error)}`, kind: 'error' })
+    },
+    [loadRecent, sendRecent],
+  )
+
+  const sendOpenRecent = useCallback(
+    async (item: RecentItem) => {
+      if (recentOpeningRef.current === item.id) return
+      recentOpeningRef.current = item.id
+      const result = await sendRecent('open-recent', { id: item.id, seq: item.seq })
+      recentOpeningRef.current = null
+      if (result.ok) return // 宿主会 reload，页面重新 /__doc
+      if (result.error === 'STALE') {
+        setRecentStaleId(item.id)
+        await loadRecent()
+        setRecentStaleId(null)
+        setNotice({ text: '最近记录已更新，请按新列表重试。', kind: 'info', ttl: 4000 })
+        return
+      }
+      setNotice({
+        text: recentError(result.error),
+        kind: 'error',
+        actions: [
+          { label: '从列表移除', onClick: () => void removeRecent(item) },
+          { label: '重试', onClick: () => void sendOpenRecent(item) },
+        ],
+      })
+    },
+    [loadRecent, removeRecent, sendRecent],
+  )
+
+  const openRecentItem = useCallback(
+    (item: RecentItem) => {
+      if (dirty) {
+        // 脏文档：先走「保存并切换」，after 只挂在这次点击上
+        requestSave('switch', () => void sendOpenRecent(item))
+        return
+      }
+      void sendOpenRecent(item)
+    },
+    [dirty, requestSave, sendOpenRecent],
+  )
+
+  const restoreRecent = useCallback(async () => {
+    const result = await sendRecent('recent-restore')
+    if (result.ok) {
+      await loadRecent()
+      return
+    }
+    setNotice({ text: `撤销失败：${recentError(result.error)}`, kind: 'error' })
+  }, [loadRecent, sendRecent])
+
+  const clearRecent = useCallback(async (): Promise<boolean> => {
+    const result = await sendRecent('recent-clear')
+    if (result.ok) {
+      setNotice({
+        text: '已清除最近记录。',
+        kind: 'info',
+        ttl: 6000,
+        actions: [{ label: '撤销', onClick: () => void restoreRecent() }],
+      })
+      await loadRecent()
+      return true
+    }
+    setNotice({ text: `清除失败：${recentError(result.error)} 最近记录还在。`, kind: 'error' })
+    return false
+  }, [loadRecent, restoreRecent, sendRecent])
+
 
   /* ---------- 宿主草稿（T1） ---------- */
 
@@ -2168,12 +2372,16 @@ export default function App() {
       setAutoSavedAt(null)
       setDraftRestored(false)
       void clearHostDraft()
+      if (hostSwitchPendingRef.current) {
+        hostSwitchPendingRef.current = false
+        performSwitch()
+      }
       // 正在等切文档：不弹「已保存」，免得新文档上挂着旧文档的成功提示
       if (hostSaveWaitersRef.current.length === 0) {
         setNotice({ text: `已保存到 ${hostDoc.fileName}`, kind: 'info', persist: true })
       }
     },
-    [hostDoc],
+    [hostDoc, performSwitch],
   )
 
   useEffect(() => {
@@ -2189,6 +2397,24 @@ export default function App() {
         | { v?: number; type?: string; id?: number; ok?: boolean; error?: string; mtime?: number }
         | null
       if (!data || data.v !== 1) return
+
+      if (
+        typeof data.type === 'string' &&
+        data.type.endsWith('-result') &&
+        (data.type === 'open-recent-result' ||
+          data.type === 'recent-remove-result' ||
+          data.type === 'recent-clear-result' ||
+          data.type === 'recent-restore-result')
+      ) {
+        const sourceType = data.type.replace(/-result$/, '')
+        const key = `${sourceType}:${String(data.id)}`
+        const resolve = recentRequestsRef.current.get(key)
+        if (resolve) {
+          recentRequestsRef.current.delete(key)
+          resolve({ ok: data.ok === true, error: data.error })
+        }
+        return
+      }
 
       if (data.type === 'close-request') {
         setCloseRequested(true)
@@ -2855,6 +3081,11 @@ export default function App() {
           onSaveAs={() => saveAsCopyRef.current()}
           onOpenFile={() => void openSingleFile()}
           onOpenFolder={() => void openFolder()}
+          recent={recent.kind === 'no-host' ? null : recent}
+          recentDisabledId={recentStaleId}
+          onRefreshRecent={() => void loadRecent()}
+          onOpenRecent={openRecentItem}
+          onClearRecent={clearRecent}
         />
         <div className="doc-name" title={hostDoc?.ready ? '保存会写回这个文件' : undefined}>
           {docName}
@@ -3328,6 +3559,11 @@ export default function App() {
               {notice.action.label}
             </button>
           )}
+          {notice.actions?.map((entry) => (
+            <button key={entry.label} type="button" className="toast-action" onClick={entry.onClick}>
+              {entry.label}
+            </button>
+          ))}
           {notice.kind === 'error' && (
             <button type="button" className="toast-close" aria-label="关闭提示" onClick={() => setNotice(null)}>
               ×

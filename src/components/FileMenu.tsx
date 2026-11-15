@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 
+type RecentItem = { id: string; seq: number; name: string; dir: string }
+
 type Props = {
   onNew: () => void
   onSaveAs: () => void
   onOpenFile: () => void
   onOpenFolder: () => void
+  /** 最近打开：no-host 由 App 传 null，整段不渲染 */
+  recent: { kind: 'disabled'; reason: string } | { kind: 'volatile' | 'ok'; items: RecentItem[]; reason?: string } | { kind: 'error'; message: string } | null
+  recentDisabledId?: string | null
+  onRefreshRecent: () => void
+  onOpenRecent: (item: RecentItem) => void
+  onClearRecent: () => Promise<boolean>
 }
 
 const ITEMS: Array<{ label: string; keys: string; keyshortcuts: string; action: 'new' | 'saveAs' | 'openFile' | 'openFolder' }> = [
@@ -18,13 +26,25 @@ const ITEMS: Array<{ label: string; keys: string; keyshortcuts: string; action: 
  * 顶栏「文件 ▾」：方向键在菜单里走，Tab 关闭，动作后焦点按动作归还
  * （新建回正文，其余回触发器）。Esc 关闭并把焦点还给按钮。
  */
-export function FileMenu({ onNew, onSaveAs, onOpenFile, onOpenFolder }: Props) {
+export function FileMenu({
+  onNew,
+  onSaveAs,
+  onOpenFile,
+  onOpenFolder,
+  recent,
+  recentDisabledId,
+  onRefreshRecent,
+  onOpenRecent,
+  onClearRecent,
+}: Props) {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!open) return
+    // 每次打开都重新拉一次：宿主可能刚转发过新文件
+    onRefreshRecent()
     menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
 
     const onDown = (event: MouseEvent) => {
@@ -61,6 +81,11 @@ export function FileMenu({ onNew, onSaveAs, onOpenFile, onOpenFolder }: Props) {
     closeTo('trigger')
   }
 
+  const items = (): RecentItem[] => (recent && (recent.kind === 'ok' || recent.kind === 'volatile') ? recent.items : [])
+
+  const focusableItems = () =>
+    Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])
+
   return (
     <div className="file-menu-wrap">
       <button
@@ -82,20 +107,20 @@ export function FileMenu({ onNew, onSaveAs, onOpenFile, onOpenFolder }: Props) {
           role="menu"
           aria-label="文件"
           onKeyDown={(event) => {
-            const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
-            const index = items.indexOf(document.activeElement as HTMLElement)
+            const focusable = focusableItems()
+            const index = focusable.indexOf(document.activeElement as HTMLElement)
             if (event.key === 'ArrowDown') {
               event.preventDefault()
-              items[(index + 1) % items.length]?.focus()
+              focusable[(index + 1) % focusable.length]?.focus()
             } else if (event.key === 'ArrowUp') {
               event.preventDefault()
-              items[(index - 1 + items.length) % items.length]?.focus()
+              focusable[(index - 1 + focusable.length) % focusable.length]?.focus()
             } else if (event.key === 'Home') {
               event.preventDefault()
-              items[0]?.focus()
+              focusable[0]?.focus()
             } else if (event.key === 'End') {
               event.preventDefault()
-              items[items.length - 1]?.focus()
+              focusable[focusable.length - 1]?.focus()
             } else if (event.key === 'Tab') {
               event.preventDefault()
               closeTo('trigger')
@@ -117,6 +142,53 @@ export function FileMenu({ onNew, onSaveAs, onOpenFile, onOpenFolder }: Props) {
               <kbd>{item.keys}</kbd>
             </button>
           ))}
+
+          {recent && (
+            <>
+              <div className="menu-separator" role="separator" />
+              <div className="menu-section-title" role="presentation">
+                最近打开
+                {recent.kind === 'volatile' && <span className="recent-volatile">临时目录，重启可能丢失</span>}
+              </div>
+
+              {recent.kind === 'disabled' && <p className="recent-note">{recent.reason}</p>}
+              {recent.kind === 'error' && <p className="recent-note">{recent.message}</p>}
+              {(recent.kind === 'ok' || recent.kind === 'volatile') && items().length === 0 && (
+                <p className="recent-note">还没有最近打开的文件。</p>
+              )}
+              {(recent.kind === 'ok' || recent.kind === 'volatile') &&
+                items().map((item) => (
+                  <button
+                    key={`${item.id}-${item.seq}`}
+                    type="button"
+                    role="menuitem"
+                    className="recent-item"
+                    title={`${item.name} · ${item.dir}`}
+                    disabled={recentDisabledId === item.id}
+                    onClick={() => {
+                      onOpenRecent(item)
+                      closeTo('trigger')
+                    }}
+                  >
+                    <span className="recent-name">{item.name}</span>
+                    <span className="recent-dir">{item.dir}</span>
+                  </button>
+                ))}
+
+              <div className="menu-separator" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  void onClearRecent().then((cleared) => {
+                    if (cleared) closeTo('trigger')
+                  })
+                }}
+              >
+                <span>清除最近记录</span>
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
