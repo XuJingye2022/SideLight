@@ -87,3 +87,11 @@ Info.plist CFBundleIconFile=1；packaging/macos-README.txt 存在；ADR-0015 存
 - 全文件扫描：`if let (` / `guard let (` / `] is [` / `String.init` 均 0；剩余 `?[` 都是 `as?` 断言。
 - `bash -n` 对 `build.sh` / `verify.sh` / `sign.sh` 通过。
 - 仍无法本机编译 Swift；下一轮 CI 若再报错，优先看 `Network`/`AppKit` 调用签名（本机只能静态审查）。
+---
+
+## Release job 修复（artifact 目录未摊平）
+
+- 失败原因：`download-artifact` 把文件放在 `out/windows-setup/...` 等子目录里；原步骤先 `cd out` 再 `realpath --relative-to=.`，得到 `out/windows-setup/...`，文件不存在。
+- 重写步骤：先把 `signing.txt` 拷到 `out/signing.txt`，`find out -mindepth 2 … -exec cp -n {} out/` 把三个资产摊平到 `out/` 顶层，删掉 artifact 目录；用 `maxdepth 1` 找三个显式文件名，`cd out` 后只用 `basename` 计算 `SHA256SUMS-<版本>.txt`；`FILES` 用 `maxdepth 1` 且排除 `signing.txt`，断言 4；最后 `sha256sum -c`。
+- `softprops`：`body_path: out/signing.txt`；`files: out/*.exe`、`out/*.zip`、`out/SHA256SUMS-*.txt`。
+- 本地验证：抽出 `run:` 块 `bash -n` = 0；用 `.tmp/rel-test` 模拟 artifact 目录树，脚本 exit 0，输出 3 条校验和 + `sha256sum -c` 全 OK，`out/` 顶层最终为 3 资产 + `SHA256SUMS`（+ `signing.txt`）。
