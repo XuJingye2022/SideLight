@@ -1,11 +1,14 @@
 import { chromium } from 'playwright-core'
 
+import { installDemoFolder } from './demo-folder.mjs'
+
 const url = process.argv[2] ?? 'http://localhost:5173'
 
 const browser = await chromium.connectOverCDP('http://127.0.0.1:9222')
 const context = browser.contexts()[0] ?? (await browser.newContext())
 const page = await context.newPage()
 await page.setViewportSize({ width: 1440, height: 900 })
+await installDemoFolder(page)
 
 const errors = []
 page.on('console', (message) => {
@@ -132,14 +135,14 @@ try {
 check('导出 HTML', exported.endsWith('.html'), exported)
 
 // 6. Markdown 保真：frontmatter / 脚注 / 行内 HTML
-await page.getByRole('button', { name: '试用示例' }).first().click()
-await page.waitForTimeout(300)
-// 「试用示例」现在会直接打开第一篇；当前文档有改动时会先弹切换确认，选放弃
+await page.getByRole('button', { name: '打开文件夹…' }).first().click()
+await page.waitForTimeout(600)
+// 打开假文件夹后点第 4 篇；当前文档有改动时会先弹切换确认，选放弃
 if (await page.locator('.dialog[aria-label="切换文档"]').count()) {
   await page.locator('.dialog[aria-label="切换文档"] button', { hasText: '不保存' }).click()
   await page.waitForTimeout(500)
 }
-await page.locator('.tree-file').nth(3).click()
+await page.locator('.tree-file', { hasText: '带元数据的笔记.md' }).first().click()
 await page.waitForTimeout(400)
 // 当前文档有改动时会先弹切换确认，选放弃
 if (await page.locator('.dialog[aria-label="切换文档"]').count()) {
@@ -149,9 +152,9 @@ if (await page.locator('.dialog[aria-label="切换文档"]').count()) {
 await page.getByRole('button', { name: '源码', exact: true }).click()
 await page.waitForTimeout(400)
 const source = await page.locator('.source-editor').inputValue()
-check('frontmatter 保真', source.startsWith('---\ntitle: 周记'))
-check('脚注保真', source.includes('[^1]: 第一条脚注。'))
-check('行内 HTML 保真', source.includes('<kbd>Ctrl</kbd>'))
+check('frontmatter 保真', source.startsWith('---\ntitle: 周记'), JSON.stringify(source.slice(0, 30)))
+check('脚注保真', source.includes('[^1]: 第一条脚注。'), source.slice(-30))
+check('行内 HTML 保真', source.includes('<kbd>Ctrl</kbd>'), source.slice(0, 40))
 
 await page.getByRole('button', { name: '源码', exact: true }).click()
 await page.waitForTimeout(300)

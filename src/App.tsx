@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Extension, type ChainedCommands, type Editor } from '@tiptap/core'
 import { Markdown } from '@tiptap/markdown'
 import { EditorContent, useEditor } from '@tiptap/react'
@@ -16,15 +16,17 @@ import { TaskList } from '@tiptap/extension-task-list'
 
 import { FileMenu } from './components/FileMenu.tsx'
 import { FileTree } from './components/FileTree.tsx'
-import { FindBar } from './components/FindBar.tsx'
 import { InlinePopover } from './components/InlinePopover.tsx'
 import { MathDraftPreview } from './components/MathDraftPreview.tsx'
 import { MathInlineEditor } from './components/MathInlineEditor.tsx'
 import { MarginRail } from './components/MarginRail.tsx'
-import { Outline } from './components/Outline.tsx'
 import { PreviewPane } from './components/PreviewPane.tsx'
 import { SaveDialog } from './components/SaveDialog.tsx'
 import { CloseGuardDialog } from './components/CloseGuardDialog.tsx'
+
+// 查找条与大纲面板只在打开时加载，不占首屏
+const FindBar = lazy(() => import('./components/FindBar.tsx').then((module) => ({ default: module.FindBar })))
+const Outline = lazy(() => import('./components/Outline.tsx').then((module) => ({ default: module.Outline })))
 import { SettingsDialog } from './components/SettingsDialog.tsx'
 import { ShortcutsDialog } from './components/ShortcutsDialog.tsx'
 import { StatusBar } from './components/StatusBar.tsx'
@@ -64,6 +66,7 @@ import {
   pickFile,
   pickWorkspace,
   readNode,
+  refreshWorkspace,
   saveAsFile,
   writeNode,
   type FileWriteTarget,
@@ -309,6 +312,9 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const exportTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
+  /** 回收站不可用原因（.sidelight 是文件/没权限）；null 表示可用 */
+  const [trashReason, setTrashReason] = useState<string | null>(null)
+  const [treeRefreshing, setTreeRefreshing] = useState(false)
   const [activeFile, setActiveFile] = useState<WorkspaceFileNode | null>(null)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
   /** 窄窗时页边栏变抽屉：顶栏「批注」开关它 */
@@ -496,6 +502,11 @@ export default function App() {
   const clearHostDraftRef = useRef<() => Promise<void>>(async () => {})
   /** 同步的「宿主写回在飞」标记：state 下一次渲染才更新，auto 判定要用它 */
   const savingRef = useRef(false)
+  /** 删除/刷新期间禁止写盘：generation 在删除前递增，旧请求据此作废 */
+  const deletingRef = useRef(false)
+  const refreshingRef = useRef(false)
+  const autoSaveGenerationRef = useRef(0)
+  const performingCommitRef = useRef<Promise<unknown> | null>(null)
   /** 最近打开：请求 id → resolve；同一行在飞时忽略重复点击 */
   const recentRequestsRef = useRef(new Map<string, (data: { ok?: boolean; error?: string }) => void>())
   const nextRecentIdRef = useRef(0)
@@ -546,6 +557,15 @@ export default function App() {
     const waiters = hostSaveWaitersRef.current.splice(0)
     for (const resolve of waiters) resolve()
   }, [])
+
+  /** 删除前等在飞的手动/自动保存结束；最多 2 秒 */
+  const waitForCommit = useCallback(async () => {
+    const inFlight = performingCommitRef.current
+    if (inFlight) {
+      await Promise.race([inFlight.catch(() => undefined), new Promise<void>((resolve) => setTimeout(resolve, 2000))])
+    }
+    await Promise.race([waitForHostSave(), new Promise<void>((resolve) => setTimeout(resolve, 2000))])
+  }, [waitForHostSave])
 
   useEffect(() => {
     fileRef.current = activeFile
@@ -1626,6 +1646,15 @@ export default function App() {
         setWorkspace(next)
         setSidebarTab('files')
         setNotice(null)
+        if (next.rootHandle && !next.demo) {
+          void import('./lib/trash.ts').then(({ ensureTrashDir }) =>
+            ensureTrashDir(next.rootHandle!).then((result) => {
+              setTrashReason(result.dir ? null : (result.error ?? '回收站不可用。'))
+            }),
+          )
+        } else {
+          setTrashReason(null)
+        }
       }
     } catch (error) {
       setNotice({ text: messageOf(error), kind: 'error' })
@@ -1659,7 +1688,155 @@ export default function App() {
     [requestLoad],
   )
 
-  /** 真实文件夹里挑一个没被占用的「未命名 N.md」 */
+  /** 刷新文件树：重读目录、按 path 重绑句柄；找不到就清掉可写句柄 */
+  const refreshTree = useCallback(async (): Promise<Workspace | null> => {
+    const space = workspaceRef.current
+    if (!space || space.demo || !space.rootHandle) return null
+    if (refreshingRef.current) return null
+    refreshingRef.current = true
+    setTreeRefreshing(true)
+    cancelAutoSaveRef.current()
+    try {
+      const next = await refreshWorkspace(space)
+      if (!next) {
+        setNotice({ text: '读不到文件夹了。请点「打开其他文件夹」重新授权。', kind: 'error' })
+        return null
+      }
+      const before = flattenFiles(space.root)
+      const after = flattenFiles(next.root)
+      const afterByPath = new Map(after.map((file) => [file.path, file]))
+      setWorkspace(next)
+      let missingName: string | null = null
+      if (activeFile && !deletingRef.current) {
+        const rebound = afterByPath.get(activeFile.path)
+        if (rebound) {
+          setActiveFile(rebound)
+          saveTargetRef.current = rebound.handle ? { handle: rebound.handle, name: rebound.name } : null
+        } else {
+          setActiveFile(null)
+          saveTargetRef.current = null
+          missingName = activeFile.name
+        }
+      }
+      const added = after.filter((file) => !before.some((old) => old.path === file.path)).length
+      const gone = before.filter((file) => !afterByPath.has(file.path)).length
+      if (added > 0 || gone > 0) show(`已刷新：新增 ${added} 个，消失 ${gone} 个`)
+      if (missingName) {
+        setNotice({
+          text: `「${missingName}」已不在磁盘上（可能已删除、改名或移走），保存只能另存为。`,
+          kind: 'error',
+        })
+      }
+      return next
+    } finally {
+      refreshingRef.current = false
+      setTreeRefreshing(false)
+    }
+  }, [activeFile, show])
+
+  /** 新建文件夹：先探测重名，不静默成功 */
+  const createFolder = useCallback(async () => {
+    const space = workspaceRef.current
+    const root = space && !space.demo ? space.rootHandle : null
+    if (!root) return
+    const input = window.prompt('新建文件夹的名字')
+    const name = (input ?? '').trim()
+    if (!name) return
+    try {
+      try {
+        await root.getDirectoryHandle(name, { create: false })
+        setNotice({ text: '已存在同名文件夹。', kind: 'error' })
+        return
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error
+      }
+      await root.getDirectoryHandle(name, { create: true })
+      await refreshTree()
+      show(`已新建文件夹 ${name}`)
+    } catch (error) {
+      setNotice({ text: `新建文件夹失败：${reasonOf(error)}。`, kind: 'error' })
+    }
+  }, [refreshTree, show])
+
+  /** 删除文件到 .sidelight/trash：删除前停写、等保存、清缓存，成功后刷新与撤销 */
+  const removeFile = useCallback(
+    async (node: WorkspaceFileNode) => {
+      const space = workspaceRef.current
+      const root = space && !space.demo ? space.rootHandle : null
+      if (!root) return
+      deletingRef.current = true
+      autoSaveGenerationRef.current += 1
+      cancelAutoSaveRef.current()
+      if (draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current)
+        draftTimerRef.current = null
+      }
+      setPendingConfirm(null)
+      setPendingSwitch(null)
+      try {
+        await waitForCommit()
+        const { deleteFileToTrash } = await import('./lib/trash.ts')
+        const wasActive = activeFile?.path === node.path
+        const files = flattenFiles(workspaceRef.current?.root ?? null)
+        const index = files.findIndex((file) => file.path === node.path)
+        const nextFile = files[index + 1] ?? files[index - 1] ?? null
+        const result = await deleteFileToTrash(root, node)
+        if (!result.ok) {
+          setNotice({ text: result.error ?? '移到回收站失败。', kind: 'error' })
+          return
+        }
+        try {
+          const dir = await parentDirectory(space!, node.path)
+          if (dir) {
+            await removeCache(dir, 'draft', cacheKey(node.name))
+            await removeCache(dir, 'annotations', cacheKey(node.name))
+          }
+        } catch {
+          // 缓存清不掉不影响删除结果
+        }
+        const fresh = await refreshTree()
+        if (wasActive) {
+          saveTargetRef.current = null
+          setActiveFile(null)
+          setDirty(false)
+          const rebound = fresh && nextFile ? flattenFiles(fresh.root).find((file) => file.path === nextFile.path) : null
+          if (rebound) {
+            const text = await readNode(rebound)
+            loadIntoEditor(text, rebound.name, rebound)
+          } else {
+            loadIntoEditor('', '未命名.md', null)
+          }
+        }
+        const trashFile = result.trashName
+        setNotice({
+          text: `已移到回收站：${node.name}`,
+          kind: 'info',
+          persist: true,
+          action: trashFile
+            ? {
+                label: '撤销',
+                onClick: () => {
+                  void (async () => {
+                    const { restoreFromTrash } = await import('./lib/trash.ts')
+                    const restored = await restoreFromTrash(root, trashFile, node.path)
+                    if (restored.ok) {
+                      await refreshTree()
+                      show(`已恢复 ${node.name}`)
+                    } else {
+                      setNotice({ text: restored.error ?? '恢复失败。', kind: 'error' })
+                    }
+                  })()
+                },
+              }
+            : undefined,
+        })
+      } finally {
+        deletingRef.current = false
+      }
+    },
+    [activeFile, loadIntoEditor, refreshTree, show, waitForCommit],
+  )
+
   const nextNewName = useCallback((space: Workspace): string => {
     const used = new Set<string>()
     if (space.root?.kind === 'dir') for (const child of space.root.children) used.add(child.name)
@@ -1684,20 +1861,15 @@ export default function App() {
       const name = nextNewName(space)
       const handle = await root.getFileHandle(name, { create: true })
       const file: WorkspaceFileNode = { kind: 'file', name, path: name, handle }
-      // 树快照要立刻能看到新文件，否则「新建」看起来像没反应
-      setWorkspace((previous) =>
-        previous && previous.root?.kind === 'dir'
-          ? { ...previous, root: { ...previous.root, children: [...previous.root.children, file] } }
-          : previous,
-      )
       loadIntoEditor('', name, file)
+      await refreshTree()
       show(`已新建 ${name}`)
       // 纯键盘流程：新建后直接能打字
       requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
     } catch (error) {
       setNotice({ text: `新建失败：${reasonOf(error)}。`, kind: 'error' })
     }
-  }, [loadIntoEditor, nextNewName, show])
+  }, [loadIntoEditor, nextNewName, refreshTree, show])
 
   /** 新建前先走同一套未保存确认；取消则什么都不做 */
   const newDocument = useCallback(() => {
@@ -1801,13 +1973,46 @@ export default function App() {
   const performCommit = useCallback(
     async (normalized: string, withEol: string, keepLosses = false) => {
       setDraftShown(false)
+      const generation = autoSaveGenerationRef.current
+      const currentHandle = activeFile?.handle ?? null
       const target =
         saveTargetRef.current ??
         (activeFile?.handle ? { handle: activeFile.handle, name: activeFile.name } : null)
 
       try {
         if (target) {
-          await writeNode({ kind: 'file', name: target.name, path: activeFile?.path ?? target.name, handle: target.handle }, withEol)
+          // 删除/刷新开始后旧句柄不能再写，否则会「复活」已删文件
+          if (
+            deletingRef.current ||
+            refreshingRef.current ||
+            generation !== autoSaveGenerationRef.current ||
+            (currentHandle !== null && target.handle !== currentHandle)
+          ) {
+            return false
+          }
+          const writing = writeNode({ kind: 'file', name: target.name, path: activeFile?.path ?? target.name, handle: target.handle }, withEol)
+          performingCommitRef.current = writing
+          try {
+            await writing
+          } finally {
+            performingCommitRef.current = null
+          }
+          // 写回与删除交错：删除已经发生就把刚写回的文件再删一次
+          if (deletingRef.current || refreshingRef.current) {
+            try {
+              const root = workspaceRef.current?.rootHandle
+              if (root && activeFile?.path) {
+                let parent = root
+                for (const part of activeFile.path.split('/').slice(0, -1)) {
+                  parent = await parent.getDirectoryHandle(part)
+                }
+                await parent.removeEntry(target.name)
+              }
+            } catch {
+              // 已经不存在就算了
+            }
+            return false
+          }
           finishSaved(target.name, target, normalized, withEol, keepLosses)
           return true
         }
@@ -2218,6 +2423,8 @@ export default function App() {
     if (Date.now() < composeUntilRef.current) return
     if (autoFailCountRef.current >= 3) return
     if (saving || pendingIdsRef.current.size > 0 || savingRef.current) return
+    if (deletingRef.current || refreshingRef.current) return
+    const generation = autoSaveGenerationRef.current
     if (pendingConfirm !== null || pendingSwitch !== null || closeRequested || closeGuardOpen || settingsOpen) {
       return
     }
@@ -2247,6 +2454,7 @@ export default function App() {
       } catch {
         // 取不到就按原 mtime 继续，写回失败还有草稿兜底
       }
+      if (generation !== autoSaveGenerationRef.current || deletingRef.current || refreshingRef.current) return
       sendHostSaveRef.current(normalized)
       setAutoSaveState('saved')
       setAutoSavedAt(Date.now())
@@ -2254,6 +2462,7 @@ export default function App() {
       return
     }
 
+    if (generation !== autoSaveGenerationRef.current || deletingRef.current || refreshingRef.current) return
     const ok = await performCommit(normalized, withEol)
     if (ok) {
       setAutoSaveState('saved')
@@ -3477,20 +3686,24 @@ export default function App() {
         </div>
       </div>
 
-      <FindBar
-        open={findOpen}
-        query={query}
-        replacement={replacement}
-        matches={matches}
-        activeIndex={matchIndex}
-        onQueryChange={setQuery}
-        onReplacementChange={setReplacement}
-        onPrev={prevMatch}
-        onNext={nextMatch}
-        onReplace={replaceCurrent}
-        onReplaceAll={replaceEvery}
-        onClose={() => setFindOpen(false)}
-      />
+      {findOpen && (
+        <Suspense fallback={null}>
+          <FindBar
+            open
+            query={query}
+            replacement={replacement}
+            matches={matches}
+            activeIndex={matchIndex}
+            onQueryChange={setQuery}
+            onReplacementChange={setReplacement}
+            onPrev={prevMatch}
+            onNext={nextMatch}
+            onReplace={replaceCurrent}
+            onReplaceAll={replaceEvery}
+            onClose={() => setFindOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {editor?.isActive('table') && (
         <div className="table-bar">
@@ -3547,23 +3760,20 @@ export default function App() {
               collapsed={treeCollapsed}
               onToggle={() => setTreeCollapsed((value) => !value)}
               onOpenFolder={openFolder}
-              onOpenSingleFile={openSingleFile}
               onNewFile={newDocument}
-              onOpenDemo={() => {
-                const demo = demoWorkspace()
-                setWorkspace(demo)
-                setSidebarTab('files')
-                setNotice(null)
-                // 只取一次示例，并把同一个对象里的第一篇真的打开——只换树不换正文，用户会以为没反应
-                const first = flattenFiles(demo.root)[0]
-                if (first) void openWorkspaceFile(first)
-              }}
+              onNewFolder={() => void createFolder()}
+              onRefresh={() => void refreshTree()}
+              onDeleteFile={(file) => void removeFile(file)}
+              trashReason={trashReason}
+              refreshing={treeRefreshing}
               onOpenFile={openWorkspaceFile}
             />
           ) : (
             <aside className="file-tree outline-pane">
               <div className="file-tree-list">
-                <Outline items={outline} activeId={activeOutline} onJump={jumpTo} />
+                <Suspense fallback={null}>
+                  <Outline items={outline} activeId={activeOutline} onJump={jumpTo} />
+                </Suspense>
               </div>
             </aside>
           )}
@@ -3690,8 +3900,12 @@ export default function App() {
         </main>
       </div>
 
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {notice && notice.kind !== 'error' ? notice.text : ''}
+      </div>
+
       {notice && (
-        <div className={`toast${notice.kind === 'error' ? ' is-error' : ''}`} role={notice.kind === 'error' ? 'alert' : 'status'}>
+        <div className={`toast${notice.kind === 'error' ? ' is-error' : ''}`} aria-hidden="true">
           <span className="toast-text">{notice.text}</span>
           {notice.action && (
             <button type="button" className="toast-action" onClick={notice.action.onClick}>

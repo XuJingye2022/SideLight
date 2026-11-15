@@ -55,13 +55,13 @@ export function FindBar({
         <span className="find-count">
           {total === 0 ? '无结果' : `${position} / ${total}`}
         </span>
-        <button type="button" onClick={onPrev} disabled={total === 0} title="上一处">
+        <button type="button" onClick={onPrev} disabled={total === 0} title="上一处" aria-label="上一处">
           ↑
         </button>
-        <button type="button" onClick={onNext} disabled={total === 0} title="下一处">
+        <button type="button" onClick={onNext} disabled={total === 0} title="下一处" aria-label="下一处">
           ↓
         </button>
-        <button type="button" onClick={onClose} title="关闭">
+        <button type="button" onClick={onClose} title="关闭" aria-label="关闭查找">
           ✕
         </button>
       </div>

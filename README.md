@@ -30,6 +30,7 @@
 - 字号：设置里调 12–26，`Ctrl + =` 放大、`Ctrl + -` 缩小、`Ctrl + 0` 复位。
 - 打开文档时先做一次往返比对：含引用式链接定义块（`[id]: url`）的文档直接进源码模式并说明原因；其他会被改写的写法（多行脚注等）在顶部提示差异类别，可一键转到源码模式。
 - 新建与另存为：顶栏「文件」菜单有新建、另存为、打开文件、打开文件夹；文件树头有「＋ 新建文件」。没有文件句柄时保存走系统保存对话框，保存成功有持久提示。
+- 文件树操作：右键文件可删除；删除是把文件移到工作区 `.sidelight/trash/`（时间戳 + 原名，重名加随机后缀），不直接抹掉。删完树自动刷新；当前文档被删会提示并清空编辑区。
 - 双击 `.md` 由宿主打开时可以直接写回原文件：宿主提供正文与编码元数据，保存是原子替换，BOM、换行与编码不变。
 - 宿主文档有草稿兜底：编辑时写到文档同目录 `.sidelight/drafts/`，关窗时有未保存改动会问「取消 / 存草稿 / 丢弃」。草稿只存本机，不发网络；卸载不删文档目录里的 `.sidelight`。
 - 最近打开：桌面版（宿主）记住最近 8 篇，可清除与撤销；浏览器里不显示。宿主模式里用「打开文件…」经页面文件选择器打开的文件不进最近列表。
@@ -39,7 +40,8 @@
 
 ## 现在不能做什么
 
-- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。安装用 `release/Sidelight-0.23.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
+- 文件树只能删文件：不能移动、复制、重命名文件，也不能删目录；没有应用内「恢复」或 trash 浏览界面，恢复要在资源管理器里把文件挪回去。trash 只增不减，不自动清理，卸载也不删。
+- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。安装用 `release/Sidelight-0.25.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
 - `.md` 默认不关联。安装时勾选「在「打开方式」中加入 Sidelight」后，右键 `.md` 的「打开方式」里会多一项；默认程序仍要在 Windows 设置里自己选，安装器不改它。
 - 密钥存在浏览器 localStorage，没有加密，也没有系统钥匙串。
 - 表格：没动过的表格整块写回原文（表内字节与 02 型单空行）；改过单元格、增删行列或改对齐的表格会重新排版，且不弹保存确认；表格前后 ≥2 空行会规范化成一个。引用式链接定义块默认源码打开，写回原文；切回富文本首次保存仍拦一次。
@@ -59,13 +61,14 @@
 - 「清除」立即清空列表（可撤销一次）；`recent.json` 删掉，但日志与草稿不受影响。
 - 日志可能含文件名：宿主 `host.log` 只记 basename，超过 1 MB 轮转为 `host.log.1`；删除 `host.log*` 可清。
 - 草稿与批注在文档同目录 `.sidelight/`：草稿 `drafts/`，批注 `annotations/`；只在本机，不发网络。
+- trash 只在本机：删除的文件进工作区 `.sidelight/trash/`，不发网络、不自动清理、卸载不删；要彻底清掉，手动删这个目录。
 - 卸载保留 `%LOCALAPPDATA%\Sidelight`（WebView2 配置、`recent.json`）；要彻底清掉，卸载后手动删。
 - 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
 ## 依赖与体积
 
-体积见 CHANGELOG 0.24.0（[docs/CHANGELOG.md](docs/CHANGELOG.md)）。首屏 gzip 从 364,960 B 降到 **282,809 B（−22.5%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 77 KB）按需加载，首屏不再包含；安装包预计 ≤ 815,000 B，实际以 `packaging/installer.ps1` 出包为准，硬线仍是 850,000 B。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
+体积见 CHANGELOG 0.25.0（[docs/CHANGELOG.md](docs/CHANGELOG.md)）。首屏 gzip 从 364,960 B 降到 **284,134 B（−22.2%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 77 KB）按需加载，首屏不再包含；安装包预计 ≤ 815,000 B，实际以 `packaging/installer.ps1` 出包为准，硬线仍是 850,000 B。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
 
-**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 282,809 B，原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 1200`（主 chunk 约 883 KB）。
+**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 284,134 B，原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 1200`（主 chunk 约 883 KB）。
 
 运行时依赖只有两组，都不是为省几行代码引入的：
 
@@ -74,7 +77,7 @@
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
 
-宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 811,756 B（SHA256 `4F06530B18E82AE51866A62633CEAF015723D481FE51754152950BBF183593D4`）、便携 zip 891,471 B（SHA256 `E06F2E2EB2514D5027BA12D6A9DFA34AADF304B134F9A198A466C2D9F7452EE5`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
+宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包 815,683 B（SHA256 `BEAADB7AF71BDAB8E6980ED39DC52B5450B17C578C6E67774E21825DBD75696F`，较内部预算 815,000 高 683 B，硬线 850,000 未破）、便携 zip 897,251 B（SHA256 `9DBC71B0E658C7178F039859E4278C06CFBB26ECB441B8F9887103F094A88248`），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
 
 ## 跑起来
 
@@ -113,7 +116,7 @@ host/                     C# WebView2 宿主（Program.cs、build.ps1、冒烟�
 packaging/                NSIS 安装器、便携包、图标生成、安装/便携验收脚本
 scripts/                  截图、验收、缺陷探测、往返测量、字体裁剪
 fixtures/markdown/        7 个真实 .md 样本
-docs/adr/                 架构决策记录（0001–0011）
+docs/adr/                 架构决策记录（0001–0013）
 docs/iteration/           每轮简报、发现、计划、实施、验收
 release/                  安装包与便携 zip，不进版本控制
 ```
@@ -133,6 +136,8 @@ release/                  安装包与便携 zip，不进版本控制
 - 最近打开：宿主记 8 篇，`/__recent` 只回哈希 id；日志只记 basename。见 [ADR 0009](docs/adr/0009-recent-files.md)。
 - 表格：签名未变的表格整块写回原文，改过的表格按编辑器规范排版。见 [ADR 0010](docs/adr/0010-table-block-reuse.md)。
 - 引用式链接：含定义块的文档载入后默认源码模式，切回富文本首次保存仍拦一次。见 [ADR 0011](docs/adr/0011-source-mode-for-reference-links.md)。
+- KaTeX 惰性加载：首屏不再含 KaTeX，首次渲染公式时才加载。见 [ADR 0012](docs/adr/0012-katex-lazy-loading.md)。
+- 文件树只做删除：移到工作区 `.sidelight/trash/`，不提供应用内恢复，不自动清理。见 [ADR 0013](docs/adr/0013-file-tree-operations.md)。
 
 ## 已知的重要问题：Markdown 往返损失
 

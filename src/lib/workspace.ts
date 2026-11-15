@@ -92,11 +92,14 @@ async function readDirectory(handle: FileSystemDirectoryHandle, parentPath: stri
   for await (const [name, entry] of handle.entries()) {
     // 跳过 .git、.obsidian 这类隐藏项
     if (name.startsWith('.')) continue
-
-    if (entry.kind === 'directory') {
-      dirs.push(await readDirectory(entry, path))
-    } else if (isMarkdown(name)) {
-      files.push({ kind: 'file', name, path: joinPath(path, name), handle: entry })
+    try {
+      if (entry.kind === 'directory') {
+        dirs.push(await readDirectory(entry, path))
+      } else if (isMarkdown(name)) {
+        files.push({ kind: 'file', name, path: joinPath(path, name), handle: entry })
+      }
+    } catch {
+      // 刷新时某个子项被删/改名/无权限：跳过这一项，不让整次读取失败
     }
   }
 
@@ -150,6 +153,17 @@ export async function parentDirectory(
   }
 
   return dir
+}
+
+/** 重新读一次真实文件夹：失败返回 null，由调用方保留旧树并提示 */
+export async function refreshWorkspace(workspace: Workspace): Promise<Workspace | null> {
+  if (!workspace.rootHandle) return null
+  try {
+    const root = await readDirectory(workspace.rootHandle, '')
+    return { ...workspace, name: workspace.rootHandle.name, root }
+  } catch {
+    return null
+  }
 }
 
 /**

@@ -1,11 +1,14 @@
 import { chromium } from 'playwright-core'
 
+import { installDemoFolder } from './demo-folder.mjs'
+
 const url = process.argv[2] ?? 'http://localhost:5173'
 
 const browser = await chromium.connectOverCDP('http://127.0.0.1:9222')
 const context = browser.contexts()[0] ?? (await browser.newContext())
 const page = await context.newPage()
 await page.setViewportSize({ width: 1440, height: 900 })
+await installDemoFolder(page)
 
 const errors = []
 page.on('console', (message) => {
@@ -23,7 +26,7 @@ await page.waitForSelector('.doc-column .ProseMirror', { timeout: 15000 })
 await page.waitForTimeout(400)
 
 /* A. 切换文档时未保存改动是否丢失 */
-await page.getByRole('button', { name: '试用示例' }).first().click()
+await page.getByRole('button', { name: '打开文件夹…' }).first().click()
 await page.waitForTimeout(300)
 await page.locator('.tree-file').nth(0).click()
 await page.waitForTimeout(350)

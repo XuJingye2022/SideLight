@@ -1,5 +1,7 @@
 import { chromium } from 'playwright-core'
 
+import { installDemoFolder } from './demo-folder.mjs'
+
 const URL = process.argv[2] ?? 'http://localhost:5173'
 const CDP = process.env.SIDELIGHT_CDP ?? 'http://127.0.0.1:9222'
 
@@ -44,6 +46,7 @@ const stubScript = () => {
 const browser = await chromium.connectOverCDP(CDP)
 const context = browser.contexts()[0] ?? (await browser.newContext())
 const page = await context.newPage()
+await installDemoFolder(page)
 const client = await context.newCDPSession(page)
 await client.send('Network.enable')
 await client.send('Network.setCacheDisabled', { cacheDisabled: true })
@@ -82,7 +85,7 @@ check('菜单 Esc 关闭', escState.open === 0)
 check('Esc 后焦点回「文件」按钮', escState.focused === '文件 ▾', escState.focused ?? 'none')
 
 // 2) 示例态：徽标、说明、无「＋ 新建文件」；菜单仍可用
-await page.getByRole('button', { name: '试用示例' }).first().click()
+await page.getByRole('button', { name: '打开文件夹…' }).first().click()
 await page.waitForTimeout(700)
 const demoState = await page.evaluate(() => ({
   badge: document.querySelector('.file-badge')?.textContent?.trim() ?? null,
@@ -209,7 +212,7 @@ check('另存为：提示「已保存」', (saveAsState.toast ?? '').includes('�
 
 // 7) 示例态：保存走 picker，不写示例目录
 await load()
-await page.getByRole('button', { name: '试用示例' }).first().click()
+await page.getByRole('button', { name: '打开文件夹…' }).first().click()
 await page.waitForTimeout(600)
 const treeBefore = await page.evaluate(() => document.querySelector('.file-tree-list')?.textContent?.trim())
 await page.locator('.editor').click()

@@ -1,11 +1,14 @@
 import { chromium } from 'playwright-core'
 import { readFileSync } from 'node:fs'
 
+import { installDemoFolder } from './demo-folder.mjs'
+
 const url = process.argv[2] ?? 'http://localhost:5173'
 const browser = await chromium.connectOverCDP('http://127.0.0.1:9222')
 const context = browser.contexts()[0] ?? (await browser.newContext())
 const page = await context.newPage()
 await page.setViewportSize({ width: 1440, height: 900 })
+await installDemoFolder(page)
 
 const errors = []
 page.on('pageerror', (error) => errors.push(String(error)))
@@ -21,7 +24,7 @@ const reset = async () => {
 
 /* 1. 导出 HTML 带上元数据与脚注 */
 await reset()
-await page.getByRole('button', { name: '试用示例' }).first().click()
+await page.getByRole('button', { name: '打开文件夹…' }).first().click()
 await page.waitForTimeout(300)
 await page.locator('.tree-file').nth(3).click()
 await page.waitForTimeout(500)
@@ -105,7 +108,7 @@ check('5b 点正文关掉菜单', (await page.locator('.menu').count()) === 0)
 
 /* 6. 保存对比取消后仍保持脏 */
 await reset()
-await page.getByRole('button', { name: '试用示例' }).first().click()
+await page.getByRole('button', { name: '打开文件夹…' }).first().click()
 await page.waitForTimeout(300)
 await page.locator('.tree-file').nth(3).click()
 await page.waitForTimeout(500)
