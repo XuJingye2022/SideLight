@@ -506,6 +506,13 @@ export default function App() {
   const autoSaveGenerationRef = useRef(0)
   /** 切换文档请求的序号：等在飞保存期间又发生改名/再次切换时，旧请求作废 */
   const loadEpochRef = useRef(0)
+  /** 文档身份代号：切文档/新建/另存为/改名/删除都递增，旧回包据此作废 */
+  const activeDocIdRef = useRef(0)
+  const pendingRefreshRef = useRef<{ mode?: 'adopt' | 'check'; activePath?: string } | null>(null)
+  const statsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const refreshTreeRef = useRef<(options?: { mode?: 'adopt' | 'check'; activePath?: string }) => Promise<Workspace | null>>(
+    async () => null,
+  )
   /** 新建空文档在首次手动保存前没有基线：不允许自动保存写盘 */
   const hasSavedBaselineRef = useRef(false)
   const performingCommitRef = useRef<Promise<unknown> | null>(null)
@@ -535,7 +542,10 @@ export default function App() {
   const baselineLossesRef = useRef<Loss[]>([])
   /** 文件原文：源码模式在「未编辑」时显示它，保存成功后更新为刚写入的文本 */
   const rawTextRef = useRef<string | null>(null)
-  const sentTextRef = useRef<{ id: number; text: string } | null>(null)
+  const sentTextRef = useRef<{ id: number; text: string; version?: number } | null>(null)
+  const contentVersionRef = useRef(0)
+  const savedContentVersionRef = useRef(0)
+  const lastResentVersionRef = useRef(-1)
   const saveTimersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>())
   const nextSaveIdRef = useRef(0)
   const sendHostSaveRef = useRef<(text: string) => void>(() => {})
@@ -726,8 +736,12 @@ export default function App() {
         dirtyRef.current = dirtyNow
         setDirty(dirtyNow)
       }
-      setOutline(extractOutline(current.state.doc))
-      setStats(countText(current.state.doc.textContent))
+      if (statsTimerRef.current) clearTimeout(statsTimerRef.current)
+      statsTimerRef.current = setTimeout(() => {
+        statsTimerRef.current = null
+        setOutline(extractOutline(current.state.doc))
+        setStats(countText(current.state.doc.textContent))
+      }, 180)
 
       const body = repairCalloutMarkers(repairHtml(repairMath(repairFootnoteRefs(current.getMarkdown()))))
       const original = rawTextRef.current
@@ -738,7 +752,7 @@ export default function App() {
       )
 
       // 宿主文档不写 localStorage：大文件会撑爆配额，正文由宿主保管
-      if (!hostModeRef.current) {
+      if (!hostModeRef.current && draft.length <= 256 * 1024) {
         try {
           localStorage.setItem(DOC_KEY, JSON.stringify({ text: draft, name: docNameRef.current, savedAt: Date.now() }))
         } catch {
@@ -807,6 +821,10 @@ export default function App() {
 
   /** 载入或整篇替换之后，字数、大纲、当前章节都要跟着刷新（这类替换不进 onUpdate） */
   const syncDocInfo = useCallback((current: Editor) => {
+    if (statsTimerRef.current) {
+      clearTimeout(statsTimerRef.current)
+      statsTimerRef.current = null
+    }
     const items = extractOutline(current.state.doc)
     setOutline(items)
     setStats(countText(current.state.doc.textContent))
@@ -1260,6 +1278,7 @@ export default function App() {
     if (!editor) return
     const onTransaction = ({ transaction }: { transaction: Transaction }) => {
       if (!transaction.docChanged) return
+      contentVersionRef.current += 1
       // 整篇替换（载入文档、源码切回）会把所有位置映射到开头，别拿它平移批注；
       // 这类替换由调用方按引文重新定位。
       if (transaction.getMeta('addToHistory') === false) return
@@ -1573,6 +1592,9 @@ export default function App() {
       setOriginalText(text.length > 0 ? text : null)
       rawTextRef.current = text.length > 0 ? text : null
       hasSavedBaselineRef.current = false
+      savedContentVersionRef.current = contentVersionRef.current
+      loadEpochRef.current += 1
+      activeDocIdRef.current += 1
       setSaveWarned(false)
       setDraftShown(false)
       setAnalysisGoal('')
@@ -1629,7 +1651,11 @@ export default function App() {
       setSourceRefCount(countReferenceDefinitions(text))
       if (text.length > 0 && hasReferenceDefinitions(text)) enterSourceFor(text, true)
       else setViewMode('edit')
-      localStorage.setItem(DOC_KEY, JSON.stringify({ text, name, savedAt: Date.now() }))
+      try {
+        localStorage.setItem(DOC_KEY, JSON.stringify({ text, name, savedAt: Date.now() }))
+      } catch {
+        // 大文件/配额满：内存里继续，别让载入失败
+      }
       syncDocInfo(editor)
       void restoreAnnotationsFor(file)
     },
@@ -1642,7 +1668,7 @@ export default function App() {
       void (async () => {
         const epoch = ++loadEpochRef.current
         // 宿主写回还在飞：先等它结束（或超时），别让旧回包改到新文档
-        await waitForHostSave()
+        await Promise.all([waitForHostSave(), waitForCommit()])
         if (epoch !== loadEpochRef.current) return
         if (dirty) {
           setPendingSwitch({ text, name, file })
@@ -1708,7 +1734,11 @@ export default function App() {
     async (options?: { mode?: 'adopt' | 'check'; activePath?: string }): Promise<Workspace | null> => {
       const space = workspaceRef.current
       if (!space || !space.rootHandle) return null
-      if (refreshingRef.current) return null
+      if (refreshingRef.current) {
+        // 排队合并：当前刷新结束后用最新一次参数再跑一遍
+        pendingRefreshRef.current = options ?? {}
+        return null
+      }
       refreshingRef.current = true
       setTreeRefreshing(true)
       cancelAutoSaveRef.current()
@@ -1750,10 +1780,14 @@ export default function App() {
       } finally {
         refreshingRef.current = false
         setTreeRefreshing(false)
+        const queued = pendingRefreshRef.current
+        pendingRefreshRef.current = null
+        if (queued) void refreshTreeRef.current(queued)
       }
     },
     [activeFile, show],
   )
+  refreshTreeRef.current = refreshTree
 
   /** 重命名提交前：等在飞保存、停草稿计时、递增两套 generation */
   const prepareRename = useCallback(async () => {
@@ -1776,6 +1810,7 @@ export default function App() {
       const newPath = cut >= 0 ? `${oldFile.path.slice(0, cut)}/${newName}` : newName
       const wasActive = activeFile?.path === oldFile.path
       loadEpochRef.current += 1
+      activeDocIdRef.current += 1
       if (wasActive) {
         const renamed: WorkspaceFileNode = { ...oldFile, name: newName, path: newPath }
         setActiveFile(renamed)
@@ -1858,6 +1893,8 @@ export default function App() {
       if (!root) return
       deletingRef.current = true
       autoSaveGenerationRef.current += 1
+      loadEpochRef.current += 1
+      activeDocIdRef.current += 1
       cancelAutoSaveRef.current()
       if (draftTimerRef.current) {
         clearTimeout(draftTimerRef.current)
@@ -2008,7 +2045,16 @@ export default function App() {
 
   /** 保存成功后的统一收尾：新句柄就是文档身份，基线更新，提示留下不消失 */
   const finishSaved = useCallback(
-    (name: string, target: FileWriteTarget, normalized: string, withEol: string, keepLosses = false) => {
+    (name: string, target: FileWriteTarget, normalized: string, withEol: string, keepLosses = false, expected?: { epoch: number; docId: number; path: string }) => {
+      if (
+        expected &&
+        (expected.epoch !== loadEpochRef.current ||
+          expected.docId !== activeDocIdRef.current ||
+          expected.path !== (fileRef.current?.path ?? expected.path))
+      ) {
+        // 写盘期间文档身份已变：只丢弃这次收尾，不改 activeFile/docName/baseline/dirty
+        return false
+      }
       const oldName = docNameRef.current
       saveTargetRef.current = target
       baselineRef.current = normalized
@@ -2026,6 +2072,7 @@ export default function App() {
       setOriginalText(withEol)
       rawTextRef.current = withEol
       hasSavedBaselineRef.current = true
+      savedContentVersionRef.current = contentVersionRef.current
       // 刚写入的内容就是新基线：不再有已知结构损失
       // 源码模式保存的是原文：保留载入时的结构损失基线，切回富文本后仍要拦
       if (!keepLosses) {
@@ -2053,7 +2100,11 @@ export default function App() {
         persist: true,
         action: { label: '另存为', onClick: () => saveAsCopyRef.current() },
       })
-      localStorage.setItem(DOC_KEY, JSON.stringify({ text: withEol, name, savedAt: Date.now() }))
+      try {
+        localStorage.setItem(DOC_KEY, JSON.stringify({ text: withEol, name, savedAt: Date.now() }))
+      } catch {
+        // 配额满：磁盘已保存成功，本地兜底可失败
+      }
       // 另存为之后旧名字的草稿留着会误导恢复，两个名字都清一遍
       void (async () => {
         const dir = await cacheDirFor()
@@ -2061,6 +2112,7 @@ export default function App() {
         await removeCache(dir, 'draft', cacheKey(oldName))
         await removeCache(dir, 'draft', cacheKey(name))
       })()
+      return true
     },
     [cacheDirFor, hostDoc],
   )
@@ -2077,24 +2129,54 @@ export default function App() {
 
       try {
         if (target) {
-          // 删除/刷新开始后旧句柄不能再写，否则会「复活」已删文件
+          // 删除开始后旧句柄不能再写；刷新只影响绑定，不阻止已开始的写盘
           if (
             deletingRef.current ||
-            refreshingRef.current ||
             generation !== autoSaveGenerationRef.current ||
             (currentHandle !== null && target.handle !== currentHandle)
           ) {
             return false
           }
-          const writing = writeNode({ kind: 'file', name: target.name, path: activeFile?.path ?? target.name, handle: target.handle }, withEol)
+          const startedEpoch = loadEpochRef.current
+          const startedDocId = activeDocIdRef.current
+          const startedPath = fileRef.current?.path ?? ''
+          const previousText = await target.handle.getFile().then((file) => file.text()).catch(() => null)
+          const writing = writeNode(
+            { kind: 'file', name: target.name, path: activeFile?.path ?? target.name, handle: target.handle },
+            withEol,
+            () =>
+              startedEpoch === loadEpochRef.current &&
+              startedDocId === activeDocIdRef.current &&
+              startedPath === (fileRef.current?.path ?? '') &&
+              !deletingRef.current,
+          )
           performingCommitRef.current = writing
           try {
             await writing
           } finally {
             performingCommitRef.current = null
           }
-          // 写回与删除交错：删除已经发生就把刚写回的文件再删一次
-          if (deletingRef.current || refreshingRef.current) {
+          // 写后身份校验：不匹配就只清收尾，不回写身份状态
+          if (
+            startedEpoch !== loadEpochRef.current ||
+            startedDocId !== activeDocIdRef.current ||
+            startedPath !== (fileRef.current?.path ?? '') ||
+            target.handle !== (saveTargetRef.current?.handle ?? target.handle)
+          ) {
+            // 写盘期间身份已变：把旧正文写回去，别把新字留在旧文件里
+            if (previousText !== null) {
+              try {
+                const writable = await target.handle.createWritable()
+                await writable.write(previousText)
+                await writable.close()
+              } catch {
+                // 回滚失败也不改身份；文件内容以磁盘为准
+              }
+            }
+            return false
+          }
+          // 删除与写回交错：删除已经发生就把刚写回的文件再删一次；刷新不删
+          if (deletingRef.current) {
             try {
               const root = workspaceRef.current?.rootHandle
               if (root && activeFile?.path) {
@@ -2109,8 +2191,12 @@ export default function App() {
             }
             return false
           }
-          finishSaved(target.name, target, normalized, withEol, keepLosses)
-          return true
+          const ok = finishSaved(target.name, target, normalized, withEol, keepLosses, {
+            epoch: startedEpoch,
+            docId: startedDocId,
+            path: startedPath,
+          })
+          return ok
         }
 
         const result = await saveAsFile(docName, withEol)
@@ -2129,6 +2215,8 @@ export default function App() {
           })
           return false
         }
+        loadEpochRef.current += 1
+        activeDocIdRef.current += 1
         finishSaved(result.name, result, normalized, withEol)
         return true
       } catch (error) {
@@ -2715,7 +2803,7 @@ export default function App() {
       const id = (nextSaveIdRef.current += 1)
       pendingIdsRef.current.add(id)
       savingRef.current = true
-      sentTextRef.current = { id, text }
+      sentTextRef.current = { id, text, version: contentVersionRef.current }
       setSaving(true)
       setSaveError(null)
       // 只发正文，不带任何路径/文件名
@@ -2751,6 +2839,22 @@ export default function App() {
         setSaveError(null)
         return
       }
+      // 回包前又打了字：保 dirty/旧基线/草稿，补发最新正文（同版本只补一次）
+      if (typeof sent.version === 'number' && contentVersionRef.current !== sent.version) {
+        setSaving(false)
+        savingRef.current = false
+        setSaveError(null)
+        setHostDoc((previous) => (previous ? { ...previous, mtime: Number(payload.mtime ?? previous.mtime) } : previous))
+        const version = contentVersionRef.current
+        if (version !== lastResentVersionRef.current) {
+          lastResentVersionRef.current = version
+          pendingHostSave.current = { text: currentMarkdown() }
+        }
+        if (hostSaveWaitersRef.current.length === 0) {
+          setNotice({ text: '保存回包前有新改动，正在补发。', kind: 'info' })
+        }
+        return
+      }
       baselineRef.current = sent.text
       setOriginalText(sent.text)
       rawTextRef.current = sent.text
@@ -2765,7 +2869,7 @@ export default function App() {
       setAutoSaveState('idle')
       setAutoSavedAt(null)
       setDraftRestored(false)
-      void clearHostDraft()
+      if (dirtyRef.current === false) void clearHostDraft()
       if (hostSwitchPendingRef.current) {
         hostSwitchPendingRef.current = false
         performSwitch()

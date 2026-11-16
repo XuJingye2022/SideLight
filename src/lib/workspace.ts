@@ -231,12 +231,17 @@ function pickFileWithInput(): Promise<PickedFile | null> {
   })
 }
 
+export const MAX_DOC_BYTES = 5 * 1024 * 1024 + 512 * 1024
+
 /**
  * 读一个文件的正文。示例文件没有句柄，从内存表里取。
  */
 export async function readNode(file: WorkspaceFileNode): Promise<string> {
   if (file.handle) {
     const blob = await file.handle.getFile()
+    if (blob.size > MAX_DOC_BYTES) {
+      throw new Error('文件太大，暂不支持（上限 5.5 MiB）。')
+    }
     return blob.text()
   }
 
@@ -246,14 +251,24 @@ export async function readNode(file: WorkspaceFileNode): Promise<string> {
 /**
  * 把正文写回磁盘。示例文件与兜底打开的文件没有句柄，写不了。
  */
-export async function writeNode(file: WorkspaceFileNode, text: string): Promise<void> {
+export async function writeNode(
+  file: WorkspaceFileNode,
+  text: string,
+  guard?: () => boolean,
+): Promise<boolean> {
   if (!file.handle) {
     throw new Error(`「${file.name}」没有磁盘句柄，无法保存。请先用「打开文件夹」打开它所在的文件夹。`)
   }
 
   const writable = await file.handle.createWritable()
   await writable.write(text)
+  // 写到一半文档身份变了：abort 回滚，别把新正文留在旧文件里
+  if (guard && !guard()) {
+    await writable.abort()
+    return false
+  }
   await writable.close()
+  return true
 }
 
 /**
