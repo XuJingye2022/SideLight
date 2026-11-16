@@ -510,6 +510,7 @@ export default function App() {
   const activeDocIdRef = useRef(0)
   const pendingRefreshRef = useRef<{ mode?: 'adopt' | 'check'; activePath?: string } | null>(null)
   const statsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const deriveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshTreeRef = useRef<(options?: { mode?: 'adopt' | 'check'; activePath?: string }) => Promise<Workspace | null>>(
     async () => null,
   )
@@ -743,46 +744,51 @@ export default function App() {
         setStats(countText(current.state.doc.textContent))
       }, 180)
 
-      const body = repairCalloutMarkers(repairHtml(repairMath(repairFootnoteRefs(current.getMarkdown()))))
-      const original = rawTextRef.current
-      const draft = joinFrontmatter(
-        frontmatterRef.current,
-        joinFootnotes(body, footnotesRef.current),
-        original ? leadingNewlines(splitFrontmatter(original).body) : undefined,
-      )
+      // 正文派生物（markdown/正则修复/draft）延后 300ms，避免每个键都做全文正则
+      if (deriveTimerRef.current) clearTimeout(deriveTimerRef.current)
+      deriveTimerRef.current = setTimeout(() => {
+        deriveTimerRef.current = null
+        const body = repairCalloutMarkers(repairHtml(repairMath(repairFootnoteRefs(current.getMarkdown()))))
+        const original = rawTextRef.current
+        const draft = joinFrontmatter(
+          frontmatterRef.current,
+          joinFootnotes(body, footnotesRef.current),
+          original ? leadingNewlines(splitFrontmatter(original).body) : undefined,
+        )
 
-      // 宿主文档不写 localStorage：大文件会撑爆配额，正文由宿主保管
-      if (!hostModeRef.current && draft.length <= 256 * 1024) {
-        try {
-          localStorage.setItem(DOC_KEY, JSON.stringify({ text: draft, name: docNameRef.current, savedAt: Date.now() }))
-        } catch {
-          // 存储被禁用或配额满：只保留内存状态，别让一次写盘失败拖垮字数与大纲
+        // 宿主文档不写 localStorage：大文件会撑爆配额，正文由宿主保管
+        if (!hostModeRef.current && draft.length <= 256 * 1024) {
+          try {
+            localStorage.setItem(DOC_KEY, JSON.stringify({ text: draft, name: docNameRef.current, savedAt: Date.now() }))
+          } catch {
+            // 存储被禁用或配额满：只保留内存状态
+          }
         }
-      }
 
-      // 宿主文档：草稿交给宿主写到文档同目录的 .sidelight/drafts
-      if (hostModeRef.current) {
-        draftSuppressedRef.current = false
-        scheduleHostDraftRef.current(draft.replace(/\r\n/g, '\n'))
-      }
+        // 宿主文档：草稿交给宿主写到文档同目录的 .sidelight/drafts
+        if (hostModeRef.current) {
+          draftSuppressedRef.current = false
+          scheduleHostDraftRef.current(draft.replace(/\r\n/g, '\n'))
+        }
 
-      // 有磁盘目录时，再往 .sidelight/drafts 写一份。
-      const file = fileRef.current
-      const space = workspaceRef.current
-      if (file?.path && space) {
-        if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
-        draftTimerRef.current = setTimeout(() => {
-          void (async () => {
-            const dir = await parentDirectory(space, file.path)
-            if (dir) {
-              const key = cacheKey(file.name)
-              await writeCache(dir, 'draft', key, draft)
-              const legacy = legacyKeyFor(file.name)
-              if (legacy) await removeCache(dir, 'draft', legacy)
-            }
-          })()
-        }, 800)
-      }
+        // 有磁盘目录时，再往 .sidelight/drafts 写一份。
+        const file = fileRef.current
+        const space = workspaceRef.current
+        if (file?.path && space) {
+          if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
+          draftTimerRef.current = setTimeout(() => {
+            void (async () => {
+              const dir = await parentDirectory(space, file.path)
+              if (dir) {
+                const key = cacheKey(file.name)
+                await writeCache(dir, 'draft', key, draft)
+                const legacy = legacyKeyFor(file.name)
+                if (legacy) await removeCache(dir, 'draft', legacy)
+              }
+            })()
+          }, 800)
+        }
+      }, 300)
 
       // 停笔 2 秒自动保存（默认开；有结构损失/输入法组合/模态时不动）
       scheduleAutoSaveRef.current()
