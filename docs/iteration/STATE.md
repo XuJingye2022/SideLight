@@ -49,10 +49,11 @@
 
 ## 当前版本与体积
 
-- v0.29.0。`dist` 1,436,973 B；首屏 JS+CSS gzip **283,826 B**（余 1,174 B）；测试 16 文件 205 条。
-- 发布资产：Windows setup 817,994 B、Windows zip 901,920 B、macOS Universal zip 889,644 B（fat 两片：x86_64 `0x1000007` / arm64 `0x100000c`）；校验和见 Release `SHA256SUMS-0.29.0.txt`。内部预算 820,000，硬线 850,000 未动。
+- v0.30.0。`dist` 1,438,132 B；首屏 JS+CSS gzip **284,210 B**（余 790 B）；测试 16 文件 205 条。
+- 发布资产：Windows setup 817,983 B、Windows zip 902,274 B、macOS Universal zip 890,004 B；校验和见 Release `SHA256SUMS-0.30.0.txt`。内部预算 820,000，硬线 850,000 未动。
 - 往返：rich 5/7、source 7/7、首次保存仍拦截 1/7（04）；265 KiB 目标不可达（ADR-0012）。
 - 文件树：新建文件/文件夹、删除到 `.sidelight/trash/`、重命名、刷新、tablist/展开态/空文件夹提示；目录删除/移动/复制仍不做。
+- 可访问性：大纲页签树隐藏、深色 token/对比度（43 适用项全过）、统一焦点环、输入边界、reduced-motion、正文 aria-label、错误 toast alert；P2（骨架 role、批注卡 Enter、正文开头 Tab 回环）延后。
 
 ## 轮次记录
 
@@ -73,26 +74,29 @@
 | 13 | 重命名 + 树细节 + 大纲可访问性 | round-13/plan.md | PASS-WITH-UNVERIFIED：安全重命名 22/22、树 43/43、aria-current、0.26.0 | ad1777d |
 | 14 | 首次使用 + P3/P4 + 发布自动化 | round-14/plan.md | PASS-WITH-UNVERIFIED：新建不再覆盖旧文件、首屏 283,826、tablist/展开态、release.yml 自动发 0.28.1 | 6c32aec |
 | 15 | macOS Universal + 签名/公证流水线 | round-15/plan.md | PASS-WITH-UNVERIFIED：fat 双片、self-test 6 项、0.29.0 自动发、签名分支静态过 | c4119d8 |
+| 16 | 界面一致性与可访问性 | round-16/plan.md | PASS-WITH-UNVERIFIED：树隐藏 P0、深色/焦点/输入边界/reduced-motion、theme 27/27（43/48 适用）、0.30.0 | d10daa5 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
 - **真实环境 UNVERIFIED**：HKCU 关联/打开方式/卸载、真人双击、系统对话框、真实 IME、文件占用/网络盘/中文长路径、AltGr、Alt+F4/注销关窗、只读目录草稿失败、localStorage 配额、真实最近列表、真实宿主源码保存字节、真实 WebView2 冷启动、离线 KaTeX chunk、打印路径、trash 手动恢复、并发删除、真实盘 `move()`/大小写/OneDrive、屏幕阅读器实录、旧最近记录 `FILE_GONE`、缓存迁移写失败、真实 Intel Mac 运行、Rosetta、真实 Developer ID 签名/公证、图标真机显示、⌘C/⌘V/⌘Z。
 - **发布**：隐私声明仍标「待产品负责人确认」；`.md` 关联 opt-in 未做（待产品负责人）；Apple Developer Program 需付费，签名 secrets 尚未配置（`APPLE_CERT_P12_BASE64`、`APPLE_CERT_PASSWORD`、`APPLE_SIGN_IDENTITY`、`APPLE_TEAM_ID`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`）；README 最终一致性复核。
+- **第 17 轮待修 P0**：保存回包跨文档覆盖（B1）、保存中丢字（B3）、文件树 5.9 MB 无上限卡死（B2）；每键两次全文序列化 + 全量 localStorage；`App.tsx` 4,348 行。
+- **可访问性 P2**：骨架 `role=dialog`/`aria-busy`、批注卡 Enter、正文开头 Tab 回环（延后）。
 - **体验**：主题细化、首次引导可再打磨、Mermaid/自定义字体（可选）、自定义快捷键。
-- **工程**：`src/App.tsx` 约 3100 行；三处重复序列化/草稿写入；22 处字号无变量；性能与内存未系统测。
+- **工程**：`src/App.tsx` 4,348 行；三处重复序列化/草稿写入；22 处字号无变量；性能与内存未系统测。
 - 密钥明文存 localStorage；6 MB 上限；500 toast 原始响应未进 title。
 - ADR-0004 载荷数每次宿主改动后要复算。
 
 ## 发布状态（2026-11-16）
 
 - 仓库：https://github.com/XuJingye2022/SideLight（public，MIT，版权人 XuJingye）。
-- 最新发布：https://github.com/XuJingye2022/SideLight/releases/tag/v0.29.0
-  - Windows：`Sidelight-0.29.0-win-x64-setup.exe` 817,994 B、`Sidelight-0.29.0-win-x64-portable.zip` 901,920 B。
-  - macOS：`Sidelight-0.29.0-macos-universal.zip` 889,644 B（arm64 + x86_64），默认 ad-hoc，未公证；要求 macOS 13+。
-  - `SHA256SUMS-0.29.0.txt`。
-- 签名/公证：`release.yml` 已接可选分支；配齐 6 个 Apple secrets 后自动 `codesign --options runtime` + `notarytool submit --wait` + `stapler`，否则 ad-hoc 并在 Release body 标「未签名、未公证」。
-- 历史：v0.28.1 为最后一个 arm64-only 发布；v0.27.0 首次 Windows + macOS；v0.26.0 Windows-only。
-- 发布自动化：`.github/workflows/release.yml`（tag `v*` 或手动 `tag` + `publish`）已实测；CI `gate`/`windows-host`/`macos-host` 全绿且已转必过；`install-verify` 仅手动。
+- 最新发布：https://github.com/XuJingye2022/SideLight/releases/tag/v0.30.0
+  - Windows：`Sidelight-0.30.0-win-x64-setup.exe` 817,983 B、`Sidelight-0.30.0-win-x64-portable.zip` 902,274 B。
+  - macOS：`Sidelight-0.30.0-macos-universal.zip` 890,004 B（arm64 + x86_64），ad-hoc，未公证；macOS 13+。
+  - `SHA256SUMS-0.30.0.txt`。
+- 签名/公证：`release.yml` 已接可选分支；配齐 6 个 Apple secrets 后自动签名 + 公证 + staple；否则 ad-hoc 并在 Release body 标「未签名、未公证」。
+- 历史：v0.29.0 首个 Universal；v0.28.1 最后 arm64-only；v0.27.0 首次 Windows + macOS；v0.26.0 Windows-only。
+- 发布自动化：`.github/workflows/release.yml`（tag `v*` 或手动 `tag` + `publish`）已多次实测；CI `gate`/`windows-host`/`macos-host` 全绿且已转必过；`install-verify` 仅手动。
 - 推送方式：`origin` 用 SSH over 443（`ssh://git@ssh.github.com:443/XuJingye2022/SideLight.git`），仓库里加了一把 write deploy key `sidelight-agent`（2026-11-16）；不用时可在 GitHub Settings → Deploy keys 删除。
 - CI Windows smoke 已忽略预期 404：`/__doc`、`/__draft`、`/favicon.ico`；其他 404 仍失败。
 
@@ -103,7 +107,7 @@
 3. 派 3 个新 finder（缺陷/体验/发布）只读侦察，报告写 `round-14/findings-*.md`；重点从上面待办池挑。
 4. 复用已有持久代理：`planner`、`critic`、`builder`、`builder2`、`tester`（用 send_message，别新建同名）。
 5. 按「侦察 → 计划 → 审计划 → 实施 → 验收」循环；根代理只在阶段之间分派、跑最终门禁、commit、更新本文件。
-6. 建议主题：round 16 主题细化；round 17 性能与 App.tsx 拆分；round 18 文档/贡献指南/隐私确认；round 19 1.0 RC；round 20 最终 QA 与交接。
+6. 建议主题：round 17 性能与保存竞态；round 18 文档/贡献指南/隐私确认；round 19 1.0 RC；round 20 最终 QA 与交接。
 
 ## 决策记录
 
