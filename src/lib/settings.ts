@@ -16,6 +16,8 @@ export type Settings = {
   searchApiKey: string
   /** 批注用的系统提示词，用户可改 */
   analysisPrompt: string
+  /** 默认提示词版本：用于把旧默认升级成新默认，不碰自定义 */
+  promptVersion: number
   /** 停笔 2 秒自动保存（默认开；有结构损失时只提示，不写） */
   autoSave: boolean
 }
@@ -34,7 +36,20 @@ export const DEFAULT_SETTINGS: Settings = {
   searchProvider: 'off',
   searchApiKey: '',
   analysisPrompt: DEFAULT_ANALYSIS_PROMPT,
+  promptVersion: 2,
   autoSave: true,
+}
+
+/** 旧默认提示词的指纹：长度 + FNV-1a；命中才升级，用户改过的不动 */
+export const LEGACY_PROMPT_FINGERPRINT = '5967:3d38bf01'
+
+export function promptFingerprint(text: string): string {
+  let hash = 2166136261
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 16777619) >>> 0
+  }
+  return `${text.length}:${hash.toString(16)}`
 }
 
 export function clampFontSize(value: number): number {
@@ -47,6 +62,13 @@ export function loadSettings(): Settings {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return { ...DEFAULT_SETTINGS }
     const parsed = JSON.parse(raw) as Partial<Settings>
+    const savedPrompt = typeof parsed.analysisPrompt === 'string' ? parsed.analysisPrompt : ''
+    const savedVersion = typeof parsed.promptVersion === 'number' ? parsed.promptVersion : 0
+    const legacyDefault = savedPrompt.trim().length > 0 && promptFingerprint(savedPrompt) === LEGACY_PROMPT_FINGERPRINT
+    const analysisPrompt =
+      savedPrompt.trim().length === 0 || (savedVersion < 2 && legacyDefault)
+        ? DEFAULT_ANALYSIS_PROMPT
+        : savedPrompt
     return {
       baseUrl: parsed.baseUrl?.trim() || DEFAULT_SETTINGS.baseUrl,
       apiKey: parsed.apiKey ?? '',
@@ -57,12 +79,10 @@ export function loadSettings(): Settings {
           ? parsed.theme
           : DEFAULT_SETTINGS.theme,
       searchProvider:
-        parsed.searchProvider === 'tavily' || parsed.searchProvider === 'bocha' ? parsed.searchProvider : 'off',
+        parsed.searchProvider === 'tavily' || parsed.searchProvider === 'bocha' || parsed.searchProvider === 'deepseek' ? parsed.searchProvider : 'off',
       searchApiKey: parsed.searchApiKey ?? '',
-      analysisPrompt:
-        typeof parsed.analysisPrompt === 'string' && parsed.analysisPrompt.trim().length > 0
-          ? parsed.analysisPrompt
-          : DEFAULT_ANALYSIS_PROMPT,
+      analysisPrompt,
+      promptVersion: analysisPrompt === DEFAULT_ANALYSIS_PROMPT ? 2 : savedVersion || 0,
       autoSave: parsed.autoSave !== false,
     }
   } catch {

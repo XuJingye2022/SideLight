@@ -112,3 +112,11 @@ node scripts\host-smoke.mjs --fsa    # 追加真实读写：选文件夹、开�
 - 长路径已测：309/313 字符，带与不带 `\\?\` 前缀都能打开（`host/test-failure.mjs`）。
 - 未测：`RemoveScriptToExecuteOnDocumentCreated`。SDK 1.0.4314.35 的 .NET 投影只有 `AddScriptToExecuteOnDocumentCreatedAsync`，没有对应的 Remove 包装（查过 dll 字符串表）。一次性注入由注入脚本自己的 `sessionStorage` 守卫保证，验收用 `sl:argv-runs === '1'` 与 `framenavigated === 2` 证明。
 - 冷启动没有跟浏览器基线对比。
+
+## 批注端点与高分屏（0.31.x）
+
+- `GET /__annotations`：只读当前文档同目录 `.sidelight/annotations/<CacheKey>.json`；没有文件回 404，超过 512 KiB 回 413。
+- `annotations-save`：页面消息 `{v:1,type:"annotations-save",id,text}`，原子写同一路径；回 `annotations-save-result`（`ok/error`）。只读回 `READONLY`、目录不可写回 `IO`；带 `path/fileName/file` 一律 `BAD_REQUEST`。
+- 验收：`node scripts/host-annotation-acceptance.mjs`（6 项）。
+- 高分屏：只靠 `app.manifest` 的 `PerMonitorV2, PerMonitor`。**不要在 `Sidelight.exe.config` 声明 `System.Windows.Forms.ApplicationConfigurationSection`**——.NET Framework 4.8 下声明后宿主启动会抛「配置系统未能初始化」并退出（方案 A 实测失败，已回退为方案 B）。
+- 风险：未在真实 150%/200% 缩放屏上验；本机 100% 只能证明清单生效（`GetProcessDpiAwareness = 2`）。

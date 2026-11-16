@@ -1,6 +1,6 @@
 import type { SearchSource } from './annotations.ts'
 
-export type SearchProvider = 'off' | 'tavily' | 'bocha'
+export type SearchProvider = 'off' | 'tavily' | 'bocha' | 'deepseek'
 
 export type SearchConfig = {
   provider: SearchProvider
@@ -23,6 +23,14 @@ export function buildSearchRequest(provider: SearchProvider, query: string, apiK
       url: 'https://api.tavily.com/search',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify({ query, max_results: 5, search_depth: 'basic' }),
+    }
+  }
+
+  if (provider === 'deepseek') {
+    return {
+      url: 'https://api.deepseek.com/v1/tools/search',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ query, count: 5, need_content: false }),
     }
   }
 
@@ -54,6 +62,24 @@ export function parseSearchResponse(provider: SearchProvider, payload: unknown):
     })
   }
 
+  if (provider === 'deepseek') {
+    const results = Array.isArray(record.results) ? record.results : []
+    return results.flatMap((item) => {
+      const entry = item as Record<string, unknown>
+      const url = typeof entry.url === 'string' ? entry.url : ''
+      if (!url) return []
+      const summary = typeof entry.summary === 'string' ? entry.summary : ''
+      const snippet = typeof entry.snippet === 'string' ? entry.snippet : ''
+      return [
+        {
+          title: typeof entry.title === 'string' && entry.title ? entry.title : url,
+          url,
+          snippet: (summary || snippet).slice(0, 300),
+        },
+      ]
+    })
+  }
+
   const data = record.data as Record<string, unknown> | undefined
   const webPages = data?.webPages as Record<string, unknown> | undefined
   const values = Array.isArray(webPages?.value) ? (webPages?.value as unknown[]) : []
@@ -71,6 +97,15 @@ export function parseSearchResponse(provider: SearchProvider, payload: unknown):
   })
 }
 
+/** 4xx 不重试；这里只把常见的状态码翻成可读文案 */
+export function searchErrorMessage(status: number, detail = ''): string {
+  if (status === 401) return '搜索 Key 无效（401），检查设置里的搜索 API Key'
+  if (status === 402) return '搜索账户余额不足（402），充值后再试'
+  if (status === 429) return '搜索太频繁（429），稍后再试'
+  if (status >= 500) return `搜索服务暂时不可用（${status}），稍后再试`
+  return `搜索接口返回 ${status}${detail ? `：${detail.slice(0, 160)}` : ''}`
+}
+
 /** 真发请求。失败抛中文错误，方便直接显示在提示里 */
 export async function searchWeb(config: SearchConfig, query: string, signal?: AbortSignal): Promise<SearchSource[]> {
   const request = buildSearchRequest(config.provider, query, config.apiKey)
@@ -85,7 +120,7 @@ export async function searchWeb(config: SearchConfig, query: string, signal?: Ab
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
-    throw new Error(`搜索接口返回 ${response.status}${detail ? `：${detail.slice(0, 160)}` : ''}`)
+    throw new Error(searchErrorMessage(response.status, detail))
   }
 
   return parseSearchResponse(config.provider, await response.json())

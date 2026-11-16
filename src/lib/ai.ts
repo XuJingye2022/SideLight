@@ -8,6 +8,7 @@ export type StreamOptions = {
   context: ContextPayload
   onDelta: (delta: string) => void
   signal?: AbortSignal
+  mode?: 'local' | 'full'
 }
 
 export type ChatMessage = {
@@ -15,10 +16,14 @@ export type ChatMessage = {
   content: string
 }
 
-export function buildMessages(context: ContextPayload, prompt = DEFAULT_ANALYSIS_PROMPT): ChatMessage[] {
+export function buildMessages(
+  context: ContextPayload,
+  prompt = DEFAULT_ANALYSIS_PROMPT,
+  mode: 'local' | 'full' = 'local',
+): ChatMessage[] {
   return [
     { role: 'system', content: prompt },
-    { role: 'user', content: buildUserMessage(context) },
+    { role: 'user', content: buildUserMessage(context, mode) },
   ]
 }
 
@@ -102,7 +107,7 @@ export async function streamAnnotations(options: StreamOptions): Promise<void> {
   await remoteStream(options)
 }
 
-async function remoteStream({ settings, context, onDelta, signal }: StreamOptions): Promise<void> {
+async function remoteStream({ settings, context, onDelta, signal, mode }: StreamOptions): Promise<void> {
   const url = `${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`
   const response = await requestChat(url, {
     method: 'POST',
@@ -114,7 +119,7 @@ async function remoteStream({ settings, context, onDelta, signal }: StreamOption
       model: settings.model,
       temperature: 0.3,
       stream: true,
-      messages: buildMessages(context, settings.analysisPrompt),
+      messages: buildMessages(context, settings.analysisPrompt, mode),
     }),
     signal,
   })
@@ -261,11 +266,13 @@ export function mockItems(context: ContextPayload): ParsedAnnotation[] {
         quote: clip(pool[0], 22),
         note: '这句是整段的重心，位置偏后；读者读到才知道你要说什么。',
       },
+      { kind: 'overall', quote: '', note: '全文最值得改的一处：先给结论，再补一个能验证的依据。' },
     ]
   }
 
   const items: ParsedAnnotation[] = [
     { kind: 'meta', quote: '', note: '我判断这段的意图是：给一个观点补理由。' },
+    { kind: 'overall', quote: '', note: '全文最值得改的一处：论点和依据之间还缺一步推理，读者要自己补。' },
   ]
   const first = pool[0]
   const second = pool[1] ?? pool[0]

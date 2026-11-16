@@ -4,7 +4,7 @@
 // 退出码：全部 PASS 为 0，任一 FAIL 为 1。
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { chromium } from 'playwright-core'
 
@@ -96,6 +96,38 @@ async function waitForCdp(timeoutMs) {
   return false
 }
 
+// 高分屏：P/Invoke GetProcessDpiAwareness 查宿主进程；结果写文件再读，避免管道。
+async function probeDpi(pid) {
+  const script = `.tmp/dpi-probe.ps1`
+  const out = `.tmp/dpi-result.txt`
+  writeFileSync(
+    script,
+    [
+      'param([int]$TargetPid, [string]$Out)',
+      'Add-Type -TypeDefinition @"',
+      'using System;',
+      'using System.Runtime.InteropServices;',
+      'public static class DpiProbe {',
+      '  [DllImport("kernel32.dll", SetLastError=true)] public static extern IntPtr OpenProcess(int access, bool inherit, int pid);',
+      '  [DllImport("shcore.dll")] public static extern int GetProcessDpiAwareness(IntPtr h, out int value);',
+      '  [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);',
+      '}',
+      '"@',
+      '$h = [DpiProbe]::OpenProcess(0x1000, $false, $TargetPid)',
+      'if ($h -eq [IntPtr]::Zero) { "OPEN_FAIL" | Set-Content $Out; exit 2 }',
+      '$value = 0',
+      '$hr = [DpiProbe]::GetProcessDpiAwareness($h, [ref]$value)',
+      '[DpiProbe]::CloseHandle($h) | Out-Null',
+      'if ($hr -ne 0) { "HR_$hr" | Set-Content $Out; exit 3 }',
+      '("" + $value) | Set-Content $Out',
+      'exit 0',
+    ].join('\r\n'),
+    'utf8',
+  )
+  try { rmSync(out, { force: true }) } catch {}
+  await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-TargetPid', String(pid), '-Out', out])
+  try { return readFileSync(out, 'utf8').trim() } catch { return 'n/a' }
+}
 function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
@@ -121,6 +153,25 @@ async function main() {
     return
   }
   console.log('host pid =', host.pid)
+
+  // 高分屏（T4）：清单 + WinForms 配置 + 进程感知级别；150%/200% 真机 UNVERIFIED。
+  const manifest = readFileSync('host/app.manifest', 'utf8')
+  const exeConfig = readFileSync('host/Sidelight.exe.config', 'utf8')
+  check(
+    'DPI：清单声明 true/pm 与 PerMonitorV2, PerMonitor',
+    /ws2005:dpiAware>true\/pm</.test(manifest) && /ws2016:dpiAwareness>PerMonitorV2, PerMonitor</.test(manifest),
+  )
+  // exe.config 里不声明 WinForms 节（声明后宿主启动会抛「配置系统未能初始化」，方案 B）。
+  check(
+    'DPI：exe.config 不声明 WinForms 节（避免启动失败）',
+    !/<System\.Windows\.Forms\.ApplicationConfigurationSection>/.test(exeConfig),
+  )
+  const dpi = await probeDpi(host.pid)
+  check(
+    'DPI：进程感知级别 = 2（Per-Monitor）',
+    dpi === '2',
+    `GetProcessDpiAwareness=${dpi}；本机 100% 只证明清单生效，150%/200% 真机 UNVERIFIED`,
+  )
 
   if (!(await waitForCdp(30000))) {
     check('窗口：CDP 9333 可用', false, '宿主没起来或没开调试端口')

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildSearchRequest, parseSearchResponse } from './search.ts'
+import { buildSearchRequest, parseSearchResponse, searchWeb } from './search.ts'
 
 test('关闭或没有 key 时不发请求', () => {
   assert.equal(buildSearchRequest('off', '查询', 'key'), null)
@@ -59,5 +59,61 @@ test('结构不对时给空数组不抛', () => {
 test('摘要过长会被截断', () => {
   const long = '字'.repeat(500)
   const sources = parseSearchResponse('tavily', { results: [{ title: 't', url: 'https://x.example', content: long }] })
+  assert.ok(sources[0].snippet.length <= 300)
+})
+
+test('DeepSeek 请求走官方 Search 接口', () => {
+  const request = buildSearchRequest('deepseek', '三成的人会放弃', 'sk-deep')
+  assert.ok(request)
+  assert.equal(request.url, 'https://api.deepseek.com/v1/tools/search')
+  assert.equal(request.headers.Authorization, 'Bearer sk-deep')
+  const body = JSON.parse(request.body)
+  assert.equal(body.query, '三成的人会放弃')
+  assert.equal(body.count, 5)
+  assert.equal(body.need_content, false)
+})
+
+test('解析 DeepSeek 结果：summary 优先，snippet 兜底，空 url 丢掉', () => {
+  const sources = parseSearchResponse('deepseek', {
+    results: [
+      { title: '甲', url: 'https://a.example', summary: '总结甲', snippet: '摘要甲' },
+      { title: '', url: 'https://b.example', snippet: '摘要乙' },
+      { title: '没网址', summary: '应被丢掉' },
+    ],
+  })
+  assert.equal(sources.length, 2)
+  assert.equal(sources[0].title, '甲')
+  assert.equal(sources[0].snippet, '总结甲')
+  assert.equal(sources[1].title, 'https://b.example')
+  assert.equal(sources[1].snippet, '摘要乙')
+})
+
+test('DeepSeek 空结果给空数组', () => {
+  assert.deepEqual(parseSearchResponse('deepseek', { results: [] }), [])
+  assert.deepEqual(parseSearchResponse('deepseek', {}), [])
+})
+
+test('DeepSeek 错误码翻成可读文案', async () => {
+  const originalFetch = globalThis.fetch
+  const reply = (status: number) => {
+    globalThis.fetch = (async () => new Response('err', { status })) as typeof fetch
+  }
+  try {
+    reply(401)
+    await assert.rejects(() => searchWeb({ provider: 'deepseek', apiKey: 'k' }, 'q'), /Key 无效/)
+    reply(402)
+    await assert.rejects(() => searchWeb({ provider: 'deepseek', apiKey: 'k' }, 'q'), /余额不足/)
+    reply(429)
+    await assert.rejects(() => searchWeb({ provider: 'deepseek', apiKey: 'k' }, 'q'), /太频繁/)
+    reply(503)
+    await assert.rejects(() => searchWeb({ provider: 'deepseek', apiKey: 'k' }, 'q'), /暂时不可用/)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('DeepSeek 摘要过长截断到 300', () => {
+  const long = '字'.repeat(500)
+  const sources = parseSearchResponse('deepseek', { results: [{ title: 't', url: 'https://x.example', summary: long }] })
   assert.ok(sources[0].snippet.length <= 300)
 })

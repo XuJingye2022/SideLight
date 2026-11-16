@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import type { Annotation } from '../lib/annotations.ts'
+import type { Annotation, DocNote } from '../lib/annotations.ts'
 import { InlineText } from './InlineText.tsx'
 
 type Props = {
@@ -9,6 +9,8 @@ type Props = {
   activeId: string | null
   analyzing: boolean
   unresolved: number
+  /** 全文总评与未定位批注，不写正文 */
+  docNotes?: DocNote[]
   /** 没配 API Key，批注是本地模拟生成的 */
   simulated: boolean
   /** 窄窗抽屉的关闭按钮；宽窗不传就不显示 */
@@ -36,6 +38,7 @@ export function MarginRail({
   activeId,
   analyzing,
   unresolved,
+  docNotes = [],
   simulated,
   onClose,
   goal,
@@ -57,6 +60,9 @@ export function MarginRail({
   const pending = annotations.filter((annotation) => annotation.status === 'pending')
   const [openThread, setOpenThread] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [overallOpen, setOverallOpen] = useState(true)
+  const overall = docNotes.filter((note) => note.kind === 'overall')
+  const unresolvedNotes = docNotes.filter((note) => note.kind === 'unresolved')
 
   return (
     <aside className="margin-rail" id="margin-rail" ref={railRef} aria-label="页边批注">
@@ -84,7 +90,7 @@ export function MarginRail({
 
       {unresolved > 0 && (
         <p className="rail-notice">
-          {simulated ? '这段太短，选中一段正文再试。' : `有 ${unresolved} 条没能在正文里定位，已丢弃。`}
+          {simulated ? '这段太短，选中一段正文再试。' : `${unresolved} 条引文没找到，已收进整体评价。`}
         </p>
       )}
 
@@ -233,6 +239,38 @@ export function MarginRail({
           )}
         </article>
       ))}
+      {(overall.length > 0 || unresolvedNotes.length > 0) && (
+        <section className="rail-overall" aria-label="整体评价">
+          <button
+            type="button"
+            className="rail-overall-head"
+            aria-expanded={overallOpen}
+            onClick={() => setOverallOpen(!overallOpen)}
+          >
+            <span>整体评价</span>
+            <span className="rail-overall-count">{overall.length + unresolvedNotes.length}</span>
+            <span aria-hidden="true">{overallOpen ? '收起' : '展开'}</span>
+          </button>
+          {overallOpen && (
+            <div className="rail-overall-body">
+              {overall.map((note) => (
+                <p key={note.id} className="rail-overall-note">
+                  <InlineText text={note.note} />
+                </p>
+              ))}
+              {unresolvedNotes.map((note) => (
+                <div key={note.id} className="rail-unresolved">
+                  <span className="rail-unresolved-label">未定位</span>
+                  {note.quote && <span className="rail-unresolved-quote">“{note.quote}”</span>}
+                  <p>
+                    <InlineText text={note.note} />
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </aside>
   )
 }

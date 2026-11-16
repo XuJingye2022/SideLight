@@ -131,6 +131,7 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
             <option value="off">不启用</option>
             <option value="tavily">Tavily</option>
             <option value="bocha">博查</option>
+            <option value="deepseek">DeepSeek 搜索</option>
           </select>
         </label>
 
@@ -141,10 +142,16 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
               type="password"
               value={draft.searchApiKey}
               onChange={(event) => update({ searchApiKey: event.target.value })}
-              placeholder="tvly-… 或博查 key"
+              placeholder={draft.searchProvider === 'deepseek' ? 'sk-…（DeepSeek Key，可与模型 Key 相同）' : 'tvly-… 或博查 key'}
               spellCheck={false}
             />
           </label>
+        )}
+
+        {draft.searchProvider === 'deepseek' && (
+          <p className="dialog-note">
+            使用 DeepSeek 搜索接口，Key 可与模型 Key 相同（当前需单独填写）；按成功请求计费（5 元/1000 次）。
+          </p>
         )}
 
         <label className="field">

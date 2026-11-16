@@ -3,14 +3,29 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 export type AnnotationKind = 'revision' | 'evaluation'
 export type AnnotationStatus = 'pending' | 'accepted' | 'dismissed'
 
-/** 模型先给一条意图说明，再给批注 */
-export type ParsedKind = AnnotationKind | 'meta'
+/** 模型先给一条意图说明，再给批注；overall 是不锚定的全文总评 */
+export type ParsedKind = AnnotationKind | 'meta' | 'overall'
 
 export type ParsedAnnotation = {
   kind: ParsedKind
   quote: string
   note: string
   replacement?: string
+}
+
+/** 不写正文的页边条目：全文总评或未定位的批注 */
+export type DocNote = {
+  id: string
+  kind: 'overall' | 'unresolved'
+  note: string
+  quote?: string
+  createdAt: number
+}
+
+export type AnnotationStore = {
+  v: 2
+  annotations: Annotation[]
+  notes: DocNote[]
 }
 
 export type Annotation = {
@@ -81,13 +96,13 @@ function readLine(line: string): ParsedAnnotation | null {
   const record = value as Record<string, unknown>
 
   const kind = record.kind
-  if (kind !== 'revision' && kind !== 'evaluation' && kind !== 'meta') return null
+  if (kind !== 'revision' && kind !== 'evaluation' && kind !== 'meta' && kind !== 'overall') return null
 
   const note = record.note
   if (typeof note !== 'string' || note.trim() === '') return null
 
-  // 意图说明只需要一句 note，不需要定位
-  if (kind === 'meta') return { kind, quote: '', note: note.trim() }
+  // 意图说明与全文总评只需要一句 note，不需要定位
+  if (kind === 'meta' || kind === 'overall') return { kind, quote: '', note: note.trim() }
 
   const quote = record.quote
   if (typeof quote !== 'string' || quote.trim() === '') return null
@@ -225,8 +240,8 @@ export function resolveAnnotations(
   const cursors = new Map<string, number>()
 
   for (const item of items) {
-    // 意图说明不锚定位置，交给调用方单独处理
-    if (item.kind === 'meta') continue
+    // 意图说明与全文总评不锚定位置，交给调用方单独处理
+    if (item.kind === 'meta' || item.kind === 'overall') continue
     const start = cursors.get(item.quote) ?? span.start
     let range = findRange(index, item.quote, start, span.end)
 
@@ -251,6 +266,145 @@ export function resolveAnnotations(
   }
 
   return annotations
+}
+
+/**
+ * v2 协议：解析批注 + 把定位失败/overall 收进 DocNote；旧数组读成 v2 不丢内容。
+ */
+export function parseAnnotationStore(raw: string | null): AnnotationStore {
+  if (!raw) return { v: 2, annotations: [], notes: [] }
+  try {
+    const value = JSON.parse(raw) as unknown
+    if (Array.isArray(value)) {
+      return { v: 2, annotations: value as Annotation[], notes: [] }
+    }
+    if (value && typeof value === 'object' && (value as { v?: number }).v === 2) {
+      const store = value as Partial<AnnotationStore>
+      return {
+        v: 2,
+        annotations: Array.isArray(store.annotations) ? store.annotations : [],
+        notes: Array.isArray(store.notes) ? store.notes : [],
+      }
+    }
+  } catch {
+    // 坏文件当空
+  }
+  return { v: 2, annotations: [], notes: [] }
+}
+
+export function serializeAnnotationStore(store: AnnotationStore): string {
+  return JSON.stringify({ v: 2, annotations: store.annotations, notes: store.notes })
+}
+
+/** 把 overall 与未定位项转成 DocNote；未定位保留 quote 供页边显示 */
+export function collectDocNotes(
+  items: ParsedAnnotation[],
+  annotations: Annotation[],
+  now = Date.now(),
+): DocNote[] {
+  const notes: DocNote[] = []
+  for (const item of items) {
+    if (item.kind === 'overall') {
+      notes.push({ id: crypto.randomUUID(), kind: 'overall', note: item.note, createdAt: now })
+      continue
+    }
+    if (item.kind === 'meta') continue
+    const hit = annotations.some(
+      (annotation) =>
+        annotation.quote === item.quote && annotation.note === item.note && annotation.kind === item.kind,
+    )
+    if (!hit) {
+      notes.push({
+        id: crypto.randomUUID(),
+        kind: 'unresolved',
+        note: item.note,
+        quote: item.quote,
+        createdAt: now,
+      })
+    }
+  }
+  return notes
+}
+
+/**
+ * 重跑一段：移除与窗口相交的 pending，窗口外保留；完全相同的新条目复用旧 id/thread/sources。
+ */
+export function replaceInWindow(
+  previous: Annotation[],
+  fresh: Annotation[],
+  window: ResolveWindow,
+): Annotation[] {
+  const start = Math.min(window.start, window.end)
+  const end = Math.max(window.start, window.end)
+  const kept = previous.filter(
+    (item) => item.status !== 'pending' || item.to < start || item.from > end,
+  )
+  const reusable = previous.filter((item) => item.status === 'pending')
+  const used = new Set<string>()
+  const merged = fresh.map((item) => {
+    const old = reusable.find(
+      (candidate) =>
+        !used.has(candidate.id) &&
+        candidate.quote === item.quote &&
+        candidate.kind === item.kind &&
+        candidate.note === item.note &&
+        candidate.replacement === item.replacement,
+    )
+    if (!old) return item
+    used.add(old.id)
+    return {
+      ...item,
+      id: old.id,
+      thread: old.thread,
+      sources: old.sources,
+      status: old.status,
+    }
+  })
+  return [...kept, ...merged].sort((a, b) => a.from - b.from)
+}
+
+/** 读 v2 批注文件；旧数组兼容。目录不存在返回空 store。 */
+export async function readAnnotationStore(
+  parent: FileSystemDirectoryHandle,
+  key: string,
+): Promise<AnnotationStore> {
+  try {
+    const dir = await parent.getDirectoryHandle('.sidelight')
+    const annotations = await dir.getDirectoryHandle('annotations')
+    const file = await annotations.getFileHandle(`${key}.json`)
+    return parseAnnotationStore(await (await file.getFile()).text())
+  } catch {
+    return { v: 2, annotations: [], notes: [] }
+  }
+}
+
+/** 写 v2，首次迁移前把旧文件复制成 `.bak-<时间>`，不删旧内容。 */
+export async function writeAnnotationStore(
+  parent: FileSystemDirectoryHandle,
+  key: string,
+  store: AnnotationStore,
+  backup = true,
+): Promise<void> {
+  const dir = await parent.getDirectoryHandle('.sidelight', { create: true })
+  const annotations = await dir.getDirectoryHandle('annotations', { create: true })
+  if (backup) {
+    try {
+      const old = await annotations.getFileHandle(`${key}.json`)
+      const raw = await (await old.getFile()).text()
+      parseAnnotationStore(raw)
+      const backupName = `${key}.json.bak-${Date.now()}`
+      const target = await annotations.getFileHandle(backupName, { create: true })
+      const writer = await target.createWritable()
+      await writer.write(raw)
+      await writer.close()
+    } catch {
+      // 没有旧文件/读不了就不备份
+    }
+  }
+  const file = await annotations.getFileHandle(`${key}.json`, { create: true })
+  const writer = await file.createWritable()
+  await writer.write(serializeAnnotationStore(store))
+  await writer.close()
 }
 
 /**

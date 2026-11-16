@@ -9,7 +9,10 @@
     </security>
   </trustInfo>
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
-    <windowsSettings xmlns:ws2016="http://schemas.microsoft.com/SMI/2016/WindowsSettings">
+    <windowsSettings xmlns:ws2005="http://schemas.microsoft.com/SMI/2005/WindowsSettings" xmlns:ws2016="http://schemas.microsoft.com/SMI/2016/WindowsSettings">
+      <!-- 高分屏：Vista 起的老键 + Win10 1607 起的 PerMonitorV2（后者优先） -->
+      <ws2005:dpiAware>true/pm</ws2005:dpiAware>
+      <ws2016:dpiAwareness>PerMonitorV2, PerMonitor</ws2016:dpiAwareness>
       <!-- 不带 \\?\ 前缀的 300 字符路径也靠这一条 -->
       <ws2016:longPathAware>true</ws2016:longPathAware>
     </windowsSettings>

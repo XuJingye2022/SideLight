@@ -19,7 +19,9 @@ import { FileTree } from './components/FileTree.tsx'
 import { InlinePopover } from './components/InlinePopover.tsx'
 import { MathDraftPreview } from './components/MathDraftPreview.tsx'
 import { MathInlineEditor } from './components/MathInlineEditor.tsx'
-import { MarginRail } from './components/MarginRail.tsx'
+const MarginRail = lazy(() =>
+  import('./components/MarginRail.tsx').then((module) => ({ default: module.MarginRail })),
+)
 import { PreviewPane } from './components/PreviewPane.tsx'
 import { SaveDialog } from './components/SaveDialog.tsx'
 import { CloseGuardDialog } from './components/CloseGuardDialog.tsx'
@@ -38,10 +40,16 @@ import { useDialogFocus } from './components/useDialogFocus.ts'
 import { errorCopy, messageOf, streamAnnotations, streamChat, type ChatMessage } from './lib/ai.ts'
 import {
   buildTextIndex,
+  collectDocNotes,
   findRange,
+  parseAnnotationStore,
   parseStream,
+  readAnnotationStore,
+  replaceInWindow,
   resolveAnnotations,
+  writeAnnotationStore,
   type Annotation,
+  type DocNote,
   type ParsedAnnotation,
 } from './lib/annotations.ts'
 import { cacheKey, legacyKeyFor, readCache, readCacheText, removeCache, writeCache } from './lib/cache.ts'
@@ -78,6 +86,7 @@ import {
 } from './lib/workspace.ts'
 import { assetFileName, writeAsset } from './lib/asset.ts'
 import { getHostTransport } from './lib/hostBridge.ts'
+import { loadSession, permissionOf, restorePlan, saveSession } from './lib/session.ts'
 
 declare global {
   interface Window {
@@ -320,6 +329,7 @@ export default function App() {
   const [railOpen, setRailOpen] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<'files' | 'outline'>('files')
   const [annotations, setAnnotations] = useState<Annotation[]>([])
+  const [docNotes, setDocNotes] = useState<DocNote[]>([])
   const [analyzing, setAnalyzing] = useState(false)
   const [discussingId, setDiscussingId] = useState<string | null>(null)
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
@@ -549,6 +559,7 @@ export default function App() {
   const savedContentVersionRef = useRef(0)
   const lastResentVersionRef = useRef(-1)
   const draftPromptTokenRef = useRef<string | null>(null)
+  const annotationsHydratedRef = useRef(false)
 
   /** 所有写 DOC_KEY 的路径共用：宿主模式跳过、>256KiB 不写、配额错误吞掉 */
   const persistDocKey = useCallback((text: string) => {
@@ -884,6 +895,7 @@ export default function App() {
       if (!editor || typeof data.text !== 'string') return
       const writable = data.readOnly !== true
       hostModeRef.current = true
+      setDocNotes([])
       const split = splitFrontmatter(data.text)
       const footnoteSplit = extractFootnotes(split.body)
       setFrontmatter(split.frontmatter)
@@ -981,6 +993,75 @@ export default function App() {
       document.title = 'Sidelight'
     }
 
+    const applySession = async (session: import('./lib/session.ts').LastSession) => {
+      if (cancelled) return
+      try {
+        if (session.kind === 'workspace') {
+          const base: Workspace = { name: session.name, root: null, rootHandle: session.handle }
+          const next = await refreshWorkspace(base)
+          if (!next) {
+            show('上次的文件夹已经不可用，已退回普通文档。')
+            return
+          }
+          setWorkspace(next)
+          setSidebarTab('files')
+          const target = flattenFiles(next.root).find((file) => file.path === session.path)
+          if (!target) {
+            show('上次打开的文件不在了，已恢复文件夹但没有打开正文。')
+            return
+          }
+          const text = await readNode(target)
+          loadIntoEditor(text, target.name, target)
+          saveTargetRef.current = target.handle ? { handle: target.handle, name: target.name } : null
+        } else {
+          const text = await (await session.handle.getFile()).text()
+          const file: WorkspaceFileNode = {
+            kind: 'file',
+            name: session.name,
+            path: session.name,
+            handle: session.handle,
+          }
+          loadIntoEditor(text, session.name, file)
+          saveTargetRef.current = { handle: session.handle, name: session.name }
+        }
+      } catch {
+        show('上次的文档恢复失败，已退回普通文档。')
+      }
+    }
+
+    const restoreFromSession = async (hostDocument: boolean) => {
+      const session = await loadSession()
+      if (!session) return
+      const permission = await permissionOf(session.handle)
+      const plan = restorePlan(hostDocument, session, permission)
+      if (plan.action === 'restore') {
+        await applySession(plan.session)
+        return
+      }
+      if (plan.action !== 'confirm') return
+      const label = plan.session.kind === 'workspace' ? plan.session.name : plan.session.name
+      setNotice({
+        text: `继续上次：${label}？`,
+        kind: 'info',
+        persist: true,
+        action: {
+          label: '继续上次',
+          onClick: () => {
+            void (async () => {
+              const handle = plan.session.handle as FileSystemHandle & {
+                requestPermission?: (descriptor: { mode: 'readwrite' }) => Promise<PermissionState>
+              }
+              const requested = handle.requestPermission
+                ? await handle.requestPermission({ mode: 'readwrite' })
+                : 'granted'
+              if (requested === 'granted') await applySession(plan.session)
+              else setNotice({ text: '没有获得文件夹权限，可以重新打开。', kind: 'error' })
+            })()
+          },
+        },
+      })
+    }
+
     const loadHostDoc = async () => {
       let response: Response
       try {
@@ -990,9 +1071,15 @@ export default function App() {
         return
       }
       const contentType = response.headers.get('content-type') ?? ''
-      if (contentType.includes('text/html')) return
-      // 404 = 宿主没有当前文档（无 argv 启动）：按普通浏览器启动，恢复草稿/示例，不报错
-      if (response.status === 404) return
+      if (contentType.includes('text/html')) {
+        await restoreFromSession(false)
+        return
+      }
+      // 404 = 宿主没有当前文档（无 argv 启动）：按普通浏览器启动，恢复会话/草稿/示例
+      if (response.status === 404) {
+        await restoreFromSession(false)
+        return
+      }
       if (!response.ok) {
         hostUnavailable(`宿主返回 ${response.status}，这次没有载入正文，也没有回退到旧草稿。`)
         return
@@ -1064,6 +1151,19 @@ export default function App() {
       }
 
       applyHostPayload(data)
+      // 宿主文档：从 /__annotations 读回批注；404 表示没有
+      annotationsHydratedRef.current = false
+      try {
+        const response = await fetch('/__annotations', { cache: 'no-store' })
+        if (response.ok) {
+          const store = parseAnnotationStore(await response.text())
+          if (!cancelled) setAnnotations(store.annotations)
+        }
+      } catch {
+        // 批注接口不可用就当没有
+      } finally {
+        annotationsHydratedRef.current = true
+      }
     }
 
     void loadHostDoc()
@@ -1086,6 +1186,7 @@ export default function App() {
 
     setNotice(null)
     setUnresolved(0)
+    setDocNotes([])
     setAnalysisGoal('')
     setAnalyzing(true)
 
@@ -1098,6 +1199,12 @@ export default function App() {
     let goalSeen = false
     let completed = 0
     let addedCount = 0
+    const runNotes: DocNote[] = []
+    const pushNotes = (notes: DocNote[]) => {
+      if (notes.length === 0) return
+      runNotes.push(...notes)
+      setDocNotes([...runNotes])
+    }
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -1109,6 +1216,7 @@ export default function App() {
       const windowEnd = Math.max(offsetForPosition(index, rangeTo), start)
       let cursor = start
       let buffer = ''
+      let windowReplaced = false
 
       const intake = (items: ParsedAnnotation[]) => {
         for (const item of items) {
@@ -1120,14 +1228,32 @@ export default function App() {
             }
             continue
           }
+          if (item.kind === 'overall') {
+            pushNotes([{ id: crypto.randomUUID(), kind: 'overall', note: item.note, createdAt: Date.now() }])
+            continue
+          }
           const hit = resolveAnnotations([item], index, { start: cursor, end: windowEnd })
           if (hit.length === 0) {
             setUnresolved((count) => count + 1)
+            pushNotes(
+              collectDocNotes([item], [], Date.now()).map((note) => ({
+                ...note,
+                kind: 'unresolved' as const,
+                quote: item.quote,
+              })),
+            )
             continue
           }
           const [annotation] = hit
           cursor = Math.max(cursor, offsetForPosition(index, annotation.to))
-          setAnnotations((previous) => [...previous, annotation])
+          if (!windowReplaced) {
+            windowReplaced = true
+            setAnnotations((previous) =>
+              replaceInWindow(previous, [annotation], { start: rangeFrom, end: rangeTo }),
+            )
+          } else {
+            setAnnotations((previous) => [...previous, annotation])
+          }
           addedCount += 1
         }
       }
@@ -1157,6 +1283,68 @@ export default function App() {
         // 没有选区：按光标所在段落分析
         const hostBlock = blocks.find((block) => from >= block.from && from <= block.to) ?? blocks[0]
         await runOne(context, hostBlock?.from ?? from, hostBlock?.to ?? to)
+      }
+
+      if (context.selection.length >= 3000 || chunks.length > 1) {
+        try {
+          const summary = `这是摘要，不是全文。\n${blocks
+            .map((block) => block.text.trim())
+            .filter(Boolean)
+            .map((line, index, list) =>
+              index === list.length - 1 || line.startsWith('#') ? line : line.slice(0, 180),
+            )
+            .join('\n')
+            .slice(0, 4000)}`
+          let fullBuffer = ''
+          let fullEvaluations = 0
+          await streamAnnotations({
+            settings,
+            context: {
+              before: '',
+              selection: summary,
+              after: '',
+              source: 'selection',
+              truncated: true,
+              charCount: summary.length,
+            },
+            mode: 'full',
+            signal: controller.signal,
+            onDelta: (delta) => {
+              fullBuffer += delta
+              const parsed = parseStream(fullBuffer)
+              fullBuffer = parsed.rest
+              for (const item of parsed.items) {
+                if (item.kind === 'overall') {
+                  pushNotes([{ id: crypto.randomUUID(), kind: 'overall', note: item.note, createdAt: Date.now() }])
+                } else if (item.kind === 'evaluation' && fullEvaluations < 2) {
+                  fullEvaluations += 1
+                  const fullIndex = buildTextIndex(editor.state.doc)
+                  const hit = resolveAnnotations([item], fullIndex, {
+                    start: 0,
+                    end: fullIndex.text.length - 1,
+                  })
+                  if (hit.length > 0) {
+                    setAnnotations((previous) => [...previous, hit[0]])
+                    addedCount += 1
+                  } else {
+                    setUnresolved((count) => count + 1)
+                    pushNotes([
+                      {
+                        id: crypto.randomUUID(),
+                        kind: 'unresolved',
+                        note: item.note,
+                        quote: item.quote,
+                        createdAt: Date.now(),
+                      },
+                    ])
+                  }
+                }
+              }
+            },
+          })
+        } catch {
+          // 全文总评失败不影响分段结果
+        }
       }
 
       if (!goalSeen && !controller.signal.aborted) {
@@ -1359,21 +1547,31 @@ export default function App() {
   useEffect(() => {
     const timer = setTimeout(() => {
       void (async () => {
+        if (!annotationsHydratedRef.current) return
+        if (hostModeRef.current) {
+          host?.postMessage({
+            v: 1,
+            type: 'annotations-save',
+            id: `annotations-${Date.now()}`,
+            text: JSON.stringify({ v: 2, annotations, notes: docNotes }),
+          })
+          return
+        }
         const dir = await cacheDirFor()
         const file = fileRef.current
         if (!dir || !file) return
-        if (annotations.length === 0) {
+        if (annotations.length === 0 && docNotes.length === 0) {
           await removeCache(dir, 'annotations', cacheKey(file.name))
           return
         }
         const key = cacheKey(file.name)
-      await writeCache(dir, 'annotations', key, JSON.stringify(annotations))
-      const legacy = legacyKeyFor(file.name)
-      if (legacy) await removeCache(dir, 'annotations', legacy)
+        await writeAnnotationStore(dir, key, { v: 2, annotations, notes: docNotes }, false)
+        const legacy = legacyKeyFor(file.name)
+        if (legacy) await removeCache(dir, 'annotations', legacy)
       })()
     }, 600)
     return () => clearTimeout(timer)
-  }, [annotations, cacheDirFor])
+  }, [annotations, docNotes, cacheDirFor])
 
   useEffect(() => {
     if (editor) renderFocus(editor, focusMode ? blockPosOf(editor) : null)
@@ -1584,19 +1782,41 @@ export default function App() {
       if (!space || !space.rootHandle) return
       const dir = await parentDirectory(space, file.path)
       if (!dir) return
-      const raw = await readCache(dir, 'annotations', cacheKey(file.name), legacyKeyFor(file.name))
-      if (!raw) return
+      const key = cacheKey(file.name)
+      const store = await readAnnotationStore(dir, key)
+      let saved = store.annotations
+      let savedNotes = store.notes
+      if (saved.length === 0 && savedNotes.length === 0) {
+        const raw = await readCache(dir, 'annotations', key, legacyKeyFor(file.name))
+        if (raw) {
+          const legacy = parseAnnotationStore(raw)
+          saved = legacy.annotations
+          savedNotes = legacy.notes
+          await writeAnnotationStore(dir, key, { v: 2, annotations: saved, notes: savedNotes }, true)
+        }
+      }
+      if (saved.length === 0 && savedNotes.length === 0) return
 
       try {
-        const saved = JSON.parse(raw) as Annotation[]
         const index = buildTextIndex(editor.state.doc)
         const restored: Annotation[] = []
+        const missing: DocNote[] = []
         for (const item of saved) {
           if (!item?.quote) continue
           const hit = findRange(index, item.quote, 0)
-          if (!hit) continue
+          if (!hit) {
+            missing.push({
+              id: crypto.randomUUID(),
+              kind: 'unresolved',
+              note: item.note,
+              quote: item.quote,
+              createdAt: Date.now(),
+            })
+            continue
+          }
           restored.push({ ...item, from: hit.from, to: hit.to })
         }
+        setDocNotes([...savedNotes, ...missing])
         if (restored.length > 0) {
           setAnnotations(restored)
           show(`从 .sidelight 恢复了 ${restored.length} 条批注`)
@@ -1676,6 +1896,7 @@ export default function App() {
       setSaveError(null)
       setReadOnly(false)
       setAnnotations([])
+      setDocNotes([])
       setUnresolved(0)
       setNotice(null)
       setDirty(false)
@@ -1688,7 +1909,23 @@ export default function App() {
         // 大文件/配额满：内存里继续，别让载入失败
       }
       syncDocInfo(editor)
-      void restoreAnnotationsFor(file)
+      annotationsHydratedRef.current = false
+      void restoreAnnotationsFor(file).finally(() => {
+        annotationsHydratedRef.current = true
+      })
+      if (file?.handle) {
+        const space = workspaceRef.current
+        if (space?.rootHandle) {
+          void saveSession({
+            kind: 'workspace',
+            handle: space.rootHandle,
+            name: space.name,
+            path: file.path,
+          })
+        } else {
+          void saveSession({ kind: 'file', handle: file.handle, name: file.name })
+        }
+      }
       // 文件夹文档：.sidelight 草稿比磁盘新才提示恢复（同一文档只弹一次）
       if (file?.handle && workspaceRef.current) {
         void (async () => {
@@ -4162,12 +4399,14 @@ export default function App() {
                 )}
                 <EditorContent editor={editor} />
               </div>
+              <Suspense fallback={null}>
               <MarginRail
                 annotations={annotations}
                 tops={tops}
                 activeId={activeId}
                 analyzing={analyzing}
                 unresolved={unresolved}
+                docNotes={docNotes}
                 simulated={simulated}
                 onClose={closeRail}
                 goal={analysisGoal}
@@ -4207,6 +4446,7 @@ export default function App() {
                 }}
                 railRef={railRef}
               />
+              </Suspense>
             </div>
           )}
         </main>

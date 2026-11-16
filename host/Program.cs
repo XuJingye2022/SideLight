@@ -309,6 +309,11 @@ static class Program
                     HandleRecentRequest(stream, method, host);
                     return;
                 }
+                if (target == "/__annotations")
+                {
+                    HandleAnnotationsRequest(stream, method, host);
+                    return;
+                }
                 if (target.Length == 0 || target == "/") target = "/index.html";
 
                 string decoded;
@@ -616,6 +621,11 @@ static class Program
             if (type == "draft-save" || type == "draft-clear" || type == "close-answer")
             {
                 HandleDraftMessage(senderCore, type, msg);
+                return;
+            }
+            if (type == "annotations-save")
+            {
+                HandleAnnotationsMessage(senderCore, msg);
                 return;
             }
             if (type == "open-recent" || type == "recent-remove" || type == "recent-clear" || type == "recent-restore")
@@ -1067,6 +1077,122 @@ static class Program
         draft["text"] = text;
         WriteResponse(stream, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json.Serialize(draft)), false);
     }
+    // 批注与草稿共用 CacheKey：<文档目录>/.sidelight/annotations/<key>.json
+    static string AnnotationsPath()
+    {
+        if (currentPath == null) return null;
+        string resolved = Resolve(currentPath);
+        string dir = Path.GetDirectoryName(resolved);
+        string key = CacheKey(Path.GetFileName(resolved));
+        return Path.Combine(Path.Combine(Path.Combine(dir, ".sidelight"), "annotations"), key + ".json");
+    }
+
+    static string WriteAnnotations(string text, out long bytes, out long mtime)
+    {
+        bytes = 0;
+        mtime = 0;
+        if (currentPath == null) return "NO_PATH";
+        if (text == null) return "BAD_REQUEST";
+        byte[] payload = new UTF8Encoding(false).GetBytes(text);
+        if (payload.Length > 512 * 1024) return "TOO_LARGE";
+        string path = AnnotationsPath();
+        try
+        {
+            if (File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReadOnly) != 0) return "READONLY";
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            AtomicWrite(path, payload);
+            FileInfo info = new FileInfo(path);
+            bytes = info.Length;
+            mtime = info.LastWriteTimeUtc.Ticks;
+            Log("annotations saved file=" + SafeFileName(path) + " bytes=" + payload.Length);
+            return null;
+        }
+        catch (UnauthorizedAccessException) { return "READONLY"; }
+        catch (IOException) { return "IO"; }
+        catch (Exception) { return "IO"; }
+    }
+
+    // GET /__annotations：只认当前文档；没有文件回 404；超过 512 KiB 回 413。
+    static void HandleAnnotationsRequest(NetworkStream stream, string method, string host)
+    {
+        if (method != "GET")
+        {
+            WriteResponse(stream, 405, null, null, false);
+            return;
+        }
+        if (!string.Equals(host, "127.0.0.1:" + port, StringComparison.OrdinalIgnoreCase))
+        {
+            Log("annotations refused reason=host host=" + host);
+            WriteResponse(stream, 403, null, null, false);
+            return;
+        }
+        if (currentPath == null)
+        {
+            WriteResponse(stream, 404, "application/json; charset=utf-8", BuildErrorJson("NO_DOC"), false);
+            return;
+        }
+        string path = AnnotationsPath();
+        if (path == null || !File.Exists(path))
+        {
+            Dictionary<string, object> none = new Dictionary<string, object>();
+            none["v"] = 1;
+            none["exists"] = false;
+            WriteResponse(stream, 404, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json.Serialize(none)), false);
+            return;
+        }
+        FileInfo info = new FileInfo(path);
+        if (info.Length > 512 * 1024)
+        {
+            WriteResponse(stream, 413, "application/json; charset=utf-8", BuildErrorJson("TOO_LARGE"), false);
+            return;
+        }
+        string text;
+        try { text = StrictUtf8.GetString(File.ReadAllBytes(path)); }
+        catch (DecoderFallbackException)
+        {
+            WriteResponse(stream, 409, "application/json; charset=utf-8", BuildErrorJson("ENCODING"), false);
+            return;
+        }
+        catch (IOException)
+        {
+            WriteResponse(stream, 409, "application/json; charset=utf-8", BuildErrorJson("IO"), false);
+            return;
+        }
+        Dictionary<string, object> body = new Dictionary<string, object>();
+        body["v"] = 1;
+        body["exists"] = true;
+        body["mtime"] = info.LastWriteTimeUtc.Ticks;
+        body["size"] = info.Length;
+        body["text"] = text;
+        WriteResponse(stream, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json.Serialize(body)), false);
+    }
+
+    static void HandleAnnotationsMessage(CoreWebView2 senderCore, Dictionary<string, object> msg)
+    {
+        string id = msg.ContainsKey("id") ? Convert.ToString(msg["id"]) : Guid.NewGuid().ToString("N");
+        Dictionary<string, object> reply = new Dictionary<string, object>();
+        reply["v"] = 1;
+        reply["type"] = "annotations-save-result";
+        reply["id"] = id;
+        if (msg.ContainsKey("path") || msg.ContainsKey("fileName") || msg.ContainsKey("file"))
+        {
+            Log("annotations rejected error=BAD_REQUEST");
+            reply["ok"] = false;
+            reply["error"] = "BAD_REQUEST";
+        }
+        else
+        {
+            string text = msg.ContainsKey("text") ? Convert.ToString(msg["text"]) : null;
+            long bytes = 0;
+            long mtime = 0;
+            string error = text == null ? "BAD_REQUEST" : WriteAnnotations(text, out bytes, out mtime);
+            reply["ok"] = error == null;
+            if (error == null) { reply["bytes"] = bytes; reply["mtime"] = mtime; }
+            else reply["error"] = error;
+        }
+        if (senderCore != null) senderCore.PostWebMessageAsJson(json.Serialize(reply));
+    }
+
     static void ReplyRecent(CoreWebView2 senderCore, string type, string id, bool ok, string error)
     {
         Dictionary<string, object> reply = new Dictionary<string, object>();

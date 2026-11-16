@@ -4,11 +4,16 @@ import test from 'node:test'
 import { getSchema } from '@tiptap/core'
 import { StarterKit } from '@tiptap/starter-kit'
 
+import { DEFAULT_ANALYSIS_PROMPT } from './prompt.ts'
+import { loadSettings } from './settings.ts'
 import {
   buildTextIndex,
   findRange,
   parseStream,
+  parseAnnotationStore,
+  replaceInWindow,
   resolveAnnotations,
+  serializeAnnotationStore,
   shiftAnnotations,
   type Annotation,
   type ParsedAnnotation,
@@ -350,4 +355,50 @@ test('窗口外的重复引文不回退，避免绑到别的段落', () => {
   const window = { start: head, end: head + 3 }
   const resolved = resolveAnnotations([{ kind: 'evaluation', quote: '这是重复的句子', note: '重复' }], index, window)
   assert.equal(resolved.length, 0)
+})
+
+test('v2：overall 不需要 quote，未定位转 DocNote', () => {
+  const parsed = parseStream('{"kind":"overall","note":"全文总评"}\n')
+  assert.equal(parsed.items[0].kind, 'overall')
+  assert.equal(parsed.items[0].quote, '')
+  const store = parseAnnotationStore(JSON.stringify([{ id: 'a', kind: 'evaluation', status: 'pending', from: 1, to: 2, quote: 'q', note: 'n' }]))
+  assert.equal(store.v, 2)
+  assert.equal(store.annotations.length, 1)
+  assert.deepEqual(JSON.parse(serializeAnnotationStore(store)), { v: 2, annotations: store.annotations, notes: [] })
+})
+
+test('replaceInWindow：两次重跑不翻倍、窗口外保留、id 复用', () => {
+  const old = [
+    { id: 'keep', kind: 'evaluation', status: 'pending', from: 100, to: 110, quote: '窗外', note: '保留' },
+    { id: 'reuse', kind: 'evaluation', status: 'pending', from: 10, to: 20, quote: '窗内', note: '同一句' },
+  ] as Annotation[]
+  const fresh = [
+    { id: 'new', kind: 'evaluation', status: 'pending', from: 11, to: 20, quote: '窗内', note: '同一句' },
+  ] as Annotation[]
+  const once = replaceInWindow(old, fresh, { start: 5, end: 30 })
+  const twice = replaceInWindow(once, fresh, { start: 5, end: 30 })
+  assert.equal(once.length, 2)
+  assert.equal(twice.length, 2)
+  assert.equal(once.find((item) => item.quote === '窗内')?.id, 'reuse')
+  assert.ok(once.some((item) => item.id === 'keep'))
+})
+
+test('提示词 <=1500 字且含 overall 与硬规则', () => {
+  assert.ok(DEFAULT_ANALYSIS_PROMPT.length <= 1500)
+  assert.match(DEFAULT_ANALYSIS_PROMPT, /"kind":"overall"/)
+  assert.match(DEFAULT_ANALYSIS_PROMPT, /最多 1 条 revision/)
+})
+
+test('设置：自定义提示词保留，空值回落默认', () => {
+  const map = new Map()
+  ;(globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: (key: string) => map.get(key) ?? null,
+    setItem: (key: string, value: string) => map.set(key, value),
+    removeItem: (key: string) => map.delete(key),
+    clear: () => map.clear(),
+  }
+  map.set('sidelight.settings.v1', JSON.stringify({ analysisPrompt: '我的自定义' }))
+  assert.equal(loadSettings().analysisPrompt, '我的自定义')
+  map.set('sidelight.settings.v1', JSON.stringify({ analysisPrompt: '' }))
+  assert.equal(loadSettings().analysisPrompt, DEFAULT_ANALYSIS_PROMPT)
 })
