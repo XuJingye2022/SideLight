@@ -2869,7 +2869,8 @@ export default function App() {
       setAutoSaveState('idle')
       setAutoSavedAt(null)
       setDraftRestored(false)
-      if (dirtyRef.current === false) void clearHostDraft()
+      // 走到这里说明回包版本 === 当前版本：保存期间没有新输入，可以清宿主草稿
+      void clearHostDraft()
       if (hostSwitchPendingRef.current) {
         hostSwitchPendingRef.current = false
         performSwitch()

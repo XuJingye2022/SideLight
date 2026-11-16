@@ -71,7 +71,7 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 - 图片在没打开文件夹时只能内联，不进 `assets/`。
 - 还没有 Mermaid 图表；字号只能调大小，不能换字体。
 - 真模型没测过：没有 key。中文输入法（组合输入、候选窗、组合期间开对话框）在浏览器与宿主里都没验。关窗只在自动化里验过：真实 Alt+F4、注销/关机、真实 IME 组合输入下的关窗，以及草稿写失败（只读目录）的可见错误，都没人工验。
-- 写回只在 UTF-8 / UTF-16LE / GBK 与 6 MB 以内文件上验过；超过 6 MB 显示「文件过大，暂不支持（上限 6 MB）」并清空正文；文件被占用、网络盘、中文长路径、真人双击下的保存对话框与写回都没验。
+- 写回只在 UTF-8 / UTF-16LE / GBK 与 **5.5 MiB（5,767,168 B）** 以内文件上验过；超过上限显示「文件太大，暂不支持（上限 5.5 MiB）」并清空正文。已验边界：**5.2 MiB 可打开、6.1 MiB 拒绝**；5.5–6 MB 之间未验。文件被占用、网络盘、中文长路径、真人双击下的保存对话框与写回都没验。
 
 与 Typora 的逐项对照在 [docs/typora-gap.md](docs/typora-gap.md)：当前已有 21 项，缺 18 项（未含 `.md` 关联）。
 
@@ -91,9 +91,9 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 - 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
 ## 依赖与体积
 
-首屏 gzip 从 364,960 B 降到 **284,730 B（−22.0%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 77 KB）按需加载，首屏不再包含；安装包内部预算 820,000 B（硬线 850,000 B 未调）。安装包、便携 zip 与 macOS zip 的字节和 SHA256 **见 Release 页的 `SHA256SUMS-0.30.1.txt`**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
+首屏 gzip 从 364,960 B 降到 **284,730 B（−22.0%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 84 KB：JS 76,553 B + CSS 7,365 B）按需加载，首屏不再包含；安装包内部预算 820,000 B（硬线 850,000 B 未调）。安装包、便携 zip 与 macOS zip 的字节和 SHA256 **见 Release 页的 `SHA256SUMS-0.30.2.txt`**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
 
-**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 284,730 B（0.30.1），原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 1200`（主 chunk 约 883 KB）。
+**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 284,730 B（0.30.1），原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 1200`（主 chunk 约 888 KB）。
 
 运行时依赖只有两组，都不是为省几行代码引入的：
 
@@ -102,7 +102,7 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
 
-宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包与便携 zip 的字节和 SHA256 见 Release 页的 `SHA256SUMS-0.30.1.txt`（内部预算 820,000 B，硬线 850,000 B 不动），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
+宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms（**本机一次测量，非跨机承诺**）、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包与便携 zip 的字节和 SHA256 见 Release 页的 `SHA256SUMS-0.30.2.txt`（内部预算 820,000 B，硬线 850,000 B 不动），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
 
 ## 跑起来
 

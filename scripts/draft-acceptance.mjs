@@ -219,6 +219,8 @@ await mkdirp(OUT)
   info = await state(page)
   const types = info.messages.map((message) => message.type)
   check('T1 保存后先有 draft-save 再有 draft-clear', types.indexOf('draft-save') < types.indexOf('draft-clear'), JSON.stringify(types))
+  const draftTypes = types.filter((type) => ['draft-save', 'save', 'draft-clear'].includes(type))
+  check('T1 保存成功序列 draft-save → save → draft-clear', JSON.stringify(draftTypes) === JSON.stringify(['draft-save', 'save', 'draft-clear']), JSON.stringify(draftTypes))
   const clears = draftMessages(info.messages, 'draft-clear').length
   check('T1 保存成功后 dirty=false', (await page.evaluate(() => window.__slState.dirty)) === false)
   await page.evaluate((id) => window.__replyHost({ v: 1, type: 'draft-save-result', id, ok: true }), draftSave.id)
@@ -226,6 +228,28 @@ await mkdirp(OUT)
   await page.waitForTimeout(300)
   info = await state(page)
   check('T1 迟到的 draft-save-result 不再二次 clear', draftMessages(info.messages, 'draft-clear').length === clears, String(draftMessages(info.messages, 'draft-clear').length))
+  await context.close()
+}
+
+// ---------- T1 保存中继续输入：不清草稿 ----------
+{
+  const { context, page } = await openPage({ doc: docPayload(PLAIN) })
+  await edit(page, '保存中继续输入')
+  await page.waitForTimeout(1000)
+  let info = await state(page)
+  const draft = draftMessages(info.messages, 'draft-save')[0]
+  await page.evaluate((id) => window.__replyHost({ v: 1, type: 'draft-save-result', id, ok: true }), draft.id)
+  await page.keyboard.press('Control+s')
+  await page.waitForTimeout(200)
+  const save = (await state(page)).messages.find((message) => message.type === 'save')
+  const clearsBefore = draftMessages((await state(page)).messages, 'draft-clear').length
+  await edit(page, '新字')
+  await page.waitForTimeout(200)
+  await page.evaluate((id) => window.__replyHost({ v: 1, type: 'save-result', id, ok: true, mtime: 2001 }), save.id)
+  await page.waitForTimeout(700)
+  info = await state(page)
+  check('T1 保存中继续输入：不发 draft-clear', draftMessages(info.messages, 'draft-clear').length === clearsBefore, JSON.stringify(info.messages.map((m) => m.type)))
+  check('T1 保存中继续输入：dirty 仍为 true', (await page.evaluate(() => window.__slState.dirty)) === true)
   await context.close()
 }
 
