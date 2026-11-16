@@ -98,7 +98,7 @@
 | 32 | 预览快捷键 + 选区计数 + 段落口径 + 体积护栏与 Mermaid ADR | round-32/plan.md | PASS-WITH-UNVERIFIED：keyboard 52/52、T2 9/9、T3 7/7、qa17 7/7、首屏 285,052（余 948）、测试 21/276、tsc/build PASS；Mermaid 本轮不实现待产品负责人三选一；qa16/qa10 脚本过期（非本轮回归）；未发版 | e399805 |
 | 33 | 智能标点与自动配对 + 验收/发版门禁版本号 | round-33/plan.md | PASS-WITH-UNVERIFIED：智能标点 8 条单测、e2e 13 组、keyboard 52/52、首屏 285,891、测试 22/285、verify-installer 版本号正反例 | 186dfeb |
 | 34 | 脚注定义丢失拦截 P0 + 焦点回正文 + verify 门禁 | round-34/plan.md | PASS-WITH-UNVERIFIED：T1 6/6（自动保存也拦）、T2 6/6、verify 正反例、keyboard 52/52、树 54/56（2 条旧脚本过期）、首屏 285,937、测试 22/287；验收后未提交，根代理补交 | 08775f2 |
-| 35 | 体积护栏换挡 + AI 提示词拆分 + Esc 后焦点回正文 | round-35/plan.md | PASS-WITH-UNVERIFIED：T1 a–l（首屏 320,000 硬线 / 310,000 内部、安装包 1,800,000 / 2,000,000、三脚本 BOM+语法解析 0 错、workflows 与文档旧线 0 命中且有改前对照）、T2 17/17 项断言 + 单测（system/user 分离、旧键迁移、落盘只写 `userPrompt`）、T3 6 组全过（a/b/c/d/e/d2）、tsc/build/verify PASS、roundtrip 0、首屏 286,056、测试 22/295；未发版 | 见本轮提交 |
+| 35 | 体积护栏换挡 + AI 提示词拆分 + Esc 后焦点回正文 | round-35/plan.md | PASS-WITH-UNVERIFIED：T1 a–l（首屏 320,000 硬线 / 310,000 内部、安装包 1,800,000 / 2,000,000、三脚本 BOM+语法解析 0 错、workflows 与文档旧线 0 命中且有改前对照）、T2 17/17 项断言 + 单测（system/user 分离、旧键迁移、落盘只写 `userPrompt`）、T3 6 组全过（a/b/c/d/e/d2）、tsc/build/verify PASS、roundtrip 0、首屏 286,056、测试 22/295；未发版 | 7ae5be4 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
