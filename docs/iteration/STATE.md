@@ -96,7 +96,7 @@
 | 31 | 撤销/改名保存目标 P0 + 字数明细口径 + 链接点击与列表 Tab | round-31/plan.md | PASS-WITH-UNVERIFIED：T1 21/21、T2 14/14、T3 18/18、keyboard 49/49、roundtrip 0、首屏 284,761、测试 21/272；未发版 | 64002a8 |
 | 32 | 预览快捷键 + 选区计数 + 段落口径 + 体积护栏与 Mermaid ADR | round-32/plan.md | PASS-WITH-UNVERIFIED：keyboard 52/52、T2 9/9、T3 7/7、qa17 7/7、首屏 285,052（余 948）、测试 21/276、tsc/build PASS；Mermaid 本轮不实现待产品负责人三选一；qa16/qa10 脚本过期（非本轮回归）；未发版 | e399805 |
 | 33 | 智能标点与自动配对 + 验收/发版门禁版本号 | round-33/plan.md | PASS-WITH-UNVERIFIED：智能标点 8 条单测、e2e 13 组、keyboard 52/52、首屏 285,891、测试 22/285、verify-installer 版本号正反例 | 186dfeb |
-| 34 | 脚注定义丢失拦截 P0 + 焦点回正文 + verify 门禁 | round-34/plan.md | PASS-WITH-UNVERIFIED：T1 6/6（自动保存也拦）、T2 6/6、verify 正反例、keyboard 52/52、树 54/56（2 条旧脚本过期）、首屏 285,937、测试 22/287；验收后未提交，根代理补交 | 本次提交 |
+| 34 | 脚注定义丢失拦截 P0 + 焦点回正文 + verify 门禁 | round-34/plan.md | PASS-WITH-UNVERIFIED：T1 6/6（自动保存也拦）、T2 6/6、verify 正反例、keyboard 52/52、树 54/56（2 条旧脚本过期）、首屏 285,937、测试 22/287；验收后未提交，根代理补交 | 08775f2 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
