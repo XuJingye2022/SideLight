@@ -49,8 +49,9 @@
 
 ## 当前版本与体积
 
-- v0.32.0。`dist` 1,461,127 B；首屏 JS+CSS gzip **285,997 B**（临时上限 286,000，数据安全例外，余 3 B）；测试 17 文件 248 条。
-- 发布资产：Windows setup 824,473 B、Windows zip 910,519 B、macOS Universal zip 906,060 B；校验和见 Release `SHA256SUMS-0.32.0.txt`。内部预算 820,000，硬线 850,000 未动。
+- v0.32.1。`dist` 1,461,334 B；首屏 JS+CSS gzip **285,783 B**（临时上限 286,000，余 217 B）；测试 17 文件 248 条。
+- 首启：空白 `未命名.md`，不再加载示例；文件菜单「关闭文档」；工作区无句柄文档 Ctrl+S 直接落 `未命名.md`。
+- 发布资产：Windows setup 824,209 B、Windows zip 910,360 B、macOS Universal 905,892 B；校验和见 `SHA256SUMS-0.32.1.txt`。
 - 重开恢复：IndexedDB 只存 FSA 句柄；宿主 `/__annotations` 读回；Ctrl+S 原地。批注 v2（overall/unresolved）；重跑整窗替换。
 - 键盘：Ctrl+K 链接、Ctrl+M/Shift+M 公式、Ctrl+P 快速打开、Ctrl+1–6/0、Ctrl+/ 源码、表格 Tab/Ctrl+Enter、侧栏 Ctrl+Shift+1/3/L；宿主已关浏览器加速键。
 - 高风险未验：真实重开权限、150%/200% 屏、真模型提示词质量、真实 DeepSeek 搜索、macOS 快捷键、旧会话已丢弃批注不可恢复。
@@ -86,6 +87,7 @@
 | 25 | 平台与最终版 | round-25/plan.md | PASS-WITH-UNVERIFIED：host --version/置前、NSIS 版本/运行检测、macOS openFiles、0.31.1；卸载 exit 0 UNVERIFIED | e92d1a4 |
 | 26 | 重开恢复 + 批注 v2 + 提示词 + DPI + DeepSeek | round-26/plan.md | PASS-WITH-UNVERIFIED：session 15/15、annotation 8/8、host 11/11、提示词 796 字、PerMonitorV2、DeepSeek 搜索；0.32.0 | c035a1d |
 | 27 | 键盘链接/公式 + Typora 快键 | round-27/plan.md | PASS-WITH-UNVERIFIED：keyboard 49/49、Ctrl+P/标题/源码/表格/侧栏、首屏 285,997；0.32.0 | c035a1d |
+| 28 | 首启空白 + 关闭文档 + 工作区保存 | round-28/plan.md | PASS-WITH-UNVERIFIED：session 18/18、newfile 23/23、picker 0、0.32.1 | 1ac1298 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
@@ -101,24 +103,24 @@
 ## 发布状态（2026-11-16）
 
 - 仓库：https://github.com/XuJingye2022/SideLight（public，MIT，版权人 XuJingye）。
-- 最新发布：https://github.com/XuJingye2022/SideLight/releases/tag/v0.32.0
-  - Windows：`Sidelight-0.32.0-win-x64-setup.exe` 824,473 B、`Sidelight-0.32.0-win-x64-portable.zip` 910,519 B。
-  - macOS：`Sidelight-0.32.0-macos-universal.zip` 906,060 B（arm64 + x86_64），ad-hoc，未公证；macOS 13+。
-  - `SHA256SUMS-0.32.0.txt`。
+- 最新发布：https://github.com/XuJingye2022/SideLight/releases/tag/v0.32.1
+  - Windows：`Sidelight-0.32.1-win-x64-setup.exe` 824,209 B、`Sidelight-0.32.1-win-x64-portable.zip` 910,360 B。
+  - macOS：`Sidelight-0.32.1-macos-universal.zip` 905,892 B（arm64 + x86_64），ad-hoc，未公证；macOS 13+。
+  - `SHA256SUMS-0.32.1.txt`。
+- 版本：0.32.1 首启空白 + 关闭文档 + 工作区原地保存；0.32.0 修 7 项用户问题并吸收 Typora 快键。
 - 签名/公证：`release.yml` 已接可选分支；配齐 6 个 Apple secrets 后自动签名 + 公证 + staple；否则 ad-hoc 并在 Release body 标「未签名、未公证」。
-- 版本：0.32.0 修复 7 项用户问题（重开恢复、提示词、整体评价、键盘链接/公式、重跑覆盖、DPI、DeepSeek 搜索）并吸收 Typora 快键；0.31.x 为平台/数据修复。
 - 发布自动化：`.github/workflows/release.yml`（tag `v*` 或手动 `tag` + `publish`）已多次实测；CI `gate`/`windows-host`/`macos-host` 全绿；`install-verify` 仅手动。
 - 推送方式：`origin` 用 SSH over 443（`ssh://git@ssh.github.com:443/XuJingye2022/SideLight.git`），仓库里加了一把 write deploy key `sidelight-agent`（2026-11-16）；不用时可在 GitHub Settings → Deploy keys 删除。
 - CI Windows smoke 已忽略预期 404：`/__doc`、`/__draft`、`/favicon.ico`；`/__annotations` 无缓存返回 200 空 store。
 
 ## 下一轮怎么开始（给接手的调度器）
 
-1. 读本文件、`AGENTS.md`、最近一次 `docs/iteration/round-13/test.md`。
+1. 读本文件、`AGENTS.md`、最近一次 `docs/iteration/round-28/test.md`。
 2. 起 dev server（`node node_modules/vite/bin/vite.js`，写 `localhost:5173`），确认 200。
-3. 派 3 个新 finder（缺陷/体验/发布）只读侦察，报告写 `round-14/findings-*.md`；重点从上面待办池挑。
+3. 派 3–6 个只读侦察（缺陷/体验/发布/性能）；报告写 `round-NN/findings-*.md`。
 4. 复用已有持久代理：`planner`、`critic`、`builder`、`builder2`、`tester`（用 send_message，别新建同名）。
 5. 按「侦察 → 计划 → 审计划 → 实施 → 验收」循环；根代理只在阶段之间分派、跑最终门禁、commit、更新本文件。
-6. 第 21–25 轮已完成。后续若继续：优先真实 macOS/Intel/签名公证、100 KB–1 MB 性能包线、UX L1/F3、安装器运行中卸载、P2 可访问性；没有新的必过门禁项。
+6. 第 28 轮已完成。后续优先：真实 macOS/Intel/签名公证、1 MB 性能包线、真实 WebView2 重开/工作区保存、UX L1/F3、安装器运行中卸载、P2 可访问性；没有新的必过门禁项。
 
 ## 决策记录
 
