@@ -23,6 +23,14 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
     title: '编辑与批注',
     items: [
       ['Ctrl+F', '查找（Ctrl+H 同义）'],
+      ['Ctrl+P', '快速打开文件'],
+      ['Ctrl+1…6 / Ctrl+0', '标题 1–6 / 正文'],
+      ['Ctrl+/', '切换源码 / 编辑'],
+      ['表格内 Ctrl+Enter / Ctrl+L', '下方加一行 / 删当前行'],
+      ['Ctrl+Shift+1 / 3 / L', '大纲 / 文件树 / 收起侧栏'],
+      ['Ctrl+K', '给选区加链接 / 编辑链接'],
+      ['Ctrl+M', '编辑或插入行内公式'],
+      ['Ctrl+Shift+M', '编辑或插入块级公式'],
       ['Ctrl+Enter', '分析选中 / 本段'],
       ['Ctrl+B / Ctrl+I', '粗体 / 斜体'],
       ['Ctrl+Shift+X', '删除线'],
@@ -33,7 +41,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
     title: '视图与字号',
     items: [
       ['Ctrl+Shift+P', '预览'],
-      ['Ctrl+= / Ctrl+- / Ctrl+0', '字号放大 / 缩小 / 复位'],
+      ['Ctrl+= / Ctrl+- / Ctrl+Alt+0', '字号放大 / 缩小 / 复位'],
       ['Esc', '关闭菜单 / 对话框，或退出源码与预览'],
     ],
   },

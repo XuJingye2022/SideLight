@@ -19,6 +19,7 @@ import { FileTree } from './components/FileTree.tsx'
 import { InlinePopover } from './components/InlinePopover.tsx'
 import { MathDraftPreview } from './components/MathDraftPreview.tsx'
 import { MathInlineEditor } from './components/MathInlineEditor.tsx'
+import { LinkEditor } from './components/LinkEditor.tsx'
 const MarginRail = lazy(() =>
   import('./components/MarginRail.tsx').then((module) => ({ default: module.MarginRail })),
 )
@@ -29,6 +30,7 @@ import { CloseGuardDialog } from './components/CloseGuardDialog.tsx'
 // 查找条与大纲面板只在打开时加载，不占首屏
 const FindBar = lazy(() => import('./components/FindBar.tsx').then((module) => ({ default: module.FindBar })))
 const Outline = lazy(() => import('./components/Outline.tsx').then((module) => ({ default: module.Outline })))
+const QuickOpen = lazy(() => import('./components/QuickOpen.tsx').then((module) => ({ default: module.QuickOpen })))
 const SettingsDialog = lazy(() =>
   import('./components/SettingsDialog.tsx').then((module) => ({ default: module.SettingsDialog })),
 )
@@ -325,6 +327,7 @@ export default function App() {
   /** 宿主桥每次渲染取一次；Windows/WK 单例稳定，浏览器为 null */
   const host = getHostTransport()
   const [treeCollapsed, setTreeCollapsed] = useState(false)
+  const [quickOpen, setQuickOpen] = useState(false)
   /** 窄窗时页边栏变抽屉：顶栏「批注」开关它 */
   const [railOpen, setRailOpen] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<'files' | 'outline'>('files')
@@ -382,8 +385,22 @@ export default function App() {
   } | null>(
     null,
   )
-  const [linkEdit, setLinkEdit] = useState<{ href: string; from: number; to: number; anchor: DOMRect } | null>(null)
-  const [mathEdit, setMathEdit] = useState<{ latex: string; from: number; to: number; anchor: DOMRect } | null>(null)
+  const [linkEdit, setLinkEdit] = useState<{
+    text: string
+    href: string
+    from: number
+    to: number
+    focus: 'text' | 'href'
+    anchor: DOMRect
+  } | null>(null)
+  const [mathEdit, setMathEdit] = useState<{
+    latex: string
+    from: number
+    to: number
+    block: boolean
+    isNew: boolean
+    anchor: DOMRect
+  } | null>(null)
   const [mathDraft, setMathDraft] = useState<{
     from: number
     to: number
@@ -496,7 +513,11 @@ export default function App() {
   const fileRef = useRef<WorkspaceFileNode | null>(null)
   const workspaceRef = useRef<Workspace | null>(null)
   const openLinkRef = useRef<(anchor: HTMLAnchorElement) => void>(() => {})
+  const openLinkAtCursorRef = useRef<() => void>(() => {})
   const mathEditRef = useRef<(position: number) => void>(() => {})
+  const openMathAtCursorRef = useRef<(block: boolean) => void>(() => {})
+  const mathAnchorRef = useRef<DOMRect | null>(null)
+  const mathIsNewRef = useRef(false)
   const toggleSourceRef = useRef<() => void>(() => {})
   const togglePreviewRef = useRef<() => void>(() => {})
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -719,12 +740,28 @@ export default function App() {
     editorProps: {
       attributes: { class: 'editor', spellcheck: 'false', 'aria-label': '正文编辑器' },
       handleKeyDown: (view, event) => {
-        if (event.key !== 'Tab' || event.shiftKey || event.isComposing) return false
-        // 表格里保留默认 Tab（跳格）
+        let inTable = false
         for (let depth = view.state.selection.$from.depth; depth > 0; depth -= 1) {
           const name = view.state.selection.$from.node(depth).type.name
-          if (name === 'table' || name === 'tableRow' || name === 'tableCell' || name === 'tableHeader') return false
+          if (name === 'table' || name === 'tableRow' || name === 'tableCell' || name === 'tableHeader') {
+            inTable = true
+            break
+          }
         }
+        const mod = event.ctrlKey || event.metaKey
+        if (inTable && mod && event.key === 'Enter') {
+          event.preventDefault()
+          editor?.chain().focus().addRowAfter().run()
+          return true
+        }
+        if (inTable && mod && event.key.toLowerCase() === 'l') {
+          event.preventDefault()
+          editor?.chain().focus().deleteRow().run()
+          return true
+        }
+        if (event.key !== 'Tab' || event.shiftKey || event.isComposing) return false
+        // 表格里保留默认 Tab（跳格）
+        if (inTable) return false
         event.preventDefault()
         const { from, to } = view.state.selection
         // 文档开头保留给 skip link：不清掉无障碍入口
@@ -1109,6 +1146,62 @@ export default function App() {
         return
       }
 
+      // 宿主重开：正文走宿主，但上次的文件夹/树也要回来（先于草稿提示）
+      let hostFile: WorkspaceFileNode | null = null
+      let hostDir: FileSystemDirectoryHandle | null = null
+      try {
+        const session = await loadSession()
+        if (session?.kind === 'workspace' && (await permissionOf(session.handle)) === 'granted') {
+          const next = await refreshWorkspace({
+            name: session.name,
+            root: null,
+            rootHandle: session.handle,
+          })
+          if (next && !cancelled) {
+            setWorkspace(next)
+            setSidebarTab('files')
+            const matches = flattenFiles(next.root).filter((file) => file.name === (data.fileName ?? ''))
+            if (matches.length === 1) {
+              hostFile = matches[0]
+              setActiveFile(hostFile)
+              hostDir = await parentDirectory(next, hostFile.path)
+            }
+          }
+        }
+      } catch {
+        // 文件夹恢复失败不影响宿主正文
+      }
+
+      // 批注只取一个来源：workspace 缓存优先，没有才读宿主；先于草稿提示
+      annotationsHydratedRef.current = false
+      try {
+        let loaded = false
+        if (hostDir && hostFile) {
+          const store = await readAnnotationStore(hostDir, cacheKey(hostFile.name))
+          if (store.annotations.length > 0 || store.notes.length > 0) {
+            if (!cancelled) {
+              setAnnotations(store.annotations)
+              setDocNotes(store.notes)
+            }
+            loaded = true
+          }
+        }
+        if (!loaded) {
+          const response = await fetch('/__annotations', { cache: 'no-store' })
+          if (response.ok) {
+            const store = parseAnnotationStore(await response.text())
+            if (!cancelled) {
+              setAnnotations(store.annotations)
+              setDocNotes(store.notes)
+            }
+          }
+        }
+      } catch {
+        // 批注接口不可用就当没有
+      } finally {
+        annotationsHydratedRef.current = true
+      }
+
       // 宿主草稿：比原文件新就先问恢复/丢弃（404 = 没有草稿）
       try {
         const draftResponse = await fetch('/__draft', { cache: 'no-store' })
@@ -1151,19 +1244,6 @@ export default function App() {
       }
 
       applyHostPayload(data)
-      // 宿主文档：从 /__annotations 读回批注；404 表示没有
-      annotationsHydratedRef.current = false
-      try {
-        const response = await fetch('/__annotations', { cache: 'no-store' })
-        if (response.ok) {
-          const store = parseAnnotationStore(await response.text())
-          if (!cancelled) setAnnotations(store.annotations)
-        }
-      } catch {
-        // 批注接口不可用就当没有
-      } finally {
-        annotationsHydratedRef.current = true
-      }
     }
 
     void loadHostDoc()
@@ -3280,8 +3360,11 @@ export default function App() {
         (mod && !event.shiftKey && !event.altKey && key === 's') ||
         (mod && event.altKey && !event.shiftKey && ['n', 'o', 's', 'e'].includes(key)) ||
         (mod && event.altKey && event.shiftKey && key === 'o') ||
-        (mod && !event.altKey && (key === 'f' || key === 'h')) ||
-        (mod && !event.altKey && event.shiftKey && key === 'p') ||
+        (mod && !event.altKey && (key === 'f' || key === 'h' || key === 'k' || key === 'm' || key === 'p')) ||
+        (mod && !event.altKey && event.shiftKey && (key === 'p' || key === 'm')) ||
+        (mod && !event.altKey && /^[0-6]$/.test(key)) ||
+        (mod && !event.altKey && key === '/') ||
+        (mod && event.shiftKey && !event.altKey && (event.code === 'Digit1' || event.code === 'Digit3' || key === 'l')) ||
         (mod && (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0'))
 
       if (event.key === 'Escape') {
@@ -3387,6 +3470,53 @@ export default function App() {
         setFindOpen(true)
         return
       }
+      if (mod && !event.altKey && !event.shiftKey && key === 'k') {
+        event.preventDefault()
+        openLinkAtCursorRef.current()
+        return
+      }
+      if (mod && !event.altKey && key === 'm') {
+        event.preventDefault()
+        openMathAtCursorRef.current(event.shiftKey)
+        return
+      }
+      if (mod && !event.altKey && !event.shiftKey && key === 'p') {
+        event.preventDefault()
+        setQuickOpen(true)
+        return
+      }
+      if (mod && !event.altKey && !event.shiftKey && /^[1-6]$/.test(key)) {
+        event.preventDefault()
+        editor?.chain().focus().setHeading({ level: Number(key) as 1 | 2 | 3 | 4 | 5 | 6 }).run()
+        return
+      }
+      if (mod && !event.altKey && !event.shiftKey && key === '0') {
+        event.preventDefault()
+        editor?.chain().focus().setParagraph().run()
+        return
+      }
+      if (mod && !event.altKey && key === '/') {
+        event.preventDefault()
+        toggleSourceRef.current()
+        return
+      }
+      if (mod && event.shiftKey && !event.altKey && event.code === 'Digit1') {
+        event.preventDefault()
+        setSidebarTab('outline')
+        setTreeCollapsed(false)
+        return
+      }
+      if (mod && event.shiftKey && !event.altKey && event.code === 'Digit3') {
+        event.preventDefault()
+        setSidebarTab('files')
+        setTreeCollapsed(false)
+        return
+      }
+      if (mod && event.shiftKey && !event.altKey && key === 'l') {
+        event.preventDefault()
+        setTreeCollapsed((value) => !value)
+        return
+      }
       if (mod && !event.altKey && event.shiftKey && !event.ctrlKey && key === 'p') {
         event.preventDefault()
         togglePreviewRef.current()
@@ -3402,7 +3532,7 @@ export default function App() {
         setFontSize(settings.fontSize - 1)
         return
       }
-      if (mod && event.key === '0') {
+      if (mod && event.altKey && event.key === '0') {
         event.preventDefault()
         setFontSize(DEFAULT_SETTINGS.fontSize)
       }
@@ -3662,14 +3792,34 @@ export default function App() {
     insertImageRef.current = (file: File) => void insertImageFile(file)
   }, [insertImageFile])
 
-  // 点链接进入编辑：选中整段链接文字，弹出地址框
+  // 点链接进入编辑：选中整段链接文字，弹出文字/地址框
   useEffect(() => {
-    openLinkRef.current = (anchor: HTMLAnchorElement) => {
+    openLinkAtCursorRef.current = () => {
       if (!editor) return
-      const position = editor.view.posAtDOM(anchor, 0)
-      editor.chain().setTextSelection(position).extendMarkRange('link').run()
-      const { from, to } = editor.state.selection
-      setLinkEdit({ href: anchor.getAttribute('href') ?? '', from, to, anchor: anchor.getBoundingClientRect() })
+      const { from, to, empty } = editor.state.selection
+      if (editor.isActive('link')) {
+        editor.chain().extendMarkRange('link').run()
+        const range = editor.state.selection
+        const coords = editor.view.coordsAtPos(range.from)
+        setLinkEdit({
+          text: editor.state.doc.textBetween(range.from, range.to, ' '),
+          href: String(editor.getAttributes('link').href ?? ''),
+          from: range.from,
+          to: range.to,
+          focus: 'text',
+          anchor: new DOMRect(coords.left, coords.top, coords.right - coords.left, coords.bottom - coords.top),
+        })
+        return
+      }
+      const coords = editor.view.coordsAtPos(from)
+      setLinkEdit({
+        text: empty ? '' : editor.state.doc.textBetween(from, to, ' '),
+        href: '',
+        from,
+        to,
+        focus: empty ? 'href' : 'text',
+        anchor: new DOMRect(coords.left, coords.top, coords.right - coords.left, coords.bottom - coords.top),
+      })
     }
   }, [editor])
 
@@ -3691,35 +3841,54 @@ export default function App() {
 
       // 块级公式的 $$…$$ 会被扩展的输入规则立刻收成行内公式，
       // 所以块级走「贴着公式的输入框」，行内走 Typora 那套就地展开。
-      if (block) {
-        const dom = view.nodeDOM(position)
-        let rect = dom instanceof HTMLElement ? dom.getBoundingClientRect() : null
-        if (!rect || (rect.width === 0 && rect.height === 0)) {
-          // 刚建出来的空公式没有尺寸，用光标位置兜底
-          const coords = view.coordsAtPos(Math.min(position + 1, state.doc.content.size))
-          rect = new DOMRect(coords.left, coords.top, 1, Math.max(1, coords.bottom - coords.top))
-        }
-        setMathEdit({ latex, from: position, to: position + node.nodeSize, anchor: rect })
+      const dom = view.nodeDOM(position)
+      let rect = dom instanceof HTMLElement ? dom.getBoundingClientRect() : null
+      if (!rect || (rect.width === 0 && rect.height === 0)) {
+        // 刚建出来的空公式没有尺寸，用光标位置兜底
+        const coords = view.coordsAtPos(Math.min(position + 1, state.doc.content.size))
+        rect =
+          mathAnchorRef.current ??
+          new DOMRect(coords.left, coords.top, 1, Math.max(1, coords.bottom - coords.top))
+      }
+      setMathEdit({
+        latex,
+        from: position,
+        to: position + node.nodeSize,
+        block,
+        isNew: mathIsNewRef.current,
+        anchor: rect,
+      })
+      mathIsNewRef.current = false
+    }
+  }, [editor])
+
+  useEffect(() => {
+    if (!editor) return
+    openMathAtCursorRef.current = (block) => {
+      const { from } = editor.state.selection
+      const node = editor.state.doc.nodeAt(from)
+      if (node && node.type.name.toLowerCase().includes('math')) {
+        mathIsNewRef.current = false
+        mathEditRef.current(from)
         return
       }
-
-      const delimiters = `$${latex}$`
-
-      const text = state.schema.text(delimiters)
-      const replacement = text
-      const from = position
-      const to = from + delimiters.length
-
-      const tr = state.tr.replaceWith(position, position + node.nodeSize, replacement)
-      tr.setSelection(TextSelection.create(tr.doc, from, to))
-      view.dispatch(tr)
-      view.focus()
-      // 先记范围与源码，监听器在进入草稿的那一帧就能读到
-      mathDraftRef.current = { from, to, block: false, text: delimiters }
-      // 编辑期间关掉输入规则，免得打完整的一对 $ 立刻被换走
-      const storage = (editor.storage as { mathInputRules?: { draft: boolean } }).mathInputRules
-      if (storage) storage.draft = true
-      setMathDraft({ from, to, latex, block: false, top: 0, left: 0 })
+      const coords = editor.view.coordsAtPos(from)
+      mathAnchorRef.current = new DOMRect(
+        coords.left,
+        coords.top,
+        coords.right - coords.left,
+        coords.bottom - coords.top,
+      )
+      mathIsNewRef.current = true
+      editor.chain().focus().insertContent({ type: block ? 'blockMath' : 'inlineMath', attrs: { latex: '' } }).run()
+      const after = editor.state.selection.from
+      for (const candidate of [after - 1, after, after - 2]) {
+        const hit = editor.state.doc.nodeAt(candidate)
+        if (hit && hit.type.name.toLowerCase().includes('math')) {
+          mathEditRef.current(candidate)
+          return
+        }
+      }
     }
   }, [editor])
 
@@ -3887,8 +4056,13 @@ export default function App() {
       editor
         .chain()
         .focus()
-        .insertContentAt({ from: mathEdit.from, to: mathEdit.to }, { type: 'blockMath', attrs: { latex } })
+        .insertContentAt(
+          { from: mathEdit.from, to: mathEdit.to },
+          { type: mathEdit.block ? 'blockMath' : 'inlineMath', attrs: { latex } },
+        )
         .run()
+    } else {
+      editor.commands.focus()
     }
     // 内容为空时保留这个公式块：刚打 $$ 回车建出来就被失焦删掉，用户会以为没生效
     setMathEdit(null)
@@ -3897,9 +4071,27 @@ export default function App() {
   const applyLink = useCallback(() => {
     if (!editor || !linkEdit) return
     const href = linkEdit.href.trim()
-    const chain = editor.chain().focus().setTextSelection({ from: linkEdit.from, to: linkEdit.to }).extendMarkRange('link')
-    if (href.length === 0) chain.unsetLink().run()
-    else chain.setLink({ href }).run()
+    const text = linkEdit.text.trim() || href
+    const { from, to } = linkEdit
+    if (href.length === 0) {
+      if (to > from) editor.chain().focus().setTextSelection({ from, to }).extendMarkRange('link').unsetLink().run()
+      setLinkEdit(null)
+      return
+    }
+    const original = editor.state.doc.textBetween(from, to, ' ')
+    if (from === to || text !== original) {
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(
+          { from, to },
+          { type: 'text', text, marks: [{ type: 'link', attrs: { href } }] },
+        )
+        .setTextSelection(from + text.length)
+        .run()
+    } else {
+      editor.chain().focus().setTextSelection({ from, to }).extendMarkRange('link').setLink({ href }).run()
+    }
     setLinkEdit(null)
   }, [editor, linkEdit])
 
@@ -4092,9 +4284,8 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  const latex = window.prompt('行内公式的 LaTeX')
-                  if (latex) run((chain) => chain.insertContent({ type: 'inlineMath', attrs: { latex } }))
                   setMenuOpen(false)
+                  openMathAtCursorRef.current(false)
                 }}
               >
                 公式
@@ -4102,9 +4293,8 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  const latex = window.prompt('公式块的 LaTeX')
-                  if (latex) run((chain) => chain.insertContent({ type: 'blockMath', attrs: { latex } }))
                   setMenuOpen(false)
+                  openMathAtCursorRef.current(true)
                 }}
               >
                 公式块
@@ -4112,9 +4302,8 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  const href = window.prompt('链接地址')
-                  if (href) run((chain) => chain.extendMarkRange('link').setLink({ href }))
                   setMenuOpen(false)
+                  openLinkAtCursorRef.current()
                 }}
               >
                 链接
@@ -4532,8 +4721,7 @@ export default function App() {
       />
 
       {railOpen && (
-        <button type="button" className="rail-backdrop" aria-label="关闭批注" onClick={closeRail} />
-      )}
+        <button type="button" className="rail-backdrop" aria-label="关闭批注" onClick={closeRail} />      )}
 
       <SaveDialog
         open={pendingConfirm !== null}
@@ -4681,29 +4869,34 @@ export default function App() {
         }}
       />
 
-      {linkEdit && (
-        <InlinePopover anchor={linkEdit.anchor} label="编辑链接" onClose={() => setLinkEdit(null)}>
-          <p className="popover-title">链接</p>
-          <input
-            className="dialog-input"
-            value={linkEdit.href}
-            autoFocus
-            placeholder="https://"
-            onChange={(event) => setLinkEdit({ ...linkEdit, href: event.target.value })}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') applyLink()
+      {quickOpen && (
+        <Suspense fallback={null}>
+          <QuickOpen
+            files={flattenFiles(workspace?.root ?? null).map((file) => ({ name: file.name, path: file.path }))}
+            onSelect={(picked) => {
+              const node = flattenFiles(workspace?.root ?? null).find((file) => file.path === picked.path)
+              if (node) void openWorkspaceFile(node)
+              setQuickOpen(false)
             }}
+            onClose={() => setQuickOpen(false)}
           />
-          <p className="popover-note">地址留空并保存，就把链接变回普通文字。</p>
-          <div className="popover-actions">
-            <button type="button" onClick={() => setLinkEdit(null)}>
-              取消
-            </button>
-            <button type="button" className="primary" onClick={applyLink}>
-              保存
-            </button>
-          </div>
-        </InlinePopover>
+        </Suspense>
+      )}
+
+      {linkEdit && (
+        <LinkEditor
+          anchor={linkEdit.anchor}
+          text={linkEdit.text}
+          href={linkEdit.href}
+          focus={linkEdit.focus}
+          onTextChange={(text) => setLinkEdit({ ...linkEdit, text })}
+          onHrefChange={(href) => setLinkEdit({ ...linkEdit, href })}
+          onSave={applyLink}
+          onCancel={() => {
+            setLinkEdit(null)
+            editor?.commands.focus()
+          }}
+        />
       )}
 
       {mathDraft && (
@@ -4714,10 +4907,16 @@ export default function App() {
         <MathInlineEditor
           anchor={mathEdit.anchor}
           latex={mathEdit.latex}
-          display
+          display={mathEdit.block}
           onChange={(latex) => setMathEdit({ ...mathEdit, latex })}
           onCommit={applyMath}
-          onCancel={() => setMathEdit(null)}
+          onCancel={() => {
+            if (mathEdit.isNew) {
+              editor?.chain().focus().deleteRange({ from: mathEdit.from, to: mathEdit.to }).run()
+            }
+            setMathEdit(null)
+            editor?.commands.focus()
+          }}
         />
       )}
 

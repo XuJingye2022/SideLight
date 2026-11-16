@@ -1480,6 +1480,17 @@ static class Program
             core.WebMessageReceived += OnWebMessageReceived;
             core.NavigationStarting += OnNavigationStarting;
             core.NavigationCompleted += OnNavigationCompleted;
+            // WebView2 默认吞掉 Ctrl+P/F/K 等浏览器加速键，页面收不到 keydown。
+            // 关掉它，快捷键交回页面；DevTools/下载/导航相关设置不动。
+            try
+            {
+                core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+                Log("browser accelerator keys disabled");
+            }
+            catch (Exception)
+            {
+                Log("browser accelerator keys setting failed");
+            }
             core.ProcessFailed += delegate(object s, CoreWebView2ProcessFailedEventArgs e)
             {
                 Log("process failed " + e.ProcessFailedKind);

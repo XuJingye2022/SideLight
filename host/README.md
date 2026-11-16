@@ -119,4 +119,5 @@ node scripts\host-smoke.mjs --fsa    # 追加真实读写：选文件夹、开�
 - `annotations-save`：页面消息 `{v:1,type:"annotations-save",id,text}`，原子写同一路径；回 `annotations-save-result`（`ok/error`）。只读回 `READONLY`、目录不可写回 `IO`；带 `path/fileName/file` 一律 `BAD_REQUEST`。
 - 验收：`node scripts/host-annotation-acceptance.mjs`（6 项）。
 - 高分屏：只靠 `app.manifest` 的 `PerMonitorV2, PerMonitor`。**不要在 `Sidelight.exe.config` 声明 `System.Windows.Forms.ApplicationConfigurationSection`**——.NET Framework 4.8 下声明后宿主启动会抛「配置系统未能初始化」并退出（方案 A 实测失败，已回退为方案 B）。
-- 风险：未在真实 150%/200% 缩放屏上验；本机 100% 只能证明清单生效（`GetProcessDpiAwareness = 2`）。
+- 风险：未在真实 150%/200% 缩放屏上验；本机 100% 只能证明清单生效（`GetProcessDpiAwareness = 2`）。- 加速键：WebView2 初始化后设 `Settings.AreBrowserAcceleratorKeysEnabled = false`，`Ctrl+K/P/F` 等交给页面 `keydown`；DevTools、下载、导航设置不变。`host-smoke` 断言页面确实收到这三组键。
+- 未验：真实输入法与 AltGr 组合在禁用加速键后是否回归（本机无多键盘布局/输入法实测）。

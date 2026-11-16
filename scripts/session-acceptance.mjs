@@ -155,6 +155,88 @@ check('单文件会话重载后名称正确', single.name === 'single.md', Strin
 check('单文件 Ctrl+S 不弹 picker', single.saveCalls === 0, String(single.saveCalls))
 check('单文件 Ctrl+S 写回 OPFS', single.text.includes('SAVED'), single.text.slice(-30))
 
+// 宿主重开：/__doc 成功也要恢复文件夹与树
+const page3 = await context.newPage()
+await page3.addInitScript(() => {
+  localStorage.removeItem('sidelight.doc.v1')
+  window.__hostMessages = []
+  window.__savePickerCalls = 0
+  window.chrome = {
+    webview: {
+      postMessage: (message) => window.__hostMessages.push(message),
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    },
+  }
+  window.showSaveFilePicker = async () => {
+    window.__savePickerCalls += 1
+    throw new DOMException('不应弹保存选择器', 'AbortError')
+  }
+})
+await page3.goto(URL, { waitUntil: 'networkidle' })
+await page3.evaluate(async () => {
+  const root = await navigator.storage.getDirectory()
+  const dir = await root.getDirectoryHandle('proj')
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('sidelight.session', 1)
+    request.onupgradeneeded = () => request.result.createObjectStore('handles')
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction('handles', 'readwrite')
+    tx.objectStore('handles').put({ kind: 'workspace', handle: dir, name: 'proj', path: 'doc.md' }, 'last')
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+  db.close()
+})
+await page3.route('**/__doc', (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      v: 1,
+      ok: true,
+      text: '# 会话\n\nhello world\n',
+      fileName: 'doc.md',
+      mtime: 0,
+      eol: 'lf',
+      readOnly: false,
+    }),
+  }),
+)
+await page3.reload({ waitUntil: 'networkidle' })
+await page3.waitForTimeout(1800)
+const host = await page3.evaluate(() => ({
+  tree: document.querySelectorAll('[role="treeitem"]').length,
+  active: document.querySelector('.tree-file.is-active')?.textContent?.trim(),
+  cards: document.querySelectorAll('.margin-rail article').length,
+}))
+if (host.tree === 0) {
+  const debug = await page3.evaluate(async () => {
+    const root = await navigator.storage.getDirectory()
+    const dir = await root.getDirectoryHandle('proj')
+    const names = []
+    for await (const [name] of dir.entries()) names.push(name)
+    return { names, dialogs: document.querySelectorAll('[role="dialog"]').length }
+  })
+  console.log('DEBUG host', JSON.stringify(debug))
+}
+check('宿主文档重开恢复文件树', host.tree >= 1, String(host.tree))
+check('宿主文件在树里被选中', host.active === 'doc.md', String(host.active))
+check('宿主模式优先恢复 workspace 批注', host.cards >= 1, String(host.cards))
+await page3.locator('.ProseMirror').click()
+await page3.keyboard.press('Control+End')
+await page3.keyboard.type(' HOST-SAVE')
+await page3.keyboard.press('Control+S')
+await page3.waitForTimeout(800)
+const hostSave = await page3.evaluate(() => ({
+  saves: window.__hostMessages.filter((message) => message?.type === 'save').length,
+  pickers: window.__savePickerCalls,
+}))
+check('宿主 Ctrl+S 发 host save 且不弹 picker', hostSave.saves >= 1 && hostSave.pickers === 0, JSON.stringify(hostSave))
+
 const failed = results.filter((item) => !item.ok)
 console.log(`summary: ${results.length - failed.length}/${results.length} PASS`)
 process.exit(failed.length > 0 ? 1 : 0)

@@ -2096,7 +2096,143 @@ button:disabled {
 
 /* ---------- 贴着元素的浮层（链接 / 公式） ---------- */
 
+.quick-open-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: color-mix(in srgb, var(--ink) 24%, transparent);
+}
+
+.quick-open {
+  width: min(560px, calc(100vw - 32px));
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.quick-open-input {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-deep);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+
+.quick-open-list {
+  margin: 8px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.quick-open-list button {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quick-open-list button.is-active {
+  background: var(--paper-deep);
+}
+
+.link-editor,
+.math-inline {
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--paper);
+  box-shadow: 0 10px 28px var(--shadow);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.link-editor-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.link-editor-input,
+.math-inline-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper-deep);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+
+.link-editor-input:focus,
+.math-inline-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.math-inline-input {
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+
+.link-editor-hint,
+.math-inline-hint {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.link-editor-hint kbd,
+.math-inline-hint kbd {
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper-deep);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.math-inline-preview {
+  min-height: 32px;
+  padding: 4px 2px;
+  overflow-x: auto;
+  color: var(--ink);
+}
+
+.math-inline-preview.is-empty {
+  color: var(--ink-faint);
+}
+
 .popover {
+  position: fixed;
   z-index: 40;
   padding: 12px 14px 10px;
   border: 1px solid var(--line-strong);

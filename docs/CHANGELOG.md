@@ -2,6 +2,22 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
+## 0.32.0 — 2026-11-16
+
+七项修复 + Typora 快速键；核心是会话恢复与宿主批注协议。
+
+- 会话恢复：重新打开恢复上次的文件夹、当前文件与批注；IndexedDB 只存文件句柄，权限三态（已授权 / 需重新授权 / 不可用），失败退化为「最近打开」；重新授权后 `Ctrl+S` 原地保存。
+- 宿主批注：`GET /__annotations` 只读当前文档同目录 `.sidelight/annotations/<CacheKey>.json`（没有回 404，上限 512 KiB）；新增 `annotations-save` 原子写回，只读 / 不可写回 `READONLY` / `IO`，拒绝伪造路径。
+- 批注协议 v2：新增「整体评价」与「未定位」条目（`{v:2,annotations,notes}`，兼容旧数组，迁移前备份）；重跑分析按窗口替换，未定位批注不再丢。
+- 提示词压缩到 796 字，并要求一条全文总评。
+- 高分屏：manifest 声明 `PerMonitorV2, PerMonitor`，`GetProcessDpiAwareness` 实测 2；WinForms 配置节经实测会让宿主启动失败，未启用。
+- 搜索：新增 DeepSeek 官方 Search 接口（Key 可与模型 Key 相同），401/402/429 有可读错误文案。
+- 快捷键：Ctrl+K 链接、Ctrl+M 公式、Ctrl+P 快速打开、Ctrl+1–6 标题、Ctrl+0 正文、Ctrl+/ 源码、表格 Tab 走格与 Ctrl+Enter、侧栏 Ctrl+Shift+1/3/L。
+- 测试：17 文件 **248** 条；`session` 15/15、`annotation` 8/8、`host-smoke` 8/8、`host-annotation` 6/6、`keyboard` 49/49。
+- 首屏 gzip **285,997 B**（临时预算 286,000 B，余 3 B）。
+- UNVERIFIED：真实重开权限、150%/200% 缩放屏、真模型提示词质量、真实 DeepSeek 搜索（无 Key）、macOS 快捷键、旧会话里已丢弃的批注不可恢复。
+- 体积与 SHA256 见 Release 页的 `SHA256SUMS-0.32.0.txt`。
+
 ## 0.31.1 — 2026-11-16
 
 最终版：窄窗与键盘细节、Windows 单实例与安装检测、macOS 平台补齐。

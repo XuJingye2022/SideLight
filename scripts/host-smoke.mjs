@@ -243,6 +243,26 @@ async function main() {
     `errors=${consoleErrors.length}${consoleErrors.length ? ' ' + consoleErrors.slice(0, 3).join(' | ') : ''}`,
   )
 
+  // 加速键：AreBrowserAcceleratorKeysEnabled=false 后，Ctrl+K/P/F 应到达页面 keydown
+  await page.evaluate(() => {
+    window.__slKeys = []
+    window.addEventListener(
+      'keydown',
+      (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key) window.__slKeys.push(event.key.toLowerCase())
+      },
+      true,
+    )
+  })
+  for (const combo of ['Control+k', 'Control+p', 'Control+f']) await page.keyboard.press(combo)
+  await page.waitForTimeout(300)
+  const keys = await page.evaluate(() => window.__slKeys ?? [])
+  check(
+    '加速键：页面 keydown 收到 Ctrl+K/P/F',
+    ['k', 'p', 'f'].every((key) => keys.includes(key)),
+    `keys=${keys.join(',')}`,
+  )
+
   const argv = await page.evaluate(() => ({
     runs: sessionStorage.getItem('sl:argv-runs'),
     done: sessionStorage.getItem('sl:argv-done'),
