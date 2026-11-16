@@ -1126,18 +1126,22 @@ static class Program
             WriteResponse(stream, 403, null, null, false);
             return;
         }
+        // 没有当前文档或还没有缓存文件时回 200 + 空 v2 store，不回 404：
+        // 页面加载时就会请求它，404 会在控制台留下错误并让 smoke 的「0 错误」断言失败。
+        Dictionary<string, object> empty = new Dictionary<string, object>();
+        empty["v"] = 2;
+        empty["annotations"] = new List<object>();
+        empty["notes"] = new List<object>();
+        byte[] emptyBody = Encoding.UTF8.GetBytes(json.Serialize(empty));
         if (currentPath == null)
         {
-            WriteResponse(stream, 404, "application/json; charset=utf-8", BuildErrorJson("NO_DOC"), false);
+            WriteResponse(stream, 200, "application/json; charset=utf-8", emptyBody, false);
             return;
         }
         string path = AnnotationsPath();
         if (path == null || !File.Exists(path))
         {
-            Dictionary<string, object> none = new Dictionary<string, object>();
-            none["v"] = 1;
-            none["exists"] = false;
-            WriteResponse(stream, 404, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json.Serialize(none)), false);
+            WriteResponse(stream, 200, "application/json; charset=utf-8", emptyBody, false);
             return;
         }
         FileInfo info = new FileInfo(path);

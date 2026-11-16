@@ -254,8 +254,17 @@ async function main() {
       true,
     )
   })
-  for (const combo of ['Control+k', 'Control+p', 'Control+f']) await page.keyboard.press(combo)
-  await page.waitForTimeout(300)
+  // 每按一个加速键就立刻关掉它打开的浮层，免得遮罩挡住后面的 FSA 点击
+  for (const combo of ['Control+k', 'Control+p', 'Control+f']) {
+    await page.keyboard.press(combo)
+    await page.waitForTimeout(250)
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(250)
+    if ((await page.locator('.quick-open-backdrop').count()) > 0) {
+      await page.locator('.quick-open-backdrop').click({ position: { x: 2, y: 2 }, force: true })
+      await page.waitForTimeout(250)
+    }
+  }
   const keys = await page.evaluate(() => window.__slKeys ?? [])
   check(
     '加速键：页面 keydown 收到 Ctrl+K/P/F',

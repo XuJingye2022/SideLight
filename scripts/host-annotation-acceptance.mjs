@@ -167,16 +167,28 @@ async function main() {
   } catch {
     parsed = null
   }
+  // 页面加载后可能已经用 annotations-save 迁移过格式，所以和当前磁盘内容比，而不是和初始 fixture 比
+  const diskNow = existsSync(ANNOT_FILE) ? readFileSync(ANNOT_FILE, 'utf8') : null
   check(
-    'GET /__annotations 200 且 text 与文件一致',
-    got.status === 200 && parsed?.exists === true && parsed?.text === initialPayload,
-    `status=${got.status} bytes=${Buffer.byteLength(got.text ?? '')}`,
+    'GET /__annotations 200 且 text 与磁盘文件一致',
+    got.status === 200 && parsed?.exists === true && parsed?.text === diskNow,
+    `status=${got.status} bytes=${Buffer.byteLength(got.text ?? '')} disk=${diskNow === null ? 'missing' : Buffer.byteLength(diskNow)}`,
   )
 
-  // 2) 无缓存：404
+  // 2) 无缓存：200 + 空 v2 store（页面加载会请求它，不用 404）
   rmSync(ANNOT_FILE, { force: true })
   got = await getAnnotations()
-  check('无缓存文件时 GET /__annotations 404', got.status === 404, `status=${got.status}`)
+  let emptyStore = null
+  try {
+    emptyStore = JSON.parse(got.text)
+  } catch {
+    emptyStore = null
+  }
+  check(
+    '无缓存文件时 GET /__annotations 200 + 空 v2 store',
+    got.status === 200 && emptyStore?.v === 2 && Array.isArray(emptyStore?.annotations) && emptyStore.annotations.length === 0 && Array.isArray(emptyStore?.notes),
+    `status=${got.status} body=${got.text.slice(0, 80)}`,
+  )
 
   // 3) annotations-save 落盘且内容一致
   const payload = JSON.stringify({ v: 2, annotations: [{ id: 'b1', quote: '正文', note: '新批注' }], notes: [] })

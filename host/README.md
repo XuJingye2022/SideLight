@@ -115,7 +115,7 @@ node scripts\host-smoke.mjs --fsa    # 追加真实读写：选文件夹、开�
 
 ## 批注端点与高分屏（0.31.x）
 
-- `GET /__annotations`：只读当前文档同目录 `.sidelight/annotations/<CacheKey>.json`；没有文件回 404，超过 512 KiB 回 413。
+- `GET /__annotations`：只读当前文档同目录 `.sidelight/annotations/<CacheKey>.json`；没有文件（或没有当前文档）回 **200 + 空 v2 store**（`{"v":2,"annotations":[],"notes":[]}`，页面加载就会请求，404 会污染控制台），超过 512 KiB 回 413。
 - `annotations-save`：页面消息 `{v:1,type:"annotations-save",id,text}`，原子写同一路径；回 `annotations-save-result`（`ok/error`）。只读回 `READONLY`、目录不可写回 `IO`；带 `path/fileName/file` 一律 `BAD_REQUEST`。
 - 验收：`node scripts/host-annotation-acceptance.mjs`（6 项）。
 - 高分屏：只靠 `app.manifest` 的 `PerMonitorV2, PerMonitor`。**不要在 `Sidelight.exe.config` 声明 `System.Windows.Forms.ApplicationConfigurationSection`**——.NET Framework 4.8 下声明后宿主启动会抛「配置系统未能初始化」并退出（方案 A 实测失败，已回退为方案 B）。
