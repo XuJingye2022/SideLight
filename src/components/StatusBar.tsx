@@ -13,6 +13,9 @@ type Props = {
   draftRestored?: boolean
   autoSaveLabel?: string
   autoSaveTone?: 'ok' | 'warn' | 'error'
+  /** 字数明细面板是否打开（触发按钮的 aria-expanded） */
+  statsOpen?: boolean
+  onStatsClick?: () => void
 }
 
 export function StatusBar({
@@ -26,11 +29,23 @@ export function StatusBar({
   draftRestored,
   autoSaveLabel,
   autoSaveTone = 'ok',
+  statsOpen = false,
+  onStatsClick,
 }: Props) {
   return (
     <footer className="status-bar">
       <span className="status-left">
-        {formatStats(stats)}
+        <button
+          type="button"
+          className="stats-trigger"
+          aria-haspopup="dialog"
+          aria-expanded={statsOpen}
+          aria-controls={statsOpen ? 'stats-detail' : undefined}
+          title="点开看字数明细：字符、词、句、段、阅读时间与选区内计数"
+          onClick={onStatsClick}
+        >
+          {formatStats(stats)}
+        </button>
         {hasFrontmatter && <span className="status-chip status-chip-quiet">元数据</span>}
         {hostFileName && (
           <span className="status-chip status-chip-quiet" title="Ctrl+S 保存到这个文件">

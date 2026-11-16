@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { countText, formatStats } from './wordcount.ts'
+import { countSentences, countText, formatStats } from './wordcount.ts'
 
 test('纯中文只数字，句号不算字', () => {
   const stats = countText('写作是把想法变成文字。')
@@ -65,3 +65,21 @@ test('formatStats 的字数是中文加英文，并带千位分隔', () => {
   // 空文档不显示阅读时间，避免「0 字 · 阅读约 1 分钟」这种自相矛盾
   assert.equal(formatStats({ cjk: 0, words: 0, chars: 0, paragraphs: 0, minutes: 1 }), '0 字')
 })
+
+test('句数：中文句末标点、西文句号后空白、换行都切句', () => {
+  assert.equal(countSentences('写作是把想法变成文字。Use TypeScript and Markdown. 第三个问题？'), 3)
+  assert.equal(countSentences('第一段\n\n第二段\n'), 2)
+  assert.equal(countSentences('单句没有标点'), 1)
+})
+
+test('句数：句末标点连写只算一次，缩写在句号处多算一句（已知取舍）', () => {
+  assert.equal(countSentences('真的吗？！'), 1)
+  assert.equal(countSentences('Hello, e.g. this one.'), 2)
+})
+
+test('句数：空串与全空白 0 句，只剩标点也不计', () => {
+  assert.equal(countSentences(''), 0)
+  assert.equal(countSentences(' \n\t\r\n '), 0)
+  assert.equal(countSentences('……！？？'), 0)
+})
+

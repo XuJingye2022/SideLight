@@ -31,10 +31,10 @@ SetCompressorDictSize 32
 ShowInstDetails show
 ShowUninstDetails show
 
-VIProductVersion "0.31.1.0"
+VIProductVersion "${APPVERSION}.0"
 VIAddVersionKey /LANG=2052 "ProductName" "Sidelight"
 VIAddVersionKey /LANG=2052 "ProductVersion" "${APPVERSION}"
-VIAddVersionKey /LANG=2052 "FileVersion" "0.31.1.0"
+VIAddVersionKey /LANG=2052 "FileVersion" "${APPVERSION}.0"
 VIAddVersionKey /LANG=2052 "CompanyName" "${PUBLISHER}"
 VIAddVersionKey /LANG=2052 "FileDescription" "Sidelight 安装器"
 VIAddVersionKey /LANG=2052 "LegalCopyright" "Sidelight contributors"

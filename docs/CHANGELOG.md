@@ -2,9 +2,19 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29 轮，未发版）
+## Unreleased（第 29–30 轮，未发版）
 
-数据安全 + 大纲折叠；计划里的 T2（状态栏字数点击明细）**未做**，留待下一轮。
+数据安全 + 大纲折叠；计划里的 T2（状态栏字数点击明细）**未做**，留待下一轮。第 30 轮补上字数明细、修删除撤销丢正文，并给安装器版本与发版流水线加门。
+
+**第 30 轮（同一未发版区间）**
+
+- 状态栏字数可点：弹出「字数明细」面板（字 / 字符 / 词 / 句 / 段 / 阅读时间 + 选区内字、字符、句），`Esc` 或点面板外面关闭，焦点回触发按钮；面板是 footer 的兄弟节点，不吃状态栏的整栏文本。新增 `countSentences`（`src/lib/wordcount.ts`，3 条单测）。
+- 源码模式字数先剥 frontmatter（`src/App.tsx` 状态栏取值），同一篇在编辑/源码间因元数据跳变的问题修掉；`[文字](url)` 这类链接目标造成的残留跳变另记，见第 30 轮报告。
+- **修数据丢失**：删除干净文件后「撤销」恢复成 0 字节，还把 `.sidelight/trash/` 里的两份副本一起删掉。现在干净文件（`text === null`）不写 `.current.md`；撤销改为收集 trash 条目（只收 `kind === 'file'`）后按「`.current.md` 非空才优先、否则整份备份」选源；新增纯函数 `shouldWriteCurrent` / `pickTrashSource` 与 `src/lib/trash.test.ts`（6 条）。
+- 首屏回收：`PreviewPane` 与 `export.ts` 改按需加载（导出时才取模板），首屏 gzip 285,838 → **284,529 B**（上限 286,000，余 1,471 B）。
+- 安装器版本不再写死：`packaging/installer.nsi` 的 `VIProductVersion` / `FileVersion` 改用 `${APPVERSION}.0`（0.31.1.0 曾随 0.32.1 发出去）；`packaging/installer.ps1` 出包后断言 `FileVersion` 并打印 820,000 B 目标线差值。`release.yml` 两个构建 job 补 `npm test` / 首屏体积门，`ci.yml` 补便携 zip。
+- 测试：`npm test` 18 个文件 **260** 条（251 + 删除撤销 6 + 句数 3）。
+- UNVERIFIED：真实盘句柄上的删除 + 撤销（假 FSA 无权限模型，`move()` 分支总被走到，copy 分支本轮跑不到）。超大文件新提示本轮已按文件树入口实测通过（dev server 已交付新模块，`tooLargeNote` 3 处）。
 
 - 保存成功后不再写陈旧草稿：`finishSaved` 先停草稿计时器再推进代际；草稿回调在 `parentDirectory` 前后、`writeCache` 之后各判一次 `stale()`，在飞的一轮写下了也补删（`src/App.tsx:845-874`、`:2521-2529`）。
 - 超过 5.5 MiB 的文件被拒时，提示写清正文「仍在『哪一篇』」，不再让人以为窗口里是新文件、`Ctrl+S` 写错篇；文件选择器与文件树两条入口共用 `tooLargeNote`（`src/App.tsx:2105,2112,2133`）。文件树入口的实测被陈旧模块挡住，见 `docs/iteration/round-29/test.md` 的 UNVERIFIED。

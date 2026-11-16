@@ -35,7 +35,8 @@ const exportOne = async (label, index) => {
   await page.waitForTimeout(200)
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 5000 }),
-    page.getByRole('button', { name: label, exact: true }).click(),
+    // 菜单项是 role="menuitem"（.export-menu 里 role="menu"），不是 button
+    page.getByRole('menuitem', { name: label, exact: true }).click(),
   ])
   const target = `${OUT}/${index}-${download.suggestedFilename()}`
   await download.saveAs(target)
@@ -70,5 +71,6 @@ await page.screenshot({ path: 'shots/round-04/t3-export.png' })
 
 console.log(`\n${results.filter((item) => item.ok).length}/${results.length} PASS`)
 await page.close()
-await browser.close()
-if (results.some((item) => !item.ok)) process.exit(1)
+// 不调 browser.close()：CDP 连的是共享 Edge，关掉会让同端口的后续脚本连不上
+// 连接不断开会吊住进程，必须显式退出
+process.exit(results.some((item) => !item.ok) ? 1 : 0)

@@ -63,3 +63,16 @@ export function formatStats(stats: TextStats): string {
   if (total === 0) return `${count} 字`
   return `${count} 字 · 阅读约 ${stats.minutes} 分钟`
 }
+
+/**
+ * 句数：先删 `\r`，再按中文句末标点（。！？；…）、西文句号后跟空白、换行切分，
+ * 去掉首尾空白后非空的片段计 1 句。拉丁缩写（`e.g.`、`Dr.`）不特殊处理，
+ * 会在缩写处多切一句 —— 已知取舍，宁可多算不吞句。
+ */
+export function countSentences(text: string): number {
+  const normalized = text.replace(/\r/g, '')
+  if (normalized.trim().length === 0) return 0
+  return normalized
+    .split(/[。！？!?；;…]+|(?<=[.!?])\s+|\n+/)
+    .filter((part) => part.trim().length > 0).length
+}

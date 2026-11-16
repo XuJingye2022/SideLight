@@ -30,8 +30,8 @@
 
 - 仓库：`D:\Documents\SidelightProgram`，branch `main`，基线 commit `342481b`。
 - Node 24.21 / npm 11.19。没有 pnpm、没有 Rust、没有 VS Build Tools、没有管理员权限。WebView2 运行时已安装（`C:\Program Files (x86)\Microsoft\EdgeWebView\Application`）。
-- dev server：`http://localhost:5173`。Vite 只绑 IPv6 的 `::1`，`127.0.0.1:5173` 连不上，统一写 `localhost`。HMR 自动跟代码。
-- CDP 浏览器：`http://127.0.0.1:9222`、`:9223`、`:9224`（headless Edge，profile 在系统临时目录）。`scripts/*.mjs` 用 `chromium.connectOverCDP('http://127.0.0.1:9222')`；需要独立端口时改脚本里的端口，别和别人共用。
+- dev server：由根代理起在 `http://localhost:5175`。Vite 只绑 IPv6 的 `::1`，统一写 `localhost`。`5173` 是旧会话遗留、无法回收的僵尸 server，禁用。HMR 自动跟代码。
+- CDP 浏览器：9222–9226（上一会话遗留的 headless Edge，profile 在系统临时目录；每端口独立）。DSH 沙箱禁止启动 Chromium（mojo 命名管道 EPERM），不要尝试另起浏览器。`.tmp/reset.mjs <端口>` 只关 localhost 旧页面并清 localStorage/IndexedDB，不杀浏览器。
 - 网络可用：npm registry 与 crates.io 都是 443 可达。
 - 发布路径：ADR-0004。C#/.NET Framework + WebView2 宿主 `host/` 已跑通窗口、单实例、argv、真实文件夹读写；安装包尚未制作。Tauri 2 留作目标，需管理员或 CI。
 - 中文输入法未验证；真模型与搜索接口无 key，用模拟流测试。
@@ -116,12 +116,12 @@
 
 ## 下一轮怎么开始（给接手的调度器）
 
-1. 读本文件、`AGENTS.md`、最近一次 `docs/iteration/round-28/test.md`。
-2. 起 dev server（`node node_modules/vite/bin/vite.js`，写 `localhost:5173`），确认 200。
-3. 派 3–6 个只读侦察（缺陷/体验/发布/性能）；报告写 `round-NN/findings-*.md`。
-4. 复用已有持久代理：`planner`、`critic`、`builder`、`builder2`、`tester`（用 send_message，别新建同名）。
-5. 按「侦察 → 计划 → 审计划 → 实施 → 验收」循环；根代理只在阶段之间分派、跑最终门禁、commit、更新本文件。
-6. 第 29 轮已完成（PASS-WITH-UNVERIFIED，未发版）。后续优先：**补 T2 状态栏字数明细**（P1，产品负责人点名，本轮完全没做）、重启 dev server 后复验 T1 的「超大文件提示」、T3 的 `.outline*` 懒 CSS 搬移（−49 B，本轮没做）、Mermaid 先量 chunk 再定、真实 macOS/Intel/签名公证、1 MB 性能包线、UX L1/F3、安装器运行中卸载、P2 可访问性；没有新的必过门禁项。
+1. 读本文件、`AGENTS.md`、最近一次 `docs/iteration/round-29/test.md` 与 `plan.md`。
+2. dev server 由根代理起在 **`http://localhost:5175`**；`5173` 是旧会话遗留、无法回收的僵尸 server，禁用。确认 `http://localhost:5175/src/main.tsx` 返回 200。
+3. CDP 用 9222–9226（每个端口独立 profile；9227 不可用）。每轮 E2E 前跑 `node .tmp/reset.mjs <端口>`：它会关旧页面、清 localStorage/IndexedDB。旧页面会执行 HMR 没应用的 App.tsx 中间版本，见 AGENTS §8。
+4. 用 DSH `workflow` 调度五角色：3–5 个只读 finder 并行 → planner → critic（REVISE 回 planner，最多 2 次）→ executor → tester；FAIL 返修最多 2 次，仍 FAIL 回滚。不再复用持久代理或 send_message。
+5. 根代理只在批次之间做事：读报告与 `git log`、串行跑 `npm run build`/`npm test`/`measure`、更新本文件、决定下一批。产品代码由子代理写。
+6. 第 29 轮完成（PASS-WITH-UNVERIFIED，未发版，HEAD 见轮次表）。后续优先：**T2 状态栏字数明细**（P1，本轮完全没做，第 30 轮必须补）、刷新页面后复验 T1 的「超大文件提示」、T3 的 `.outline*` 懒 CSS 搬移、Mermaid 先量 chunk 再定、真实 macOS/Intel/签名公证、1 MB 性能包线、UX L1/F3、安装器运行中卸载、P2 可访问性。
 
 ## 决策记录
 
@@ -142,3 +142,6 @@
 - 2026-11-16 第 11 轮：KaTeX 惰性（alias + shim + 动态 CSS + 就绪订阅），首屏 364,960→282,809 B；265 KiB 不可达写进 ADR-0012；版本 0.24.0。
 - 2026-11-16 第 12 轮：文件树删除文件到 `.sidelight/trash/`（move 优先、SHA 回退）、删除后不复活、刷新重绑、树可访问性；首屏 284,134 B；版本 0.25.0。
 - 2026-11-16 第 13 轮：同目录安全重命名（目标存在拒绝、二次探测、无 copy 回退、缓存迁移、身份同步）、树缩进/选中可见、大纲 `aria-current`；首屏 284,973 B；版本 0.26.0。
+
+- 2026-11-17 根代理：第 29 轮起用 `http://localhost:5175` 与 CDP 9222–9226；DSH 沙箱禁止启动 Chromium，复用上一会话遗留的 5 个 headless Edge；`.tmp/reset.mjs` 只关 localhost 页面，不杀浏览器。沙箱挡住浏览器时记 UNVERIFIED，不反复重试。
+- 2026-11-17 根代理：五角色提示词外置到 `.tmp/iteration/common.md` 与 `.tmp/iteration/roles/*.md`；workflow 只传轮次、报告目录、端口与上一轮摘要。每轮报告仍在 `docs/iteration/round-NN/`。

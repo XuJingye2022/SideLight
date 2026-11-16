@@ -67,6 +67,27 @@ if ($code -ne 0) {
     exit $code
 }
 
+# 产物版本断言：nsi 里的 VIProductVersion/FileVersion 都取自 ${APPVERSION}，
+# 写死过一次把 0.31.1.0 发出去，这里留一道本地就能跑的门（dry-run 也走）。
+$out = if ($AssocDryRun) {
+    Join-Path $root '.tmp\assoc-dryrun-setup.exe'
+} else {
+    Join-Path $root "release\Sidelight-$version-win-x64-setup.exe"
+}
+if (-not (Test-Path $out)) {
+    Write-Host "没有产物：$out"
+    exit 1
+}
+$expectedFileVersion = "$version.0"
+$actualFileVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($out).FileVersion
+if ($actualFileVersion -ne $expectedFileVersion) {
+    Write-Host ("FileVersion 不对：期望 {0}，实际 {1}（{2}）" -f $expectedFileVersion, $actualFileVersion, $out)
+    exit 1
+}
+Write-Host ("fileVersion={0}  {1}" -f $actualFileVersion, $out)
+# 内部预算 820,000 B（S3a）：超了只报警，不拦发布
+Write-Host ("target=820000 gap={0}" -f ((Get-Item $out).Length - 820000))
+
 if ($AssocDryRun) {
     $dry = Join-Path $root '.tmp\assoc-dryrun-setup.exe'
     if (-not (Test-Path $dry)) {

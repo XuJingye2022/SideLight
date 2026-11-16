@@ -148,11 +148,28 @@ export async function deleteFileToTrash(root: FileSystemDirectoryHandle, node: W
   return copyThenVerify(node.handle, parent, node.name, trashDir, finalName)
 }
 
+/** 删除时是否要额外写一份 `.current.md`：只有拿到编辑器正文才写，干净文件传 null */
+export function shouldWriteCurrent(text: string | null): boolean {
+  return text !== null
+}
+
+/**
+ * 撤销时选源：`.current.md` 是删除那一刻的编辑器正文，只有非空才值得优先；
+ * 0 字节的条目（旧版本对干净文件也会写）会让恢复出空文件，改用整份备份。
+ */
+export function pickTrashSource(entries: Array<{ name: string; size: number }>, trashNameValue: string): string | null {
+  const backup = entries.find((entry) => entry.name === trashNameValue)
+  const current = entries.find((entry) => entry.name === `${trashNameValue}.current.md`)
+  if (current && current.size > 0) return current.name
+  if (backup) return backup.name
+  return null
+}
+
 /** 删除脏文档：用编辑器当前正文写 trash 副本，校验成功后才删原文件 */
 export async function deleteFileWithText(
   root: FileSystemDirectoryHandle,
   node: WorkspaceFileNode,
-  text: string,
+  text: string | null,
   explicitName?: string,
 ): Promise<TrashResult> {
   try {
@@ -163,7 +180,6 @@ export async function deleteFileWithText(
     const finalName = explicitName ?? trashName(node.name)
     const original = await node.handle.getFile()
     const bytes = await original.arrayBuffer()
-    const current = text
     const target = await trashDir.getFileHandle(finalName, { create: true })
     const targetWritable = await target.createWritable()
     await targetWritable.write(bytes)
@@ -174,19 +190,24 @@ export async function deleteFileWithText(
       await trashDir.removeEntry(finalName).catch(() => undefined)
       return { ok: false, error: '回收站副本校验失败，已保留原文件。' }
     }
+    // currentName 留在守卫块外：下面删原文件失败时要用它清场；它只依赖 finalName
     const currentName = `${finalName}.current.md`
-    try {
-      const currentHandle = await trashDir.getFileHandle(currentName, { create: true })
-      const writer = await currentHandle.createWritable()
-      await writer.write(current)
-      await writer.close()
-      const readBack = await (await currentHandle.getFile()).text()
-      if (readBack !== current) throw new Error('当前正文校验失败')
-    } catch (error) {
-      await trashDir.removeEntry(currentName).catch(() => undefined)
-      await trashDir.removeEntry(finalName).catch(() => undefined)
-      return { ok: false, error: `写入当前正文失败：${error instanceof Error ? error.message : '未知错误'}` }
+    if (text !== null && shouldWriteCurrent(text)) {
+      const current = text
+      try {
+        const currentHandle = await trashDir.getFileHandle(currentName, { create: true })
+        const writer = await currentHandle.createWritable()
+        await writer.write(current)
+        await writer.close()
+        const readBack = await (await currentHandle.getFile()).text()
+        if (readBack !== current) throw new Error('当前正文校验失败')
+      } catch (error) {
+        await trashDir.removeEntry(currentName).catch(() => undefined)
+        await trashDir.removeEntry(finalName).catch(() => undefined)
+        return { ok: false, error: `写入当前正文失败：${error instanceof Error ? error.message : '未知错误'}` }
+      }
     }
+    // 删原文件这一步干净文件也必须走，不要搬进上面的守卫块
     try {
       const parent = await parentForPath(root, node.path)
       await parent.removeEntry(node.name)
@@ -302,7 +323,7 @@ export async function deleteDocumentToTrash(
     const caches = await moveCachesToTrash(root, cacheDir, node.name, name)
     if (!caches.ok) return { ok: false, error: caches.error ?? '缓存搬移失败，已中止删除。' }
   }
-  const result = await deleteFileWithText(root, node, currentText ?? '', name)
+  const result = await deleteFileWithText(root, node, currentText, name)
   if (result.ok && cacheDir) {
     const key = cacheKey(node.name)
     await removeCacheText(cacheDir, 'draft', key).catch(() => undefined)
@@ -343,13 +364,21 @@ export async function restoreFromTrash(root: FileSystemDirectoryHandle, trashNam
     const ensured = await ensureTrashDir(root)
     if (!ensured.dir) return { ok: false, error: ensured.error ?? '回收站不可用。' }
     const trashDir = ensured.dir
-    const source = await (async () => {
-      try {
-        return await trashDir.getFileHandle(`${trashNameValue}.current.md`, { create: false })
-      } catch {
-        return await trashDir.getFileHandle(trashNameValue)
+    // entries() 会同时 yield 目录句柄；目录调 getFile() 会抛，只收文件（回收站里另有 .draft/.json 缓存）
+    const entries: Array<{ name: string; size: number }> = []
+    for await (const [name, handle] of trashDir.entries()) {
+      if (handle.kind === 'file') {
+        try {
+          const file = await (handle as FileSystemFileHandle).getFile()
+          entries.push({ name, size: file.size })
+        } catch {
+          // 读不到大小的条目跳过，不影响选源
+        }
       }
-    })()
+    }
+    const sourceName = pickTrashSource(entries, trashNameValue)
+    if (!sourceName) return { ok: false, error: '回收站里找不到这个文件的副本。' }
+    const source = await trashDir.getFileHandle(sourceName, { create: false })
     const parts = targetPath.split('/').filter(Boolean)
     // 与 deleteFileToTrash 一致：去掉 workspace 根目录名
     if (parts[0] === root.name) parts.shift()
@@ -374,7 +403,8 @@ export async function restoreFromTrash(root: FileSystemDirectoryHandle, trashNam
         await parent.removeEntry(name).catch(() => undefined)
         return { ok: false, error: '恢复后内容校验不一致，trash 副本仍在。' }
       }
-      await trashDir.removeEntry(trashNameValue)
+      // 删掉实际选中的那个副本名（可能是 .current.md），不是写死的备份名
+      await trashDir.removeEntry(sourceName)
       return { ok: true, mode: 'copy' }
     } catch (error) {
       if (target) await parent.removeEntry(name).catch(() => undefined)

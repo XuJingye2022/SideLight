@@ -1486,6 +1486,22 @@ button:disabled {
   gap: 10px;
 }
 
+/* 状态栏字数变成可点按钮：外观保持一行纯文本，只加焦点环 */
+.stats-trigger {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.stats-trigger:focus-visible {
+  outline: 2px solid var(--ink-faint);
+  outline-offset: 2px;
+}
+
 .status-chip {
   padding: 1px 7px;
   border-radius: 999px;

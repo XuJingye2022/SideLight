@@ -23,7 +23,9 @@ import { LinkEditor } from './components/LinkEditor.tsx'
 const MarginRail = lazy(() =>
   import('./components/MarginRail.tsx').then((module) => ({ default: module.MarginRail })),
 )
-import { PreviewPane } from './components/PreviewPane.tsx'
+const PreviewPane = lazy(() =>
+  import('./components/PreviewPane.tsx').then((module) => ({ default: module.PreviewPane })),
+)
 import { SaveDialog } from './components/SaveDialog.tsx'
 import { CloseGuardDialog } from './components/CloseGuardDialog.tsx'
 
@@ -36,6 +38,10 @@ const SettingsDialog = lazy(() =>
 )
 const ShortcutsDialog = lazy(() =>
   import('./components/ShortcutsDialog.tsx').then((module) => ({ default: module.ShortcutsDialog })),
+)
+// 字数明细面板只在点状态栏时加载
+const StatsDetail = lazy(() =>
+  import('./components/StatsDetail.tsx').then((module) => ({ default: module.StatsDetail })),
 )
 import { StatusBar } from './components/StatusBar.tsx'
 import { useDialogFocus } from './components/useDialogFocus.ts'
@@ -60,7 +66,6 @@ import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } fro
 import { MathInputRules } from './lib/mathInput.ts'
 import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDefinitions, lossLabels, type Loss } from './lib/risk.ts'
 import { repairCalloutMarkers } from './lib/escapes.ts'
-import { buildHtmlDocument, buildPlainText, exportName } from './lib/export.ts'
 import { ensureKatex } from './lib/katexLazy.ts'
 import { findAll, type Match } from './lib/find.ts'
 import { extractFootnotes, joinFootnotes, repairFootnoteRefs } from './lib/footnotes.ts'
@@ -477,6 +482,8 @@ export default function App() {
   const [saveWarned, setSaveWarned] = useState(false)
   const [draftShown, setDraftShown] = useState(initial.savedAt > 0)
   const [stats, setStats] = useState<TextStats>(() => countText(initial.text))
+  // 字数明细面板：null = 关闭；打开时冻结当时的正文与选区文本
+  const [statsDetail, setStatsDetail] = useState<{ text: string; selection: string } | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
   const chatAbortRef = useRef<AbortController | null>(null)
@@ -3424,6 +3431,12 @@ export default function App() {
         (mod && (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0'))
 
       if (event.key === 'Escape') {
+        // 放在 Escape 判断之内：放外面会把所有按键都吃掉
+        if (statsDetail !== null) {
+          setStatsDetail(null)
+          document.querySelector<HTMLElement>('.stats-trigger')?.focus()
+          return
+        }
         if (railOpen) {
           setRailOpen(false)
           railToggleRef.current?.focus()
@@ -3614,6 +3627,7 @@ export default function App() {
     newDocument,
     openSingleFile,
     openFolder,
+    statsDetail,
   ])
 
   // 导出菜单打开后焦点进第一项（键盘可以直接走）
@@ -3769,11 +3783,26 @@ export default function App() {
     [editor],
   )
 
+  const openStatsDetail = useCallback(() => {
+    setStatsDetail((current) => {
+      // 再点一次触发按钮就关掉
+      if (current !== null) return null
+      if (!editor) return null
+      const text = sourceMode ? splitFrontmatter(sourceText).body : editor.state.doc.textContent
+      const { from, to } = editor.state.selection
+      // 点状态栏会把焦点移出正文，但 ProseMirror 的选区保留
+      const selection = from === to ? '' : editor.state.doc.textBetween(from, to, '\n')
+      return { text, selection }
+    })
+  }, [editor, sourceMode, sourceText])
+
   const exportAs = useCallback(
     async (kind: 'html' | 'markdown' | 'text') => {
       if (!editor) return
       setExportOpen(false)
       try {
+        // 导出只在用到时加载：首屏不背 fmt/导出模板的字节
+        const { buildHtmlDocument, buildPlainText, exportName } = await import('./lib/export.ts')
         // 导出 HTML 需要 KaTeX 的 MathML；无条件等一下，已就绪时是一次微任务
         await ensureKatex().catch(() => undefined)
         // 源码里刚改的内容还没进编辑器；先写回，否则导出的 HTML / TXT 会丢最新改动
@@ -4743,7 +4772,9 @@ export default function App() {
       )}
 
       <StatusBar
-        stats={sourceMode ? countText(sourceText) : stats}
+        stats={sourceMode ? countText(splitFrontmatter(sourceText).body) : stats}
+        statsOpen={statsDetail !== null}
+        onStatsClick={openStatsDetail}
         mode={viewMode}
         focusMode={focusMode}
         typewriterMode={typewriterMode}
@@ -4776,6 +4807,17 @@ export default function App() {
             : undefined
         }
       />
+
+      {/* 面板必须是 footer 的兄弟节点：8 个脚本用 .status-bar 整栏文本抓字数 */}
+      {statsDetail !== null && (
+        <Suspense fallback={null}>
+          <StatsDetail
+            text={statsDetail.text}
+            selection={statsDetail.selection}
+            onClose={() => setStatsDetail(null)}
+          />
+        </Suspense>
+      )}
 
       {railOpen && (
         <button type="button" className="rail-backdrop" aria-label="关闭批注" onClick={closeRail} />      )}
