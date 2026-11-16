@@ -21,7 +21,7 @@
 ## 门禁
 
 - `npm run build`（类型检查 + 打包）
-- `npm test`（以 `package.json` 为准，当前 16 个文件 205 条）
+- `npm test`（以 `package.json` 为准，当前 21 个文件 272 条）
 - 改编辑器或 Markdown 序列化时加跑 `npm run roundtrip`
 - 界面变化必须截图，图落 `shots/`，实施报告里引用
 - 每轮结束根代理跑 `npm run build` + `npm test`，通过才 commit：`round-NN: <一句话>`
@@ -49,7 +49,8 @@
 
 ## 当前版本与体积
 
-- v0.32.1（第 29 轮改动未发版）。首屏 JS+CSS gzip **285,838 B**（临时上限 286,000，余 162 B）；测试 17 文件 **251** 条。
+- v0.32.1（第 30、31 轮改动都在同一个未发版区间）。首屏 JS+CSS gzip **284,761 B**（临时上限 286,000，余 1,239 B；第 30 轮 284,529 → 第 31 轮 +232 B）；测试 **21 文件 272 条**（第 30 轮 18/260，第 31 轮挂进 settings/prompt/katexLazy 共 12 条）。
+- 第 31 轮修完两条 P0 数据丢失：删除当前文档后「撤销」、改名「非当前文档」都不再切走保存目标（`refreshTree` adopt 分支加不变量守卫 + 撤销改用 `refreshTreeRef`）；字数明细按中日韩字 / 拉丁词 / 合计分行并把焦点移进面板；点正文链接恢复就地编辑，列表内 Tab/Shift+Tab 缩进；`@tiptap/extension-strike` 改直接依赖。
 - 首启：空白 `未命名.md`，不再加载示例；文件菜单「关闭文档」；工作区无句柄文档 Ctrl+S 直接落 `未命名.md`。
 - 发布资产：Windows setup 824,209 B、Windows zip 910,360 B、macOS Universal 905,892 B；校验和见 `SHA256SUMS-0.32.1.txt`。
 - 重开恢复：IndexedDB 只存 FSA 句柄；宿主 `/__annotations` 读回；Ctrl+S 原地。批注 v2（overall/unresolved）；重跑整窗替换。
@@ -89,6 +90,8 @@
 | 27 | 键盘链接/公式 + Typora 快键 | round-27/plan.md | PASS-WITH-UNVERIFIED：keyboard 49/49、Ctrl+P/标题/源码/表格/侧栏、首屏 285,997；0.32.0 | c035a1d |
 | 28 | 首启空白 + 关闭文档 + 工作区保存 | round-28/plan.md | PASS-WITH-UNVERIFIED：session 18/18、newfile 23/23、picker 0、0.32.1 | 1ac1298 |
 | 29 | 数据安全 + 大纲折叠 | round-29/plan.md | PASS-WITH-UNVERIFIED：T1 草稿守卫 4/4、T3 大纲 12/12、首屏 285,838、测试 251、draft 57/57、keyboard 49/49；T2 未做、T1-B 被陈旧模块挡住 | cdcf83e |
+| 30 | 状态栏字数明细 + 删除撤销丢正文 + 安装器版本 | round-30/plan.md | PASS-WITH-UNVERIFIED：T1 删除后撤销不再丢正文、T2 字数明细面板、首屏 284,529、测试 18/260、keyboard 49/49；0.32.1 未发版 | 5b36b71 |
+| 31 | 撤销/改名保存目标 P0 + 字数明细口径 + 链接点击与列表 Tab | round-31/plan.md | PASS-WITH-UNVERIFIED：T1 21/21、T2 14/14、T3 18/18、keyboard 49/49、roundtrip 0、首屏 284,761、测试 21/272；未发版 | （见 docs commit） |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
@@ -121,7 +124,7 @@
 3. CDP 用 9222–9226（每个端口独立 profile；9227 不可用）。每轮 E2E 前跑 `node .tmp/reset.mjs <端口>`：它会关旧页面、清 localStorage/IndexedDB。旧页面会执行 HMR 没应用的 App.tsx 中间版本，见 AGENTS §8。
 4. 用 DSH `workflow` 调度五角色：3–5 个只读 finder 并行 → planner → critic（REVISE 回 planner，最多 2 次）→ executor → tester；FAIL 返修最多 2 次，仍 FAIL 回滚。不再复用持久代理或 send_message。
 5. 根代理只在批次之间做事：读报告与 `git log`、串行跑 `npm run build`/`npm test`/`measure`、更新本文件、决定下一批。产品代码由子代理写。
-6. 第 29 轮完成（PASS-WITH-UNVERIFIED，未发版，HEAD 见轮次表）。后续优先：**T2 状态栏字数明细**（P1，本轮完全没做，第 30 轮必须补）、刷新页面后复验 T1 的「超大文件提示」、T3 的 `.outline*` 懒 CSS 搬移、Mermaid 先量 chunk 再定、真实 macOS/Intel/签名公证、1 MB 性能包线、UX L1/F3、安装器运行中卸载、P2 可访问性。
+6. 第 31 轮完成（PASS-WITH-UNVERIFIED，未发版）。后续优先：**编辑模式「句 / 段」取文口径**（`doc.textContent` 无块分隔符，两段算 1 段）+ 源码模式选区 + 状态栏选区 chip（三件同在 `openStatsDetail` / `onSelectionUpdate`）；Mermaid 懒加载实测 + ADR（首屏只剩 1,239 B 余量）；`fixtures/markdown/nested-list.md` 与假工作区存盘字节断言；真实文件夹句柄上的「删除→撤销→保存」与「改名非当前→保存」真人手测；`docs/typora-gap.md` 过期行（大纲、26 有 / 17 缺）；ship S1/S5/S6 剩余；真实 macOS/Intel/签名公证；1 MB 性能包线。
 
 ## 决策记录
 

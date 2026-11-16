@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties } from 'react'
+import { useEffect, useRef, type CSSProperties } from 'react'
 
 import { countSentences, countText } from '../lib/wordcount.ts'
 
@@ -54,6 +54,12 @@ const dividerStyle: CSSProperties = {
 /** 状态栏字数明细面板：点状态栏字数打开，点面板外面或按 Esc 关闭 */
 export function StatsDetail({ text, selection, onClose }: Props) {
   const stats = countText(text)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+
+  // 非模态对话框：读屏只朗读已获得焦点的节点，打开后把焦点移进来
+  useEffect(() => {
+    panelRef.current?.focus()
+  }, [])
 
   useEffect(() => {
     const onDown = (event: MouseEvent) => {
@@ -69,13 +75,15 @@ export function StatsDetail({ text, selection, onClose }: Props) {
 
   const total = stats.cjk + stats.words
   const selected = selection.length > 0 ? countText(selection) : null
-  const rows: Array<[string, string]> = [
-    ['字', number(total)],
-    ['字符', number(stats.chars)],
-    ['词', number(total)],
-    ['句', number(countSentences(text))],
-    ['段', number(stats.paragraphs)],
-    ['阅读', `${number(stats.minutes)} 分钟`],
+  // 中日韩字与拉丁词是两个口径，合计才是状态栏那个数：不能再让两行显示同一个值
+  const rows: Array<[string, string, string]> = [
+    ['中日韩字', number(stats.cjk), '汉字、日文假名、韩文谚文，逐字计，不含标点'],
+    ['拉丁词', number(stats.words), '按空白与标点切分，连续字母数字算一个词'],
+    ['合计', number(total), '与状态栏字数一致（中日韩字 + 拉丁词）'],
+    ['字符', number(stats.chars), '不含空白'],
+    ['句', number(countSentences(text)), '按句末标点与换行切分'],
+    ['段', number(stats.paragraphs), '空行分段的段数'],
+    ['阅读', `${number(stats.minutes)} 分钟`, '按 300 字/分钟估算'],
   ]
 
   return (
@@ -84,14 +92,16 @@ export function StatsDetail({ text, selection, onClose }: Props) {
       id="stats-detail"
       role="dialog"
       aria-label="字数明细"
+      ref={panelRef}
+      tabIndex={-1}
       style={panelStyle}
     >
       <p style={headingStyle}>字数明细</p>
       <dl style={listStyle}>
-        {rows.map(([term, value]) => (
+        {rows.map(([term, value, hint]) => (
           <div key={term} style={{ display: 'contents' }}>
             <dt style={termStyle}>{term}</dt>
-            <dd style={{ ...valueStyle, margin: 0 }} title={term === '词' ? '中日韩字 + 拉丁词' : undefined}>
+            <dd style={{ ...valueStyle, margin: 0 }} title={hint}>
               {value}
             </dd>
           </div>
@@ -104,7 +114,7 @@ export function StatsDetail({ text, selection, onClose }: Props) {
           {selected ? `${number(selected.cjk + selected.words)} 字 / ${number(selected.chars)} 字符 / ${number(countSentences(selection))} 句` : '未选中文本'}
         </dd>
       </dl>
-      <p style={{ ...termStyle, margin: '8px 0 0', fontSize: '12px' }}>字符数不含空白；阅读时间按 300 字/分钟估算。</p>
+      <p style={{ ...termStyle, margin: '8px 0 0', fontSize: '12px' }}>合计 = 中日韩字 + 拉丁词，与状态栏一致；字符数不含空白；阅读时间按 300 字/分钟估算。</p>
     </div>
   )
 }

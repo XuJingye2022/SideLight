@@ -25,9 +25,9 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 
 ## 现在能做什么
 
-- 左侧文件树：打开文件夹、单独打开一个 `.md` 文件，或者试用内存里的示例工作区。当前文档高亮。
+- 左侧文件树：打开文件夹、单独打开一个 `.md` 文件。当前文档高亮。
 - 重开恢复：再打开时恢复上次的文件夹、当前文件与批注（IndexedDB 只存句柄；权限需重新授予时退化为「最近打开」，授权后 `Ctrl+S` 原地保存）。
-- Typora 式快速键：`Ctrl+K` 链接、`Ctrl+M` 公式、`Ctrl+P` 快速打开、`Ctrl+1–6` 标题、`Ctrl+0` 正文、`Ctrl+/` 源码；表格里 `Tab` 走格、`Ctrl+Enter` 退出表格；侧栏 `Ctrl+Shift+1` 大纲、`Ctrl+Shift+3` 文件树、`Ctrl+Shift+L` 折叠。
+- Typora 式快速键：`Ctrl+K` 链接、`Ctrl+M` 公式、`Ctrl+P` 快速打开、`Ctrl+1–6` 标题、`Ctrl+0` 正文、`Ctrl+/` 源码；表格里 `Tab` 走格、`Ctrl+Enter` 退出表格；列表里 `Tab` / `Shift+Tab` 缩进 / 反缩进；侧栏 `Ctrl+Shift+1` 大纲、`Ctrl+Shift+3` 文件树、`Ctrl+Shift+L` 折叠。
 - 侧栏第二个页签是大纲：按标题层级列出，当前章节高亮，点一下跳过去；有子级的标题前有 ▸/▾ 可折叠，当前节被折叠时高亮最外层的折叠祖先，光标回到被折叠的子节会自动展开（折叠状态只在这次会话里，不存盘）。
 - 正文编辑：标题、粗斜体、删除线、行内代码、列表、引用、代码块、链接、表格、任务列表。
 - 工具栏：插入表格、代码块、引用、任务列表、分割线、链接；格式按钮与 H1、H2。
@@ -48,7 +48,7 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 - 导出：HTML（样式内联，单文件可直接发）、Markdown、纯文本、打印存 PDF。
 - 表格：光标进入表格时出现工具条，可增删行列、删整表。
 - 数学公式：行内 `$E=mc^2$` 与块级 `$$…$$` 用 KaTeX 渲染；内侧不能是空白的成对 `$` 才当公式，`$5 到 $10` 在打字与载入两条路径上都保留为文字（无空格写法 `$5-$10` 仍会被当公式）。
-- 字数：状态栏点字数弹出明细，列出字符、词、句、段与预计阅读时间，以及当前选区内的字/字符/句。点面板外面或按 `Esc` 关闭。
+- 字数：状态栏点字数弹出明细，列出中日韩字、拉丁词、合计、字符、句、段与预计阅读时间，以及当前选区内的字 / 字符 / 句。点面板外面或按 `Esc` 关闭。
 - 字号：设置里调 12–26，`Ctrl + =` 放大、`Ctrl + -` 缩小、`Ctrl + Alt + 0` 复位（`Ctrl + 0` 是正文样式）。
 - 打开文档时先做一次往返比对：含引用式链接定义块（`[id]: url`）的文档直接进源码模式并说明原因；其他会被改写的写法（多行脚注等）在顶部提示差异类别，可一键转到源码模式。
 - 新建与另存为：顶栏「文件」菜单有新建、另存为、打开文件、打开文件夹；文件树头有「＋ 新建文件」。没有文件句柄时保存走系统保存对话框，保存成功有持久提示。
@@ -94,13 +94,13 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 - 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
 ## 依赖与体积
 
-首屏 gzip 从 364,960 B 降到 **284,529 B（−22.0%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 84 KB：JS 76,553 B + CSS 7,365 B）按需加载，首屏不再包含；第 30 轮再把预览面板与导出模板改成按需加载，首屏又少 1,309 B。首屏临时上限 **286,000 B**（数据安全例外，STATE 记理由，余 1,471 B）；安装包内部预算 820,000 B，最新发布资产 824,209 B（超预算 4,209 B，距硬线 850,000 B 余 25,791 B）。安装包、便携 zip 与 macOS zip 的字节和 SHA256 **见 Release 页的 `SHA256SUMS-0.32.1.txt`**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
+首屏 gzip 从 364,960 B 降到 **284,761 B（−22.0%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 84 KB：JS 76,553 B + CSS 7,365 B）按需加载，首屏不再包含；第 30 轮再把预览面板与导出模板改成按需加载，首屏又少 1,309 B；第 31 轮加链接点击与列表缩进后 +232 B。首屏临时上限 **286,000 B**（数据安全例外，STATE 记理由，余 1,239 B）；安装包内部预算 820,000 B，最新发布资产 824,209 B（超预算 4,209 B，距硬线 850,000 B 余 25,791 B）。安装包、便携 zip 与 macOS zip 的字节和 SHA256 **见 Release 页的 `SHA256SUMS-0.32.1.txt`**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
 
-**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 284,529 B（第 30 轮），原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 1200`（主 chunk 892,443 B）。
+**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 284,761 B（第 31 轮），原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 1200`（主 chunk 892,443 B）。
 
 运行时依赖只有两组，都不是为省几行代码引入的：
 
-- Tiptap 3.34 与配套扩展：编辑器内核、表格、任务列表、图片、公式。自己写不出同等质量的所见即所得。
+- Tiptap 3.34 与配套扩展：编辑器内核、表格、任务列表、图片、公式。自己写不出同等质量的所见即所得。其中 `@tiptap/extension-strike` 被 `src/App.tsx` 直接 import，已在 dependencies 显式声明；同一模块本来就在包内，字节不变。
 - KaTeX：公式排版。0.24.0 起 JS/CSS 与字体都按需加载（第一次渲染公式时才下载），首屏不再包含。
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
@@ -112,7 +112,7 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 ```bash
 npm install
 npm run dev       # http://localhost:5173
-npm test          # 18 个文件、260 条断言
+npm test          # 21 个文件、272 条断言
 npm run roundtrip # Markdown 往返损失测量，写 docs/roundtrip-report.md
 npm run build     # 类型检查 + 打包
 npm run shot      # 无头浏览器跑流程并截图（需先起 dev；默认写 .tmp/shots/shot.png，--out 指定路径）
@@ -149,7 +149,7 @@ src/
   styles.css              全站样式（12px 小字、窄窗断点、暗色媒体查询）
   components/             文件树、大纲、页边批注、查找条、预览、设置、保存对比、状态栏、公式编辑器、浮层
   lib/                    上下文、批注、大纲、字数、frontmatter、脚注、HTML/callout、公式、导出、差分、图片命名、查找、缓存、搜索、错误文案
-  lib/*.test.ts           17 个测试文件挂进 npm test（含 session.test.ts；目录里还有 katexLazy.test.ts 未挂），与实现同目录
+  lib/*.test.ts           21 个测试文件挂进 npm test（含 session / prompt / settings / katexLazy），与实现同目录
 host/                     C# WebView2 宿主（Program.cs、build.ps1、冒烟与转发探针）
 packaging/                NSIS 安装器、便携包、图标生成、安装/便携验收脚本
 scripts/                  截图、验收、缺陷探测、往返测量、字体裁剪

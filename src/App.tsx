@@ -516,7 +516,7 @@ export default function App() {
   const acceptedRef = useRef<Array<{ annotation: Annotation; from: number; to: number; replacement: string }>>([])
   const fileRef = useRef<WorkspaceFileNode | null>(null)
   const workspaceRef = useRef<Workspace | null>(null)
-  const openLinkRef = useRef<(anchor: HTMLAnchorElement) => void>(() => {})
+  const openLinkRef = useRef<(anchor: HTMLAnchorElement, pos: number) => void>(() => {})
   const openLinkAtCursorRef = useRef<() => void>(() => {})
   const mathEditRef = useRef<(position: number) => void>(() => {})
   const openMathAtCursorRef = useRef<(block: boolean) => void>(() => {})
@@ -763,6 +763,24 @@ export default function App() {
           editor?.chain().focus().deleteRow().run()
           return true
         }
+        // 列表内 Tab / Shift+Tab：缩进 / 反缩进。表格优先（上面已返回），
+        // 文档开头的 Tab 仍留给 skip link（那里不在列表项里）
+        if (event.key === 'Tab' && !inTable && !event.isComposing) {
+          let listKind: 'listItem' | 'taskItem' | null = null
+          for (let depth = view.state.selection.$from.depth; depth > 0; depth -= 1) {
+            const name = view.state.selection.$from.node(depth).type.name
+            if (name === 'listItem' || name === 'taskItem') {
+              listKind = name
+              break
+            }
+          }
+          if (listKind) {
+            event.preventDefault()
+            if (event.shiftKey) editor?.chain().focus().liftListItem(listKind).run()
+            else editor?.chain().focus().sinkListItem(listKind).run()
+            return true
+          }
+        }
         if (event.key !== 'Tab' || event.shiftKey || event.isComposing) return false
         // 表格里保留默认 Tab（跳格）
         if (inTable) return false
@@ -788,13 +806,13 @@ export default function App() {
         for (const file of files) insertImageRef.current(file)
         return true
       },
-      handleClick: (_view, _pos, event) => {
+      handleClick: (_view, pos, event) => {
         const target = event.target as HTMLElement | null
         if (!target) return false
         const anchor = target.closest('a')
         if (anchor) {
           event.preventDefault()
-          openLinkRef.current(anchor as HTMLAnchorElement)
+          openLinkRef.current(anchor as HTMLAnchorElement, pos)
           return true
         }
         const math = target.closest('.tiptap-mathematics-render, [data-type="inline-math"], [data-type="block-math"]')
@@ -2174,8 +2192,12 @@ export default function App() {
         if (targetPath) {
           const rebound = afterByPath.get(targetPath)
           if (rebound) {
-            setActiveFile(rebound)
-            saveTargetRef.current = rebound.handle ? { handle: rebound.handle, name: rebound.name } : null
+            // 只有编辑器里载入的就是这个文件，才把身份与保存目标接过去。
+            // 删除后撤销、改名「非当前」文件时，rebound 是别的文件：接过去会把当前正文写进它。
+            if (fileRef.current?.path === rebound.path) {
+              setActiveFile(rebound)
+              saveTargetRef.current = rebound.handle ? { handle: rebound.handle, name: rebound.name } : null
+            }
           } else if (mode === 'check') {
             setActiveFile(null)
             saveTargetRef.current = null
@@ -2358,7 +2380,9 @@ export default function App() {
                     const { restoreDocumentFromTrash } = await import('./lib/trash.ts')
                     const restored = await restoreDocumentFromTrash(root, node, trashFile)
                     if (restored.ok) {
-                      await refreshTree()
+                      // 用最新一次 refreshTree（它捕获的 activeFile 是当前正文），
+                      // 不用删除那一刻的闭包，否则会把被删文件接成 activeFile
+                      await refreshTreeRef.current()
                       show(`已恢复 ${node.name}`)
                     } else {
                       setNotice({ text: restored.error ?? '恢复失败。', kind: 'error' })
@@ -3903,6 +3927,38 @@ export default function App() {
         from,
         to,
         focus: empty ? 'href' : 'text',
+        anchor: new DOMRect(coords.left, coords.top, coords.right - coords.left, coords.bottom - coords.top),
+      })
+    }
+  }, [editor])
+
+  // 点正文里的链接：把选区扩到整个链接，再弹出同一个文字/地址浮层
+  useEffect(() => {
+    openLinkRef.current = (anchor: HTMLAnchorElement, pos: number) => {
+      if (!editor) return
+      const view = editor.view
+      const size = view.state.doc.content.size
+      const hasLink = (at: number) =>
+        at >= 0 && at <= size && view.state.doc.resolve(at).marks().some((mark) => mark.type.name === 'link')
+      // 点击位置在链接文字内部；落在内边距/空节点时按 DOM 位置兜底，再没有就静默返回
+      let at = pos
+      if (!hasLink(at)) {
+        try {
+          at = view.posAtDOM(anchor, 0)
+        } catch {
+          return
+        }
+      }
+      if (!hasLink(at)) return
+      editor.chain().setTextSelection(at).extendMarkRange('link').run()
+      const range = editor.state.selection
+      const coords = view.coordsAtPos(range.from)
+      setLinkEdit({
+        text: editor.state.doc.textBetween(range.from, range.to, ' '),
+        href: String(editor.getAttributes('link').href ?? ''),
+        from: range.from,
+        to: range.to,
+        focus: 'text',
         anchor: new DOMRect(coords.left, coords.top, coords.right - coords.left, coords.bottom - coords.top),
       })
     }

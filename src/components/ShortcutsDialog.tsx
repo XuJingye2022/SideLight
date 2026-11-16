@@ -29,6 +29,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['表格内 Ctrl+Enter / Ctrl+L', '下方加一行 / 删当前行'],
       ['Ctrl+Shift+1 / 3 / L', '大纲 / 文件树 / 收起侧栏'],
       ['Ctrl+K', '给选区加链接 / 编辑链接'],
+      ['列表内 Tab / Shift+Tab', '缩进 / 反缩进'],
       ['Ctrl+M', '编辑或插入行内公式'],
       ['Ctrl+Shift+M', '编辑或插入块级公式'],
       ['Ctrl+Enter', '分析选中 / 本段'],
