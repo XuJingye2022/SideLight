@@ -17,9 +17,22 @@ export type SerializeOptions = {
   leading?: number
 }
 
+/** 尾部换行对数：`\r\n` 与 `\n` 都算一个换行 */
 function trailingNewlines(text: string): number {
-  const match = /\n+$/.exec(text)
-  return match ? match[0].length : 0
+  const match = /(?:\r\n|\n)+$/.exec(text)
+  return match ? (match[0].match(/\r\n|\n/g) ?? []).length : 0
+}
+
+/**
+ * 只在字符串层收尾：删掉末尾空段落与 `&nbsp;` 行，再按原文的换行对数补回。
+ * 保留原文的 CRLF（CRLF 文件写 CRLF，LF 文件写 LF）；正文中间的空行不动。
+ */
+export function applyTrailingNewlines(output: string, original: string | null): string {
+  if (!original || output.length === 0) return output
+  const eol = original.includes('\r\n') ? '\r\n' : '\n'
+  const want = trailingNewlines(original)
+  const trimmed = output.replace(/\r\n/g, '\n').replace(/(?:\n[ \t]*(?:&nbsp;[ \t]*)?)+$/, '')
+  return trimmed + eol.repeat(want)
 }
 
 /** 只要编辑器正文（frontmatter / 脚注由调用方拼） */
@@ -43,10 +56,7 @@ export function serializeDocument(editor: MarkdownSource, options: SerializeOpti
     options.leading ??
     (options.original ? leadingNewlines(splitFrontmatter(options.original).body) : undefined)
   let output = joinFrontmatter(frontmatter, body, leading)
-  // 末尾换行跟随原文：序列化器默认不带结尾换行或带多余换行，统一成原文的个数
-  if (options.original && output.length > 0) {
-    const want = trailingNewlines(options.original)
-    output = output.replace(/\n+$/, '') + '\n'.repeat(want)
-  }
+  // 末尾换行跟随原文，并清掉序列化器补的尾部空段落 / &nbsp;
+  output = applyTrailingNewlines(output, options.original ?? null)
   return output
 }

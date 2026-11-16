@@ -178,8 +178,26 @@ export async function readCache(
 }
 
 /**
- * 删缓存。文件不存在算删成功；无权限等错误也吞掉，不抛。
+ * 带 mtime 的草稿读取：只有比磁盘文件新时才提示恢复。
+ * 既有 readCache 语义不变。
  */
+export async function readCacheText(
+  parent: FileSystemDirectoryHandle,
+  kind: CacheKind,
+  key: string,
+): Promise<{ text: string; mtime: number } | null> {
+  const dir = await findCacheDir(parent, kind)
+  if (!dir) return null
+  try {
+    const handle = await dir.getFileHandle(cacheFileName(kind, key))
+    const file = await handle.getFile()
+    return { text: await file.text(), mtime: file.lastModified }
+  } catch {
+    return null
+  }
+}
+
+/** 删缓存；文件不存在算成功。 */
 export async function removeCache(
   parent: FileSystemDirectoryHandle,
   kind: CacheKind,

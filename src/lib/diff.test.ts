@@ -1,3 +1,4 @@
+import { applyTrailingNewlines } from './serializeDocument.ts'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
@@ -225,7 +226,7 @@ test('表格前后空行不属于表格块，复用只换表格行', () => {
 test('定义消失但正文仍引用 → 拦截', () => {
   const before = '正文[^1]。\n\n[^1]: 定义\n'
   const after = '正文[^1]。\n'
-  const loss = classify(before, after).find((item) => item.kind === 'footnote-definition')
+  const loss = classify(before, after).find((item) => item.kind === 'footnote-loss')
   assert.ok(loss)
   assert.equal(loss.blocking, true)
 })
@@ -233,13 +234,51 @@ test('定义消失但正文仍引用 → 拦截', () => {
 test('引用与定义一起删 → 不拦截', () => {
   const before = '正文[^1]。\n\n[^1]: 定义\n'
   const after = '正文。\n'
-  assert.equal(classify(before, after).some((item) => item.kind === 'footnote-definition'), false)
+  assert.equal(classify(before, after).some((item) => item.kind === 'footnote-loss'), false)
 })
 
 test('多行续行仍在时定义消失不被重复计入', () => {
   const before = '正文[^1]。\n\n[^1]: 首行\n    续行\n'
   const after = '正文[^1]。\n\n[^1]: 首行\n'
   const kinds = classify(before, after).map((item) => item.kind)
-  assert.equal(kinds.includes('footnote-definition'), false)
+  assert.equal(kinds.includes('footnote-loss'), false)
   assert.equal(kinds.includes('footnote-continuation'), true)
 })
+test('公式里的 \\$ 转义消失 → 拦截', () => {
+  const before = '价格 \\$100 与 $x^2$。\n'
+  const after = '价格 $100 与 $x^2$。\n'
+  const loss = classify(before, after).find((item) => item.kind === 'math-escape')
+  assert.ok(loss)
+  assert.equal(loss.blocking, true)
+})
+
+test('公式环境消失 → 拦截', () => {
+  const before = '$$\n\\begin{aligned}a&=b\\end{aligned}\n$$\n'
+  const after = '$$\na=b\n$$\n'
+  assert.ok(classify(before, after).some((item) => item.kind === 'math-escape' && item.blocking))
+})
+
+test('公式与转义都在 → 不误报 math-escape', () => {
+  const text = '价格 \\$100 与 $x^2$。\n'
+  assert.equal(classify(text, text).some((item) => item.kind === 'math-escape'), false)
+})
+
+test('2 空格段首正文不被当作脚注续行', () => {
+  const before = '正文[^a]。\n\n[^a]: 定义\n  两空格段落\n'
+  const after = '正文[^a]。\n\n[^a]: 定义\n\n  两空格段落\n'
+  assert.equal(classify(before, after).some((item) => item.kind === 'footnote-loss' || item.kind === 'footnote-continuation'), false)
+})
+
+for (const eol of ['\n', '\r\n']) {
+  const name = eol === '\n' ? 'LF' : 'CRLF'
+  for (let pairs = 0; pairs <= 5; pairs += 1) {
+    test(`尾部空行 ${pairs} 对（${name}）三次保存稳定`, () => {
+      let text = `A${eol.repeat(pairs)}`
+      const dirty = 'A\n\n&nbsp;\n&nbsp;\n'
+      for (let round = 0; round < 3; round += 1) text = applyTrailingNewlines(dirty, text)
+      assert.equal(text, `A${eol.repeat(pairs)}`)
+      assert.equal((text.match(/&nbsp;/g) ?? []).length, 0)
+      if (pairs > 0 && eol === '\r\n') assert.ok(text.includes('\r\n'))
+    })
+  }
+}

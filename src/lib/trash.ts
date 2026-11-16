@@ -156,27 +156,45 @@ export async function deleteFileWithText(
   explicitName?: string,
 ): Promise<TrashResult> {
   try {
+    if (!node.handle) return { ok: false, error: '这个文件没有磁盘句柄，无法移到回收站。' }
     const ensured = await ensureTrashDir(root)
     if (!ensured.dir) return { ok: false, error: ensured.error ?? '回收站不可用。' }
     const trashDir = ensured.dir
     const finalName = explicitName ?? trashName(node.name)
+    const original = await node.handle.getFile()
+    const bytes = await original.arrayBuffer()
+    const current = text
     const target = await trashDir.getFileHandle(finalName, { create: true })
-    const writable = await target.createWritable()
-    try {
-      await writable.write(text)
-      await writable.close()
-    } catch (error) {
-      await writable.abort().catch(() => undefined)
-      await trashDir.removeEntry(finalName).catch(() => undefined)
-      return { ok: false, error: `写入回收站失败：${error instanceof Error ? error.message : '未知错误'}` }
-    }
-    const copied = await (await target.getFile()).text()
-    if (copied !== text) {
+    const targetWritable = await target.createWritable()
+    await targetWritable.write(bytes)
+    await targetWritable.close()
+    const copied = await (await target.getFile()).arrayBuffer()
+    const [before, after] = await Promise.all([sha256(bytes), sha256(copied)])
+    if (!before || before !== after) {
       await trashDir.removeEntry(finalName).catch(() => undefined)
       return { ok: false, error: '回收站副本校验失败，已保留原文件。' }
     }
-    const parent = await parentForPath(root, node.path)
-    await parent.removeEntry(node.name)
+    const currentName = `${finalName}.current.md`
+    try {
+      const currentHandle = await trashDir.getFileHandle(currentName, { create: true })
+      const writer = await currentHandle.createWritable()
+      await writer.write(current)
+      await writer.close()
+      const readBack = await (await currentHandle.getFile()).text()
+      if (readBack !== current) throw new Error('当前正文校验失败')
+    } catch (error) {
+      await trashDir.removeEntry(currentName).catch(() => undefined)
+      await trashDir.removeEntry(finalName).catch(() => undefined)
+      return { ok: false, error: `写入当前正文失败：${error instanceof Error ? error.message : '未知错误'}` }
+    }
+    try {
+      const parent = await parentForPath(root, node.path)
+      await parent.removeEntry(node.name)
+    } catch (error) {
+      await trashDir.removeEntry(currentName).catch(() => undefined)
+      await trashDir.removeEntry(finalName).catch(() => undefined)
+      return { ok: false, error: `删除原文件失败，已保留原文件：${error instanceof Error ? error.message : '未知错误'}` }
+    }
     return { ok: true, trashName: finalName, mode: 'copy' }
   } catch (error) {
     return { ok: false, error: `删除失败：${error instanceof Error ? error.message : '未知错误'}` }
@@ -207,7 +225,8 @@ export async function moveCachesToTrash(
       const writable = await target.createWritable()
       await writable.write(text)
       await writable.close()
-      await removeCacheText(cacheDir, kind, key)
+      const readBack = await (await target.getFile()).text()
+      if (readBack !== text) throw new Error('缓存副本校验失败')
       moved.push(suffix)
     }
     return { ok: true, moved }
@@ -283,9 +302,13 @@ export async function deleteDocumentToTrash(
     const caches = await moveCachesToTrash(root, cacheDir, node.name, name)
     if (!caches.ok) return { ok: false, error: caches.error ?? '缓存搬移失败，已中止删除。' }
   }
-  if (currentText !== null) return deleteFileWithText(root, node, currentText, name)
-  const existing = node.handle ? await node.handle.getFile().then((file) => file.text()).catch(() => '') : ''
-  return deleteFileWithText(root, node, existing, name)
+  const result = await deleteFileWithText(root, node, currentText ?? '', name)
+  if (result.ok && cacheDir) {
+    const key = cacheKey(node.name)
+    await removeCacheText(cacheDir, 'draft', key).catch(() => undefined)
+    await removeCacheText(cacheDir, 'annotations', key).catch(() => undefined)
+  }
+  return result
 }
 
 /** 撤销文档：正文先回原位，再把 trash 里的缓存搬回原键 */
@@ -296,6 +319,15 @@ export async function restoreDocumentFromTrash(
 ): Promise<TrashResult> {
   const restored = await restoreFromTrash(root, trashNameValue, node.path)
   if (restored.ok) {
+    try {
+      const ensured = await ensureTrashDir(root)
+      if (ensured.dir) {
+        await ensured.dir.removeEntry(`${trashNameValue}.current.md`).catch(() => undefined)
+        await ensured.dir.removeEntry(trashNameValue).catch(() => undefined)
+      }
+    } catch {
+      // trash 清理失败不影响恢复
+    }
     try {
       const cacheDir = await parentForPath(root, node.path)
       await restoreCachesFromTrash(root, cacheDir, node.name, trashNameValue)
@@ -311,7 +343,13 @@ export async function restoreFromTrash(root: FileSystemDirectoryHandle, trashNam
     const ensured = await ensureTrashDir(root)
     if (!ensured.dir) return { ok: false, error: ensured.error ?? '回收站不可用。' }
     const trashDir = ensured.dir
-    const source = await trashDir.getFileHandle(trashNameValue)
+    const source = await (async () => {
+      try {
+        return await trashDir.getFileHandle(`${trashNameValue}.current.md`, { create: false })
+      } catch {
+        return await trashDir.getFileHandle(trashNameValue)
+      }
+    })()
     const parts = targetPath.split('/').filter(Boolean)
     // 与 deleteFileToTrash 一致：去掉 workspace 根目录名
     if (parts[0] === root.name) parts.shift()

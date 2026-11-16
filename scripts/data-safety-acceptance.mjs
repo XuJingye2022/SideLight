@@ -421,6 +421,47 @@ const cancel = async (page) => {
   await mixed.context.close()
 }
 
+// ---------- 9) 公式：已转义 \$ 不配对（M1） ----------
+{
+  const MATH_ESCAPED = `# 公式与价格
+
+价格 \\$100 与 $x^2$。
+`
+  const { context, page } = await browserPage()
+  await openFile(page, 'math-escaped.md', MATH_ESCAPED)
+  await edit(page, '改')
+  await page.keyboard.press('Control+s')
+  await page.waitForTimeout(600)
+  const state = await info(page)
+  check('公式 \\$：保存不弹确认框', !state.dialog, state.dialogText.slice(0, 60))
+  const expected = MATH_ESCAPED.replace('$x^2$。', '$x^2$。改')
+  check('公式 \\$：写回逐字节相同（不二次转义）', state.writes.length === 1 && state.writes[0].text === expected, JSON.stringify(state.writes[0]?.text))
+  check('公式 \\$：没有 \\\\$100', state.writes[0]?.text.includes('\\\\$100') !== true)
+  await context.close()
+}
+
+// ---------- 10) 脚注：2 空格段首正文不被吞（F3） ----------
+{
+  const TWO_SPACE = `# 段首
+
+正文[^a]。
+
+[^a]: 定义
+
+  两空格段落
+`
+  const { context, page } = await browserPage()
+  await openFile(page, 'two-space.md', TWO_SPACE)
+  await edit(page, '改')
+  await page.keyboard.press('Control+s')
+  await page.waitForTimeout(600)
+  const state = await info(page)
+  check('2 空格段首：保存不弹确认框', !state.dialog, state.dialogText.slice(0, 60))
+  check('2 空格段首：正文还在', state.writes[0]?.text.includes('两空格段落改') === true, JSON.stringify(state.writes[0]?.text))
+  check('2 空格段首：正文引用还在', state.writes[0]?.text.includes('正文[^a]') === true)
+  await context.close()
+}
+
 console.log(`\n${results.filter((item) => item.ok).length}/${results.length} PASS`)
 await browser.close()
 if (results.some((item) => !item.ok)) process.exit(1)

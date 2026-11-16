@@ -1,6 +1,6 @@
 const DEF = /^\[\^[^\]]+\]:/
 const REF = /^\[[^\]]+\]:/
-const CONT = /^(?: {2,}|\t)\S/
+const CONT = /^(?: {4,}|\t)\S/
 
 export type FootnoteBlock = {
   /** `footnote` 是 `[^id]:` 定义，`ref` 是 `[label]:` 引用式链接定义 */
@@ -43,7 +43,13 @@ function parseBlocks(lines: string[], start: number): FootnoteBlock[] | null {
       continue
     }
     if (blocks.length === 0 || !CONT.test(line)) return null
-    blocks[blocks.length - 1].text += `\n${line}`
+    const block = blocks[blocks.length - 1]
+    if (gap > 0) {
+      // 块内空行：续行前的空行属于这一块，不能丢
+      block.text += '\n'.repeat(gap)
+      gap = 0
+    }
+    block.text += `\n${line}`
   }
   return blocks.length > 0 ? blocks : null
 }
@@ -66,15 +72,10 @@ export function extractFootnotes(text: string): FootnoteSplit {
   return { body: text, footnotes: '', blocks: [] }
 }
 
-/** 按 `gapBefore` 拼回：正文与第一块之间空一行，块与块之间保留原有空行。 */
+/** 拼回：正文与脚注块之间空一行；脚注块原样附在末尾（块内空行、块间空行都保留）。 */
 export function joinFootnotes(body: string, footnotes: string): string {
-  const blocks = parseBlocks(linesOf(footnotes), 0)
-  if (!blocks) return body
-  let out = body.replace(/\s+$/, '')
-  blocks.forEach((block, index) => {
-    out += `${index === 0 ? '\n\n' : '\n'.repeat(block.gapBefore + 1)}${block.text}`
-  })
-  return out
+  if (footnotes.trim().length === 0) return body
+  return `${body.replace(/\s+$/, '')}\n\n${footnotes}`
 }
 
 /**

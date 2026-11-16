@@ -118,3 +118,17 @@ test('两次往返逐字节稳定（多行 + 引用定义）', () => {
   assert.equal(once, text)
   assert.equal(twice, once)
 })
+test('2 空格段首正文不被当作脚注续行', () => {
+  const text = ['正文[^a]。', '', '[^a]: 定义', '  两空格段落'].join('\n')
+  const result = extractFootnotes(text)
+  assert.equal(result.body, text)
+  assert.equal(result.footnotes, '')
+})
+
+test('块内空行保留，拼回逐字节一致', () => {
+  const text = ['正文[^a]。', '', '[^a]: 首行', '', '    续行'].join('\n')
+  const result = extractFootnotes(text)
+  assert.equal(result.blocks.length, 1)
+  assert.equal(result.blocks[0].text, '[^a]: 首行\n\n    续行')
+  assert.equal(joinFootnotes(result.body, result.footnotes), text)
+})

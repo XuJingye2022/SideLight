@@ -56,3 +56,20 @@ test('真正的公式体没有空白', () => {
 test('两侧都是空白的不是公式体', () => {
   assert.equal(isMathBody(' x '), false)
 })
+
+test('已转义的 \\$ 不当作公式开头', () => {
+  const text = '价格 \\$100 与 $x^2$'
+  assert.equal(protectMathPairs(text), text)
+})
+
+test('混排时只识别真正的公式', () => {
+  const pairs = [...('价格 \\$100 与 $x^2$。'.matchAll(/(?<!\\)\$([^$\n]+)\$/g))]
+  assert.equal(pairs.length, 1)
+  assert.equal(pairs[0][1], 'x^2')
+})
+
+test('公式与 \\$ 混排：repairMath 两次稳定', () => {
+  const text = '价格 \\$100 与 $x^2$。'
+  const once = repairMath(text)
+  assert.equal(repairMath(once), once)
+})

@@ -9,7 +9,8 @@ export type LossKind =
   | 'reference-links'
   | 'table-separator'
   | 'footnote-continuation'
-  | 'footnote-definition'
+  | 'footnote-loss'
+  | 'math-escape'
   | 'html-ampersand'
   | 'autolink'
   | 'html-comment'
@@ -144,7 +145,7 @@ function footnoteLosses(beforeText: string, afterText: string): Loss[] {
         definitions.set(current, [])
         continue
       }
-      if (current !== null && /^(?: {2,}|\t)\S/.test(lines[index])) {
+      if (current !== null && /^(?: {4,}|\t)\S/.test(lines[index])) {
         definitions.get(current)?.push(lines[index].trim())
         continue
       }
@@ -162,8 +163,8 @@ function footnoteLosses(beforeText: string, afterText: string): Loss[] {
     // 用户把引用与定义一起删掉，不拦。
     if (!after.definitions.has(id) && before.references.has(id) && after.references.has(id)) {
       losses.push({
-        kind: 'footnote-definition',
-        key: `footnote-def:${id}`,
+        kind: 'footnote-loss',
+        key: `footnote-loss:${id}`,
         label: `脚注 [^${id}] 的定义在保存后会消失（正文还在引用它）`,
         blocking: true,
         before: [`[^${id}]: …`],
@@ -183,6 +184,38 @@ function footnoteLosses(beforeText: string, afterText: string): Loss[] {
       before: missing,
       after: current,
       count: missing.length,
+    })
+  }
+  return losses
+}
+
+function mathLosses(beforeText: string, afterText: string): Loss[] {
+  const count = (text: string, pattern: RegExp) => (text.match(pattern) ?? []).length
+  const losses: Loss[] = []
+  const escapedBefore = count(beforeText, /\\\$/g)
+  const escapedAfter = count(afterText, /\\\$/g)
+  if (escapedBefore > escapedAfter) {
+    losses.push({
+      kind: 'math-escape',
+      key: 'math:escaped-dollar',
+      label: '公式里的 \\$ 转义在保存后会消失',
+      blocking: true,
+      before: ['\\$'],
+      after: [],
+      count: escapedBefore - escapedAfter,
+    })
+  }
+  const envBefore = count(beforeText, /\\begin\{/g)
+  const envAfter = count(afterText, /\\begin\{/g)
+  if (envBefore > envAfter) {
+    losses.push({
+      kind: 'math-escape',
+      key: 'math:begin-env',
+      label: '公式环境（\\begin{…}）在保存后会消失',
+      blocking: true,
+      before: ['\\begin{'],
+      after: [],
+      count: envBefore - envAfter,
     })
   }
   return losses
@@ -291,6 +324,7 @@ export function classify(before: string, after: string): Loss[] {
     ...referenceLosses(fenced, afterText),
     ...tableLosses(beforeText, afterText),
     ...footnoteLosses(beforeText, afterText),
+    ...mathLosses(beforeText, afterText),
     ...htmlLosses(beforeText, afterText),
     ...hardBreakLosses(beforeText, afterText),
   ]

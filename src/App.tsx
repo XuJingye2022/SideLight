@@ -44,7 +44,7 @@ import {
   type Annotation,
   type ParsedAnnotation,
 } from './lib/annotations.ts'
-import { cacheKey, legacyKeyFor, readCache, removeCache, writeCache } from './lib/cache.ts'
+import { cacheKey, legacyKeyFor, readCache, readCacheText, removeCache, writeCache } from './lib/cache.ts'
 import { buildChunkContext, buildContext, splitSelection, type Block, type ContextPayload } from './lib/context.ts'
 import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } from './lib/decorations.ts'
 import { MathInputRules } from './lib/mathInput.ts'
@@ -547,6 +547,17 @@ export default function App() {
   const contentVersionRef = useRef(0)
   const savedContentVersionRef = useRef(0)
   const lastResentVersionRef = useRef(-1)
+  const draftPromptTokenRef = useRef<string | null>(null)
+
+  /** 所有写 DOC_KEY 的路径共用：宿主模式跳过、>256KiB 不写、配额错误吞掉 */
+  const persistDocKey = useCallback((text: string) => {
+    if (hostModeRef.current || text.length > 256 * 1024) return
+    try {
+      localStorage.setItem(DOC_KEY, JSON.stringify({ text, name: docNameRef.current, savedAt: Date.now() }))
+    } catch {
+      // 配额满/禁用：只保留内存
+    }
+  }, [])
   const saveTimersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>())
   const nextSaveIdRef = useRef(0)
   const sendHostSaveRef = useRef<(text: string) => void>(() => {})
@@ -758,11 +769,7 @@ export default function App() {
 
         // 宿主文档不写 localStorage：大文件会撑爆配额，正文由宿主保管
         if (!hostModeRef.current && draft.length <= 256 * 1024) {
-          try {
-            localStorage.setItem(DOC_KEY, JSON.stringify({ text: draft, name: docNameRef.current, savedAt: Date.now() }))
-          } catch {
-            // 存储被禁用或配额满：只保留内存状态
-          }
+          persistDocKey(draft)
         }
 
         // 宿主文档：草稿交给宿主写到文档同目录的 .sidelight/drafts
@@ -1467,7 +1474,7 @@ export default function App() {
     }
     if (sourceText === sourceBaselineRef.current) return
     try {
-      localStorage.setItem(DOC_KEY, JSON.stringify({ text: sourceText, name: docNameRef.current, savedAt: Date.now() }))
+      persistDocKey(sourceText)
     } catch {
       // 存储不可用时只保留内存
     }
@@ -1658,12 +1665,53 @@ export default function App() {
       if (text.length > 0 && hasReferenceDefinitions(text)) enterSourceFor(text, true)
       else setViewMode('edit')
       try {
-        localStorage.setItem(DOC_KEY, JSON.stringify({ text, name, savedAt: Date.now() }))
+        persistDocKey(text)
       } catch {
         // 大文件/配额满：内存里继续，别让载入失败
       }
       syncDocInfo(editor)
       void restoreAnnotationsFor(file)
+      // 文件夹文档：.sidelight 草稿比磁盘新才提示恢复（同一文档只弹一次）
+      if (file?.handle && workspaceRef.current) {
+        void (async () => {
+          try {
+            const disk = await file.handle!.getFile()
+            const dir = await parentDirectory(workspaceRef.current!, file.path)
+            const cached = dir ? await readCacheText(dir, 'draft', cacheKey(file.name)) : null
+            if (!cached || cached.mtime <= disk.lastModified || cached.text === text) return
+            if (draftPromptTokenRef.current === file.path) return
+            draftPromptTokenRef.current = file.path
+            const key = cacheKey(file.name)
+            setNotice({
+              text: '发现比磁盘新的草稿。恢复草稿，还是丢弃并保留磁盘正文？',
+              kind: 'info',
+              persist: true,
+              actions: [
+                {
+                  label: '恢复草稿',
+                  onClick: () => {
+                    setMarkdown(cached.text)
+                    setDirty(true)
+                    dirtyRef.current = true
+                    setNotice(null)
+                  },
+                },
+                {
+                  label: '丢弃',
+                  onClick: () => {
+                    void (async () => {
+                      if (dir) await removeCache(dir, 'draft', key)
+                      setNotice(null)
+                    })()
+                  },
+                },
+              ],
+            })
+          } catch {
+            // 草稿读不到就当没有
+          }
+        })()
+      }
     },
     [editor, enterSourceFor, setMarkdown, restoreAnnotationsFor, syncDocInfo],
   )
@@ -1712,6 +1760,10 @@ export default function App() {
     try {
       const picked = await pickFile()
       if (!picked) return
+      if ('tooLarge' in picked) {
+        setNotice({ text: '文件太大，暂不支持（上限 5.5 MiB）。', kind: 'error' })
+        return
+      }
       requestLoad(picked.text, picked.name, {
         kind: 'file',
         name: picked.name,
@@ -2100,7 +2152,7 @@ export default function App() {
         action: { label: '另存为', onClick: () => saveAsCopyRef.current() },
       })
       try {
-        localStorage.setItem(DOC_KEY, JSON.stringify({ text: withEol, name, savedAt: Date.now() }))
+        persistDocKey(withEol)
       } catch {
         // 配额满：磁盘已保存成功，本地兜底可失败
       }
@@ -2590,11 +2642,7 @@ export default function App() {
       }
     }
     // 单文件打开拿不到目录：退回 localStorage，至少关窗还能恢复
-    try {
-      localStorage.setItem(DOC_KEY, JSON.stringify({ text, name: docNameRef.current, savedAt: Date.now() }))
-    } catch {
-      // 配额满就算了，状态栏已经提示失败
-    }
+    persistDocKey(text)
   }, [])
 
   const runAutoSave = useCallback(async () => {

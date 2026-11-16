@@ -1,5 +1,5 @@
-/** 一对 `$...$`，不含跨行与嵌套 */
-const PAIR = /\$([^$\n]+)\$/g
+/** 一对 `$...$`，不含跨行与嵌套；已转义的 `\$` 不当作开头 */
+const PAIR = /(?<!\\)\$([^$\n]+)\$/g
 
 /**
  * 成对 `$` 之间是否像公式：内侧不能是空白。
@@ -22,13 +22,13 @@ export function protectMathPairs(markdown: string): string {
 }
 
 /**
- * 序列化会把公式里的反斜杠写成两个（`\frac` 变 `\\frac`），这里还原。
- * 只动公式内部，正文里的反斜杠不碰。
+ * 序列化会把公式里的反斜杠多写一层（`\frac` 变 `\\frac`），这里只还原这一层。
+ * 只动公式内部；`\$` 这类转义不是公式，正文里的反斜杠不碰。
  */
 export function repairMath(markdown: string): string {
   return markdown
     .replace(/\$\$[\s\S]*?\$\$/g, (block) => block.replace(/\\\\/g, '\\'))
-    .replace(/\$[^$\n]+\$/g, (inline) => inline.replace(/\\\\/g, '\\'))
+    .replace(/(?<!\\)\$[^$\n]+\$/g, (inline) => inline.replace(/\\\\/g, '\\'))
 }
 
 // 公式节点的属性顺序不固定（data-type 与 data-latex 谁在前都可能），先按 data-type 定位整块，再从属性串里取 latex

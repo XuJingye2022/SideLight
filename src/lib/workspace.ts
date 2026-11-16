@@ -52,11 +52,13 @@ export type FileWriteTarget = {
 /** 另存为的结果：拿到落点 / 浏览器不支持 / 用户取消 */
 export type SaveAsResult = FileWriteTarget | 'unsupported' | null
 
-type PickedFile = {
-  name: string
-  text: string
-  handle: FileSystemFileHandle | null
-}
+type PickedFile =
+  | {
+      name: string
+      text: string
+      handle: FileSystemFileHandle | null
+    }
+  | { tooLarge: true; size: number; name: string }
 
 const MARKDOWN_SUFFIXES = ['.md', '.markdown']
 
@@ -178,6 +180,7 @@ export async function pickFile(): Promise<PickedFile | null> {
       })
       if (!handle) return null
       const file = await handle.getFile()
+      if (file.size > MAX_DOC_BYTES) return { tooLarge: true, size: file.size, name: file.name }
       return { name: file.name, text: await file.text(), handle }
     } catch (error) {
       if (isAbortError(error)) return null
@@ -206,6 +209,10 @@ function pickFileWithInput(): Promise<PickedFile | null> {
         cleanup()
         if (!file) {
           resolve(null)
+          return
+        }
+        if (file.size > MAX_DOC_BYTES) {
+          resolve({ tooLarge: true, size: file.size, name: file.name })
           return
         }
         file.text().then(
