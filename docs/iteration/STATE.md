@@ -49,12 +49,11 @@
 
 ## 当前版本与体积
 
-- v0.31.1。`dist` 1,444,593 B；首屏 JS+CSS gzip **285,781 B**（临时上限 286,000，数据安全例外，余 219 B）；测试 16 文件 234 条。
-- 发布资产：Windows setup 821,058 B、Windows zip 905,153 B、macOS Universal zip 901,482 B；校验和见 Release `SHA256SUMS-0.31.1.txt`。内部预算 820,000，硬线 850,000 未动。
-- 往返：rich 5/7、source 7/7、首次保存仍拦截 1/7（04）；265 KiB 目标不可达（ADR-0012）。
-- 文件树：新建文件/文件夹、删除到 `.sidelight/trash/`（脏文件正文+草稿+批注可撤销）、重命名、刷新、tablist/展开态/空文件夹提示；目录删除/移动/复制仍不做。
-- 可访问性：大纲页签树隐藏、深色 token/对比度（43 适用项全过）、统一焦点环、输入边界、reduced-motion、正文 aria-label、错误 toast alert；P2（骨架 role、批注卡 Enter、正文开头 Tab 回环）延后。
-- 性能：1 MB 单段落载入 1284 ms；真实多段 1 MB 载入约 54 s、100 KB 逐键 p95 约 160 ms（原生排版热点）——性能包线未达 1 MB 可用，README 已按实测标注。
+- v0.32.0。`dist` 1,461,127 B；首屏 JS+CSS gzip **285,997 B**（临时上限 286,000，数据安全例外，余 3 B）；测试 17 文件 248 条。
+- 发布资产：Windows setup 824,473 B、Windows zip 910,519 B、macOS Universal zip 906,060 B；校验和见 Release `SHA256SUMS-0.32.0.txt`。内部预算 820,000，硬线 850,000 未动。
+- 重开恢复：IndexedDB 只存 FSA 句柄；宿主 `/__annotations` 读回；Ctrl+S 原地。批注 v2（overall/unresolved）；重跑整窗替换。
+- 键盘：Ctrl+K 链接、Ctrl+M/Shift+M 公式、Ctrl+P 快速打开、Ctrl+1–6/0、Ctrl+/ 源码、表格 Tab/Ctrl+Enter、侧栏 Ctrl+Shift+1/3/L；宿主已关浏览器加速键。
+- 高风险未验：真实重开权限、150%/200% 屏、真模型提示词质量、真实 DeepSeek 搜索、macOS 快捷键、旧会话已丢弃批注不可恢复。
 
 ## 轮次记录
 
@@ -85,6 +84,8 @@
 | 23 | 数据与 Markdown 修复 | round-23/plan.md | PASS-WITH-UNVERIFIED：草稿恢复、大小门、垃圾字节、`\$`、脚注 4 空格、CRLF、0.31.0 | dbfc6f9 |
 | 24 | 体验三项 | round-24/plan.md | PASS-WITH-UNVERIFIED：窄窗自动开批注、查找入口、Tab 插空格、0.31.1 | e92d1a4 |
 | 25 | 平台与最终版 | round-25/plan.md | PASS-WITH-UNVERIFIED：host --version/置前、NSIS 版本/运行检测、macOS openFiles、0.31.1；卸载 exit 0 UNVERIFIED | e92d1a4 |
+| 26 | 重开恢复 + 批注 v2 + 提示词 + DPI + DeepSeek | round-26/plan.md | PASS-WITH-UNVERIFIED：session 15/15、annotation 8/8、host 11/11、提示词 796 字、PerMonitorV2、DeepSeek 搜索；0.32.0 | c035a1d |
+| 27 | 键盘链接/公式 + Typora 快键 | round-27/plan.md | PASS-WITH-UNVERIFIED：keyboard 49/49、Ctrl+P/标题/源码/表格/侧栏、首屏 285,997；0.32.0 | c035a1d |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
@@ -100,15 +101,15 @@
 ## 发布状态（2026-11-16）
 
 - 仓库：https://github.com/XuJingye2022/SideLight（public，MIT，版权人 XuJingye）。
-- 最新发布：https://github.com/XuJingye2022/SideLight/releases/tag/v0.31.1
-  - Windows：`Sidelight-0.31.1-win-x64-setup.exe` 821,058 B、`Sidelight-0.31.1-win-x64-portable.zip` 905,153 B。
-  - macOS：`Sidelight-0.31.1-macos-universal.zip` 901,482 B（arm64 + x86_64），ad-hoc，未公证；macOS 13+。
-  - `SHA256SUMS-0.31.1.txt`。
+- 最新发布：https://github.com/XuJingye2022/SideLight/releases/tag/v0.32.0
+  - Windows：`Sidelight-0.32.0-win-x64-setup.exe` 824,473 B、`Sidelight-0.32.0-win-x64-portable.zip` 910,519 B。
+  - macOS：`Sidelight-0.32.0-macos-universal.zip` 906,060 B（arm64 + x86_64），ad-hoc，未公证；macOS 13+。
+  - `SHA256SUMS-0.32.0.txt`。
 - 签名/公证：`release.yml` 已接可选分支；配齐 6 个 Apple secrets 后自动签名 + 公证 + staple；否则 ad-hoc 并在 Release body 标「未签名、未公证」。
-- 历史：v0.31.0 数据/Markdown 修复；v0.30.4 脚注/删除脏文件；v0.30.3 1MB 单段载入；v0.30.2 草稿清理；v0.30.1 保存竞态；v0.30.0 可访问性；v0.29.0 首个 Universal。
-- 发布自动化：`.github/workflows/release.yml`（tag `v*` 或手动 `tag` + `publish`）已多次实测；CI `gate`/`windows-host`/`macos-host` 全绿且已转必过；`install-verify` 仅手动。
+- 版本：0.32.0 修复 7 项用户问题（重开恢复、提示词、整体评价、键盘链接/公式、重跑覆盖、DPI、DeepSeek 搜索）并吸收 Typora 快键；0.31.x 为平台/数据修复。
+- 发布自动化：`.github/workflows/release.yml`（tag `v*` 或手动 `tag` + `publish`）已多次实测；CI `gate`/`windows-host`/`macos-host` 全绿；`install-verify` 仅手动。
 - 推送方式：`origin` 用 SSH over 443（`ssh://git@ssh.github.com:443/XuJingye2022/SideLight.git`），仓库里加了一把 write deploy key `sidelight-agent`（2026-11-16）；不用时可在 GitHub Settings → Deploy keys 删除。
-- CI Windows smoke 已忽略预期 404：`/__doc`、`/__draft`、`/favicon.ico`；其他 404 仍失败。
+- CI Windows smoke 已忽略预期 404：`/__doc`、`/__draft`、`/favicon.ico`；`/__annotations` 无缓存返回 200 空 store。
 
 ## 下一轮怎么开始（给接手的调度器）
 
