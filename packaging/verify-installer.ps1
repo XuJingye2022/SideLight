@@ -135,13 +135,13 @@ if (Test-Path (Join-Path $instdir 'Sidelight.exe')) {
 }
 if ($appOk) { Pass "装后程序可启动：$appDetail" } else { Fail "装后程序没起来：$appDetail" }
 $exeVersion = (Get-Item (Join-Path $instdir 'Sidelight.exe') -ErrorAction SilentlyContinue).VersionInfo.FileVersion
-if ($exeVersion -and $exeVersion.StartsWith('0.31.1')) { Pass "exe 文件版本 $exeVersion" } else { Fail "exe 文件版本不对：$exeVersion" }
+if ($exeVersion -and $exeVersion.StartsWith("$version")) { Pass "exe 文件版本 $exeVersion" } else { Fail "exe 文件版本不对：$exeVersion" }
 $setupVersion = (Get-Item $setup).VersionInfo.FileVersion
-if ($setupVersion -and $setupVersion.StartsWith('0.31.1')) { Pass "setup VersionInfo $setupVersion" } else { Fail "setup VersionInfo 为空/不匹配：$setupVersion" }
+if ($setupVersion -and $setupVersion.StartsWith("$version")) { Pass "setup VersionInfo $setupVersion" } else { Fail "setup VersionInfo 为空/不匹配：$setupVersion" }
 $cliOut = Join-Path $root '.tmp\cli-version.txt'
 $vp = Start-Process (Join-Path $instdir 'Sidelight.exe') -ArgumentList '--version' -NoNewWindow -RedirectStandardOutput $cliOut -PassThru -Wait
 $cliVersion = if (Test-Path $cliOut) { (Get-Content $cliOut -Raw).Trim() } else { '' }
-if ($cliVersion.Trim() -eq $version) { Pass 'Sidelight.exe --version = 0.31.1' } else { Fail "Sidelight.exe --version = $cliVersion" }
+if ($cliVersion.Trim() -eq $version) { Pass "Sidelight.exe --version = $cliVersion" } else { Fail "Sidelight.exe --version = $cliVersion" }
 
 # 5) HKCU 卸载项与快捷方式：本沙箱写入不可观测，只能 UNVERIFIED
 $vals = $null

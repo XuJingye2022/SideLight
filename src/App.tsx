@@ -77,6 +77,7 @@ import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline
 import { clampFontSize, DEFAULT_SETTINGS } from './lib/settings.ts'
 import { searchWeb } from './lib/search.ts'
 import { hasKey, loadSettings, saveSettings, type Settings } from './lib/settings.ts'
+import { createSmartTyping } from './lib/smartTyping.ts'
 import { countParagraphs, countText, type TextStats } from './lib/wordcount.ts'
 import {
   flattenFiles,
@@ -700,6 +701,13 @@ export default function App() {
     requestAnimationFrame(() => document.querySelector<HTMLElement>('.rail-close')?.focus())
   }, [])
 
+  // 智能标点开关走 ref：把 settings 放进 useEditor 依赖会重建编辑器、丢撤销栈
+  const smartPunctRef = useRef(true)
+  useEffect(() => {
+    smartPunctRef.current = settings.smartPunctuation
+  }, [settings.smartPunctuation])
+  const smartTypingExtension = useMemo(() => createSmartTyping({ isEnabled: () => smartPunctRef.current }), [])
+
   const shortcutExtension = useMemo(
     () =>
       Extension.create({
@@ -738,6 +746,7 @@ export default function App() {
       Markdown.configure({ indentation: { style: 'space', size: 2 } }),
       AnnotationDecorations,
       shortcutExtension,
+      smartTypingExtension,
       MathInputRules.configure({
         onBlockCreated: (position) => mathEditRef.current?.(position),
       }),

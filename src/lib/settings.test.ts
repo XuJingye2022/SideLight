@@ -38,3 +38,17 @@ test('旧默认提示词升级；自定义保留；空值回落', async () => {
   // 指纹不同的伪旧默认不会被误升级
   assert.equal(loadSettings().analysisPrompt, legacy)
 })
+
+test('旧存档没有智能标点键时读出来是开，明确写 false 才关', async () => {
+  const storage = makeStorage()
+  ;(globalThis as { localStorage?: unknown }).localStorage = storage
+  const { loadSettings } = await import('./settings.ts')
+
+  storage.setItem('sidelight.settings.v1', JSON.stringify({ autoSave: false }))
+  const old = loadSettings()
+  assert.equal(old.smartPunctuation, true)
+  assert.equal(old.autoSave, false)
+
+  storage.setItem('sidelight.settings.v1', JSON.stringify({ smartPunctuation: false }))
+  assert.equal(loadSettings().smartPunctuation, false)
+})

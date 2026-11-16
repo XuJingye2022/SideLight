@@ -79,6 +79,16 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
         </label>
         <p className="field-hint">只写回已打开的文件；宿主文档另存草稿。有格式损失时只提示，不写。</p>
 
+        <label className="field field-check">
+          <input
+            type="checkbox"
+            checked={draft.smartPunctuation}
+            onChange={(event) => update({ smartPunctuation: event.target.checked })}
+          />
+          <span>智能标点与自动配对括号</span>
+        </label>
+        <p className="field-hint">只作用于键盘输入，不改已有正文；代码块内不转换。</p>
+
         <label className="field">
           <span>接口地址</span>
           <input

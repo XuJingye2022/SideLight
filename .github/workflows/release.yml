@@ -100,6 +100,16 @@ jobs:
           powershell -ExecutionPolicy Bypass -File packaging/installer.ps1
           powershell -ExecutionPolicy Bypass -File packaging/portable.ps1
 
+      - name: Assert setup FileVersion matches package version
+        shell: pwsh
+        run: |
+          $version = '${{ needs.preflight.outputs.version }}'
+          $setup = Get-ChildItem release/Sidelight-*-win-x64-setup.exe | Select-Object -First 1
+          if (-not $setup) { Write-Host "::error::没有产出 setup.exe"; exit 1 }
+          $fv = $setup.VersionInfo.FileVersion
+          if ($fv -ne "$version.0") { Write-Host "::error::setup FileVersion=$fv，应为 $version.0（安装器版本没有跟上 package.json）"; exit 1 }
+          Write-Host "setup FileVersion=$fv"
+
       - name: Upload Windows setup
         uses: actions/upload-artifact@v4
         with:

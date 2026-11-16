@@ -122,12 +122,12 @@
 
 ## 下一轮怎么开始（给接手的调度器）
 
-1. 读本文件、`AGENTS.md`、最近一次 `docs/iteration/round-29/test.md` 与 `plan.md`。
+1. 读本文件、`AGENTS.md`、最近一次 `docs/iteration/round-32/test.md` 与 `plan.md`（30–32 轮报告也要过一眼）。
 2. dev server 由根代理起在 **`http://localhost:5175`**；`5173` 是旧会话遗留、无法回收的僵尸 server，禁用。确认 `http://localhost:5175/src/main.tsx` 返回 200。
 3. CDP 用 9222–9226（每个端口独立 profile；9227 不可用）。每轮 E2E 前跑 `node .tmp/reset.mjs <端口>`：它会关旧页面、清 localStorage/IndexedDB。旧页面会执行 HMR 没应用的 App.tsx 中间版本，见 AGENTS §8。
 4. 用 DSH `workflow` 调度五角色：3–5 个只读 finder 并行 → planner → critic（REVISE 回 planner，最多 2 次）→ executor → tester；FAIL 返修最多 2 次，仍 FAIL 回滚。不再复用持久代理或 send_message。
 5. 根代理只在批次之间做事：读报告与 `git log`、串行跑 `npm run build`/`npm test`/`measure`、更新本文件、决定下一批。产品代码由子代理写。
-6. 第 31 轮完成（PASS-WITH-UNVERIFIED，未发版）。后续优先：**编辑模式「句 / 段」取文口径**（`doc.textContent` 无块分隔符，两段算 1 段）+ 源码模式选区 + 状态栏选区 chip（三件同在 `openStatsDetail` / `onSelectionUpdate`）；Mermaid 懒加载实测 + ADR（首屏只剩 1,239 B 余量）；`fixtures/markdown/nested-list.md` 与假工作区存盘字节断言；真实文件夹句柄上的「删除→撤销→保存」与「改名非当前→保存」真人手测；`docs/typora-gap.md` 过期行（大纲、26 有 / 17 缺）；ship S1/S5/S6 剩余；真实 macOS/Intel/签名公证；1 MB 性能包线。
+6. 第 32 轮完成（PASS-WITH-UNVERIFIED，未发版，HEAD `e9d90a8`）。后续优先：① 工作区图片破图（Typora P1，先省字节或把 NodeView 抽成惰性，首屏余量只 948 B）；② 修 `qa16`/`qa10` 两个过期脚本（`.editor` 类名、演示文档假设）；③ 表格列宽拖拽与「粘贴为纯文本」排队；④ 首屏余量 948 B，任何新功能前先配「省字节」任务；⑤ Mermaid 等产品负责人对 ADR-0017 三选一裁决；⑥ 真实 macOS/Intel/签名公证；1 MB 性能包线。
 
 ## 决策记录
 
@@ -151,3 +151,5 @@
 
 - 2026-11-17 根代理：第 29 轮起用 `http://localhost:5175` 与 CDP 9222–9226；DSH 沙箱禁止启动 Chromium，复用上一会话遗留的 5 个 headless Edge；`.tmp/reset.mjs` 只关 localhost 页面，不杀浏览器。沙箱挡住浏览器时记 UNVERIFIED，不反复重试。
 - 2026-11-17 根代理：五角色提示词外置到 `.tmp/iteration/common.md` 与 `.tmp/iteration/roles/*.md`；workflow 只传轮次、报告目录、端口与上一轮摘要。每轮报告仍在 `docs/iteration/round-NN/`。
+- 2026-11-17 根代理：Mermaid 暂不实现。ADR-0017 实测真实最小增量把安装包从 824,595 B 推到 1,474,881 B，破 850,000 B 硬线；按 AGENTS §1 需产品负责人三选一（放宽硬线 / 只上 flowchart+sequence 子集 / 不做）。未裁决前不新增 mermaid 依赖、不改安装包硬线；要推进先做选项 2 的子集实测。
+- 2026-11-17 根代理：第 30–32 轮完成（3 轮 PASS-WITH-UNVERIFIED，未发版）。累计：字数明细、选区计数、列表缩进、删除撤销恢复、链接就地编辑、预览快捷键、段落口径、体积护栏、ADR-0017。测试 21 文件 276 条；首屏 285,052 B；HEAD e9d90a8。

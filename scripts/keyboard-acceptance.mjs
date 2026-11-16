@@ -309,7 +309,10 @@ await page.keyboard.type('正文里的问号?')
 await page.waitForTimeout(300)
 const typingState = await page.evaluate(() => ({
   dialog: document.querySelectorAll('.shortcuts-dialog').length,
-  text: document.querySelector('.editor')?.textContent?.includes('正文里的问号?'),
+  // 第 33 轮起中文后的 ? 会被智能标点转成全角，两种都算「字符已落进正文」
+  text:
+    document.querySelector('.editor')?.textContent?.includes('正文里的问号?') ||
+    document.querySelector('.editor')?.textContent?.includes('正文里的问号？'),
 }))
 check('正文输入 ? 不弹一览', typingState.dialog === 0 && typingState.text === true, JSON.stringify(typingState))
 

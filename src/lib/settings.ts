@@ -20,6 +20,8 @@ export type Settings = {
   promptVersion: number
   /** 停笔 2 秒自动保存（默认开；有结构损失时只提示，不写） */
   autoSave: boolean
+  /** 键盘输入把直引号 / -- / ... / 中文后半角标点换成排版符，并自动配对括号引号 */
+  smartPunctuation: boolean
 }
 
 const STORAGE_KEY = 'sidelight.settings.v1'
@@ -38,6 +40,7 @@ export const DEFAULT_SETTINGS: Settings = {
   analysisPrompt: DEFAULT_ANALYSIS_PROMPT,
   promptVersion: 2,
   autoSave: true,
+  smartPunctuation: true,
 }
 
 /** 旧默认提示词的指纹：长度 + FNV-1a；命中才升级，用户改过的不动 */
@@ -84,6 +87,8 @@ export function loadSettings(): Settings {
       analysisPrompt,
       promptVersion: analysisPrompt === DEFAULT_ANALYSIS_PROMPT ? 2 : savedVersion || 0,
       autoSave: parsed.autoSave !== false,
+      // 旧存档没有这个键，读出来必须是开（不能把老用户的功能默认关掉）
+      smartPunctuation: parsed.smartPunctuation !== false,
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
