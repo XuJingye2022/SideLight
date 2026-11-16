@@ -79,7 +79,7 @@
 | 17 | 保存竞态 + 大文件 + 性能 | round-17/plan.md | PASS-WITH-UNVERIFIED：B1/B3 修复、5.5 MiB 上限、1MB 载入 1284ms、逐键 p95 未测；0.30.1/0.30.3 | b799cf2 |
 | 18 | 开源文档与仓库治理 | round-18/plan.md | PASS-WITH-UNVERIFIED：CONTRIBUTING/SECURITY/PRIVACY 草案、模板、release notes、CI 门 | 83b037b |
 | 19 | 收尾硬化 + 0.30.2 | round-19/plan.md | PASS-WITH-UNVERIFIED：草稿清理 61/61、性能数字更正、Release 说明；0.30.2 | ab7aaea |
-| 20 | 最终硬化 + 0.30.3 | round-20/plan.md | 待最终验收：onUpdate 拆分、1MB 载入 1284ms、0.30.3 | b799cf2 |
+| 20 | 最终硬化 + 0.30.3 | round-20/plan.md | PASS-WITH-UNVERIFIED：onUpdate 拆分、1MB 载入 1284ms、draft 61/61、首屏 284,766、0.30.3 | b43b5c8 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
