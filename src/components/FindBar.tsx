@@ -53,7 +53,7 @@ export function FindBar({
           }}
         />
         <span className="find-count">
-          {total === 0 ? '无结果' : `${position} / ${total}`}
+          {query.trim() === '' ? '' : total === 0 ? '无结果' : `${position} / ${total}`}
         </span>
         <button type="button" onClick={onPrev} disabled={total === 0} title="上一处" aria-label="上一处">
           ↑

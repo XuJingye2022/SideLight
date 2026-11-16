@@ -168,19 +168,6 @@ button:disabled {
   transform: none;
 }
 
-/* 屏幕阅读器专用播报区（视觉隐藏但可读） */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-
 /* ---------- 顶栏 ---------- */
 
 .topbar {
@@ -1919,7 +1906,6 @@ button:disabled {
   color: inherit;
 }
 
-.dialog-input,
 .dialog-textarea {
   width: 100%;
   padding: 8px 10px;
@@ -2240,26 +2226,6 @@ button:disabled {
   background: var(--paper-raised);
   box-shadow: 0 12px 32px rgba(20, 22, 24, 0.16);
   animation: pop 140ms ease;
-}
-
-.popover-title {
-  margin: 0 0 8px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--ink-faint);
-}
-
-.popover-note {
-  margin: 6px 0 8px;
-  font-size: 11.5px;
-  line-height: 1.6;
-  color: var(--ink-faint);
-}
-
-.popover-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 /* ---------- 只读预览 ---------- */

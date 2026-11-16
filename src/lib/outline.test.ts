@@ -5,6 +5,7 @@ import { getSchema, type JSONContent } from '@tiptap/core'
 import { StarterKit } from '@tiptap/starter-kit'
 
 import { activeOutlineId, extractOutline } from './outline.ts'
+import { buildOutlineTree, expandAncestors, visibleActiveId } from './outlineTree.ts'
 
 const schema = getSchema([StarterKit])
 
@@ -125,4 +126,52 @@ test('光标落在两标题之间时算前一节', () => {
   assert.equal(activeOutlineId(items, 15), 'h-6')
   // 16 是第一节正文的结束边界，仍算第一节
   assert.equal(activeOutlineId(items, 16), 'h-6')
+})
+
+/* ---------- 折叠树 ---------- */
+
+test('扁平大纲补成父子树，跳级标题归到前方最近的更高级标题', () => {
+  const nodes = buildOutlineTree(extractOutline(doc))
+
+  assert.deepEqual(
+    nodes.map((node) => [node.id, node.level, node.parentId, node.hasChildren]),
+    [
+      ['h-0', 1, null, true],
+      ['h-13', 2, 'h-0', true],
+      ['h-30', 3, 'h-13', false],
+    ],
+  )
+
+  // H1 直接接 H3：中间没有 H2，父级仍是 H1
+  const skippedItems = extractOutline(makeDoc([heading(1, '甲'), heading(3, '甲子'), heading(2, '乙')]))
+  const skipped = buildOutlineTree(skippedItems)
+  assert.deepEqual(
+    skipped.map((node) => [node.id, node.parentId, node.hasChildren]),
+    [
+      [skippedItems[0].id, null, true],
+      [skippedItems[1].id, skippedItems[0].id, false],
+      [skippedItems[2].id, skippedItems[0].id, false],
+    ],
+  )
+})
+
+test('展开祖先：当前节在折叠的子树里时清掉祖先的折叠标记', () => {
+  const nodes = buildOutlineTree(extractOutline(doc))
+  const collapsed = new Set(['h-13'])
+  const next = expandAncestors(collapsed, nodes, 'h-30')
+
+  assert.equal(next.has('h-13'), false)
+  // 无变化时返回原集合，避免多余渲染
+  const unchanged = new Set<string>()
+  assert.equal(expandAncestors(unchanged, nodes, 'h-30'), unchanged)
+  // 当前节可见时不展开任何祖先
+  assert.equal(expandAncestors(collapsed, nodes, 'h-0').has('h-13'), true)
+})
+
+test('当前节被折叠时高亮最外层被折叠的祖先，展开后回到当前节', () => {
+  const nodes = buildOutlineTree(extractOutline(doc))
+
+  assert.equal(visibleActiveId(nodes, new Set(['h-13']), 'h-30'), 'h-13')
+  assert.equal(visibleActiveId(nodes, new Set(), 'h-30'), 'h-30')
+  assert.equal(visibleActiveId(nodes, new Set(), null), null)
 })

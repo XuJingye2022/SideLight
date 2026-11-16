@@ -845,13 +845,26 @@ export default function App() {
           if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
           draftTimerRef.current = setTimeout(() => {
             void (async () => {
+              // 保存成功会清掉这个计时器并推进代际；已经在飞的一轮要在每个 await 后自己复查。
+              const targetPath = file.path
+              const generation = draftGenerationRef.current
+              const stale = () =>
+                !dirtyRef.current ||
+                fileRef.current?.path !== targetPath ||
+                deletingRef.current ||
+                generation !== draftGenerationRef.current
+              if (stale()) return
               const dir = await parentDirectory(space, file.path)
-              if (dir) {
-                const key = cacheKey(file.name)
-                await writeCache(dir, 'draft', key, draft)
-                const legacy = legacyKeyFor(file.name)
-                if (legacy) await removeCache(dir, 'draft', legacy)
+              if (!dir || stale()) return
+              const key = cacheKey(file.name)
+              await writeCache(dir, 'draft', key, draft)
+              // writeCache 内部还有几段 await：保存可能就落在里面，这里补删刚写下的草稿
+              if (stale()) {
+                await removeCache(dir, 'draft', key)
+                return
               }
+              const legacy = legacyKeyFor(file.name)
+              if (legacy) await removeCache(dir, 'draft', legacy)
             })()
           }, 800)
         }
@@ -2088,12 +2101,15 @@ export default function App() {
     }
   }, [])
 
+  /** 超大文件被拒时说清正文仍是哪一篇：否则用户以为窗口里是刚点的大文件，Ctrl+S 会写错篇 */
+  const tooLargeNote = (name: string) => `「${name}」超过 5.5 MiB，仍在「${docNameRef.current}」`
+
   const openSingleFile = useCallback(async () => {
     try {
       const picked = await pickFile()
       if (!picked) return
       if ('tooLarge' in picked) {
-        setNotice({ text: '文件太大，暂不支持（上限 5.5 MiB）。', kind: 'error' })
+        setNotice({ text: tooLargeNote(picked.name), kind: 'error' })
         return
       }
       requestLoad(picked.text, picked.name, {
@@ -2113,7 +2129,10 @@ export default function App() {
         const text = await readNode(file)
         requestLoad(text, file.name, file)
       } catch (error) {
-        setNotice({ text: messageOf(error), kind: 'error' })
+        setNotice({
+          text: error instanceof Error && error.message.includes('文件太大') ? tooLargeNote(file.name) : messageOf(error),
+          kind: 'error',
+        })
       }
     },
     [requestLoad],
@@ -2502,6 +2521,12 @@ export default function App() {
       } catch {
         // 配额满：磁盘已保存成功，本地兜底可失败
       }
+      // 保存成功等于草稿作废：停掉还没触发的草稿计时器，并推进代际让在飞的一轮写入跳过
+      if (draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current)
+        draftTimerRef.current = null
+      }
+      draftGenerationRef.current += 1
       // 另存为之后旧名字的草稿留着会误导恢复，两个名字都清一遍
       void (async () => {
         const dir = await cacheDirFor()

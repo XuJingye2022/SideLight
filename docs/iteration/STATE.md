@@ -49,7 +49,7 @@
 
 ## 当前版本与体积
 
-- v0.32.1。`dist` 1,461,334 B；首屏 JS+CSS gzip **285,783 B**（临时上限 286,000，余 217 B）；测试 17 文件 248 条。
+- v0.32.1（第 29 轮改动未发版）。首屏 JS+CSS gzip **285,838 B**（临时上限 286,000，余 162 B）；测试 17 文件 **251** 条。
 - 首启：空白 `未命名.md`，不再加载示例；文件菜单「关闭文档」；工作区无句柄文档 Ctrl+S 直接落 `未命名.md`。
 - 发布资产：Windows setup 824,209 B、Windows zip 910,360 B、macOS Universal 905,892 B；校验和见 `SHA256SUMS-0.32.1.txt`。
 - 重开恢复：IndexedDB 只存 FSA 句柄；宿主 `/__annotations` 读回；Ctrl+S 原地。批注 v2（overall/unresolved）；重跑整窗替换。
@@ -88,6 +88,7 @@
 | 26 | 重开恢复 + 批注 v2 + 提示词 + DPI + DeepSeek | round-26/plan.md | PASS-WITH-UNVERIFIED：session 15/15、annotation 8/8、host 11/11、提示词 796 字、PerMonitorV2、DeepSeek 搜索；0.32.0 | c035a1d |
 | 27 | 键盘链接/公式 + Typora 快键 | round-27/plan.md | PASS-WITH-UNVERIFIED：keyboard 49/49、Ctrl+P/标题/源码/表格/侧栏、首屏 285,997；0.32.0 | c035a1d |
 | 28 | 首启空白 + 关闭文档 + 工作区保存 | round-28/plan.md | PASS-WITH-UNVERIFIED：session 18/18、newfile 23/23、picker 0、0.32.1 | 1ac1298 |
+| 29 | 数据安全 + 大纲折叠 | round-29/plan.md | PASS-WITH-UNVERIFIED：T1 草稿守卫 4/4、T3 大纲 12/12、首屏 285,838、测试 251、draft 57/57、keyboard 49/49；T2 未做、T1-B 被陈旧模块挡住 | （待填） |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
@@ -120,7 +121,7 @@
 3. 派 3–6 个只读侦察（缺陷/体验/发布/性能）；报告写 `round-NN/findings-*.md`。
 4. 复用已有持久代理：`planner`、`critic`、`builder`、`builder2`、`tester`（用 send_message，别新建同名）。
 5. 按「侦察 → 计划 → 审计划 → 实施 → 验收」循环；根代理只在阶段之间分派、跑最终门禁、commit、更新本文件。
-6. 第 28 轮已完成。后续优先：真实 macOS/Intel/签名公证、1 MB 性能包线、真实 WebView2 重开/工作区保存、UX L1/F3、安装器运行中卸载、P2 可访问性；没有新的必过门禁项。
+6. 第 29 轮已完成（PASS-WITH-UNVERIFIED，未发版）。后续优先：**补 T2 状态栏字数明细**（P1，产品负责人点名，本轮完全没做）、重启 dev server 后复验 T1 的「超大文件提示」、T3 的 `.outline*` 懒 CSS 搬移（−49 B，本轮没做）、Mermaid 先量 chunk 再定、真实 macOS/Intel/签名公证、1 MB 性能包线、UX L1/F3、安装器运行中卸载、P2 可访问性；没有新的必过门禁项。
 
 ## 决策记录
 

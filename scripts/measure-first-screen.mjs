@@ -1,5 +1,5 @@
 // 体积预算：首屏「必须等待」的字节（脚本 + 样式 + modulepreload + preload）。
-// 用法：node scripts/measure-first-screen.mjs [--dir dist] [--max 285000]
+// 用法：node scripts/measure-first-screen.mjs [--dir dist] [--max 286000]
 // 只读产物，不构建；超线 exit 1，首屏集合里出现 katex / lazy chunk 也 exit 1。
 import { readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -12,7 +12,7 @@ const readArg = (name, fallback) => {
 }
 const positional = args.find((arg) => !arg.startsWith('--') && args[args.indexOf(arg) - 1] !== '--max' && args[args.indexOf(arg) - 1] !== '--dir')
 const dir = resolve(readArg('--dir', positional || 'dist'))
-const max = Number(readArg('--max', '285000'))
+const max = Number(readArg('--max', '286000'))
 const indexHtml = readFileSync(join(dir, 'index.html'), 'utf8')
 
 const urls = new Set()

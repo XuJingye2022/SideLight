@@ -2,6 +2,18 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
+## Unreleased（第 29 轮，未发版）
+
+数据安全 + 大纲折叠；计划里的 T2（状态栏字数点击明细）**未做**，留待下一轮。
+
+- 保存成功后不再写陈旧草稿：`finishSaved` 先停草稿计时器再推进代际；草稿回调在 `parentDirectory` 前后、`writeCache` 之后各判一次 `stale()`，在飞的一轮写下了也补删（`src/App.tsx:845-874`、`:2521-2529`）。
+- 超过 5.5 MiB 的文件被拒时，提示写清正文「仍在『哪一篇』」，不再让人以为窗口里是新文件、`Ctrl+S` 写错篇；文件选择器与文件树两条入口共用 `tooLargeNote`（`src/App.tsx:2105,2112,2133`）。文件树入口的实测被陈旧模块挡住，见 `docs/iteration/round-29/test.md` 的 UNVERIFIED。
+- 大纲可折叠：新增 `src/lib/outlineTree.ts`（`buildOutlineTree`/`expandAncestors`/`visibleActiveId`）；`Outline.tsx` 两列 grid + 折叠按钮（行内 style，不进首屏 CSS）；当前节被折叠时高亮最外层折叠祖先（`aria-current="location"`），光标回到子节自动展开；折叠状态只在内存。
+- 查找：查询为空时不再显示「无结果」（`src/components/FindBar.tsx:56`）。
+- 删掉 5 段 0 引用 CSS（`.sr-only`、`.popover-title/note/actions`、`.dialog-input,`）。
+- `scripts/measure-first-screen.mjs` 默认上限改 286,000，CI 不再单独传 `--max`；ADR-0012 判据行同步。
+- 首屏 gzip **285,838 B**（≤286,000，余 162 B）；测试 `npm test` 17 个文件 **251** 条（248 + T3 的 3 条）；`draft-acceptance` 57/57、`keyboard-acceptance` 49/49。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。
