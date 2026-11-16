@@ -62,7 +62,7 @@ npm run build
 npm run roundtrip
 ```
 
-`npm run build` 会做类型检查 + 打包，正常贡献流程里可以跑（内部代理的纪律写在 [AGENTS.md](AGENTS.md)，不适用于外部贡献者）。
+`npm run build` 会做类型检查 + 打包，正常贡献流程里可以跑（更细的构建纪律见 [AGENTS.md](AGENTS.md)）。
 
 ## 6. 测试
 
@@ -83,7 +83,7 @@ npm run roundtrip
 ## 8. 提交
 
 - 外部贡献者：`type(scope): summary`，例如 `fix(host): 保存时保留 CRLF`。
-- 内部按轮次：`round-NN: 一句话`。
+- 多个提交时，每个提交只做一件事。
 - 一个提交只做一件事；不把格式化与功能混在一起。
 
 ## 9. PR 检查单
@@ -99,7 +99,7 @@ npm run roundtrip
 
 ```bash
 npm run dev
-node scripts/shot.mjs --out shots/round-NN/x.png
+node scripts/shot.mjs --out shots/pr-01/x.png
 ```
 
 ## 10. ADR

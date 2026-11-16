@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        先读 [README](../README.md) 的「现在不能做什么」与已知限制；先搜索 Issue，避免重复。
+        先读 [README](../../README.md) 的「现在不能做什么」与已知限制；先搜索 Issue，避免重复。
         **不要贴 API Key、文档正文或完整文件路径**；日志请先脱敏。
 
   - type: input
