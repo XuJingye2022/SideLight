@@ -2,6 +2,11 @@ import AppKit
 import Darwin
 
 let arguments = CommandLine.arguments
+if arguments.contains("--version") {
+    let version = (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "unknown"
+    print("Sidelight \(version)")
+    exit(0)
+}
 if arguments.contains("--self-test") {
     exit(SelfTest.run())
 }

@@ -2,6 +2,21 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
+## 0.31.1 — 2026-11-16
+
+最终版：窄窗与键盘细节、Windows 单实例与安装检测、macOS 平台补齐。
+
+- 窄窗：分析时自动打开批注抽屉，并显示批注条数。
+- 文件菜单加「查找」入口。
+- 正文里按 Tab 插入两个空格（不再跳焦点）。
+- Windows：`--version` 打印版本；exe 文件版本与 NSIS `VIProductVersion` 对齐 setup `VersionInfo`。
+- Windows 单实例：再次启动恢复并置前已有窗口。
+- Windows 安装/卸载运行检测：程序在跑时安装会被拦截（实测 exit=1、exe 不变）；卸载场景 exit 0、文件未删，记 **UNVERIFIED**。
+- macOS：Finder 双击 `.md`（Apple Event）、Dock 点击重开、关于菜单显示版本、端口占用时激活已有实例；CI 编译与 self-test/verify 待首次跑。
+- 测试：`npm test` 16 文件 **234** 条；`keyboard` 37/37。
+- 首屏 gzip **285,781 B**（临时预算 286,000 B，数据安全例外，余 219 B）。
+- 体积与 SHA256 见 Release 页的 `SHA256SUMS-0.31.1.txt`。
+
 ## 0.31.0 — 2026-11-16
 
 数据安全例外版本：修草稿、写入门、删除兜底、公式与脚注保真。

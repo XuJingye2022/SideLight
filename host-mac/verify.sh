@@ -38,6 +38,9 @@ plutil -lint "$APP/Contents/Info.plist" >/dev/null || fail "Info.plist 格式不
 MINVER="$(plutil -extract LSMinimumSystemVersion raw "$APP/Contents/Info.plist")"
 [ "$MINVER" = "13.0" ] || fail "LSMinimumSystemVersion=$MINVER，期望 13.0"
 
+APP_VERSION="$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")"
+[ -n "$APP_VERSION" ] && [ "$APP_VERSION" != "__VERSION__" ] || fail "版本号未替换：$APP_VERSION"
+
 codesign --verify --strict --all-architectures "$APP" || fail "codesign 校验失败"
 echo "codesign: $(codesign -dv "$APP" 2>&1 | grep -m1 'Authority=' || echo 'adhoc')"
 

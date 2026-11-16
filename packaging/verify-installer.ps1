@@ -17,7 +17,7 @@ function Start-NoShell([string]$file, [string]$arguments) {
 }
 
 $root = Split-Path -Parent $PSScriptRoot
-$version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
+$version = '0.31.1'
 $setup = Join-Path $root "release\Sidelight-$version-win-x64-setup.exe"
 $instdir = Join-Path $root '.tmp\install-verify'
 $uninstKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Sidelight'
@@ -77,6 +77,27 @@ if ($missing.Count -eq 0) {
     Fail ("安装后缺文件：" + ($missing -join ', '))
 }
 
+# 4a) 运行中安装必须失败且 exe 字节不变
+$exePath = Join-Path $instdir 'Sidelight.exe'
+$hashBefore = if (Test-Path $exePath) { (Get-FileHash $exePath -Algorithm SHA256).Hash } else { '' }
+$runningForInstall = $null
+if (Test-Path $exePath) {
+    $runningForInstall = Start-NoShell $exePath ''
+    Start-Sleep -Seconds 2
+    $retry = Start-NoShell $setup "/S /D=$instdir"; $retry.WaitForExit()
+    Start-Sleep -Milliseconds 500
+    $hashAfter = (Get-FileHash $exePath -Algorithm SHA256).Hash
+    if ($retry.ExitCode -ne 0 -and $hashAfter -eq $hashBefore) {
+        Pass "运行中安装被拒绝（exit=$($retry.ExitCode)）且 exe 未变"
+    } else {
+        Fail "运行中安装未按预期失败：exit=$($retry.ExitCode) hashSame=$($hashAfter -eq $hashBefore)"
+    }
+    if (-not $runningForInstall.HasExited) { $runningForInstall.Kill(); $runningForInstall.WaitForExit(5000) | Out-Null }
+    Start-Sleep -Seconds 1
+}
+
+# 4b) 运行中卸载在步骤 4 程序启动成功后检查
+
 # 4) 装后的程序能起来：窗口标题 Sidelight，回环 200
 $appOk = $false
 $appDetail = ''
@@ -96,11 +117,31 @@ if (Test-Path (Join-Path $instdir 'Sidelight.exe')) {
         Start-Sleep -Milliseconds 300
     }
     $appDetail = "title=[$title] http=$httpStatus"
+    if ($appOk -and -not $app.HasExited) {
+        $procCount = @(Get-Process Sidelight -ErrorAction SilentlyContinue).Count
+        Pass "运行中卸载前探针：process=$procCount exited=$($app.HasExited) pid=$($app.Id)"
+        $exePath = Join-Path $instdir 'Sidelight.exe'
+        $uBusy = Start-NoShell (Join-Path $instdir 'uninstall.exe') '/S'; $uBusy.WaitForExit()
+        Start-Sleep -Milliseconds 500
+        if ($uBusy.ExitCode -ne 0 -and (Test-Path $exePath)) {
+            Pass "运行中卸载被拒绝（exit=$($uBusy.ExitCode)）且文件仍在"
+        } else {
+            Fail "运行中卸载未按预期失败：exit=$($uBusy.ExitCode) exe=$(Test-Path $exePath)"
+        }
+    }
     if (-not $app.HasExited) { $app.Kill(); $app.WaitForExit(5000) | Out-Null }
 } else {
     $appDetail = '没有可执行文件'
 }
 if ($appOk) { Pass "装后程序可启动：$appDetail" } else { Fail "装后程序没起来：$appDetail" }
+$exeVersion = (Get-Item (Join-Path $instdir 'Sidelight.exe') -ErrorAction SilentlyContinue).VersionInfo.FileVersion
+if ($exeVersion -and $exeVersion.StartsWith('0.31.1')) { Pass "exe 文件版本 $exeVersion" } else { Fail "exe 文件版本不对：$exeVersion" }
+$setupVersion = (Get-Item $setup).VersionInfo.FileVersion
+if ($setupVersion -and $setupVersion.StartsWith('0.31.1')) { Pass "setup VersionInfo $setupVersion" } else { Fail "setup VersionInfo 为空/不匹配：$setupVersion" }
+$cliOut = Join-Path $root '.tmp\cli-version.txt'
+$vp = Start-Process (Join-Path $instdir 'Sidelight.exe') -ArgumentList '--version' -NoNewWindow -RedirectStandardOutput $cliOut -PassThru -Wait
+$cliVersion = if (Test-Path $cliOut) { (Get-Content $cliOut -Raw).Trim() } else { '' }
+if ($cliVersion.Trim() -eq '0.31.1') { Pass 'Sidelight.exe --version = 0.31.1' } else { Fail "Sidelight.exe --version = $cliVersion" }
 
 # 5) HKCU 卸载项与快捷方式：本沙箱写入不可观测，只能 UNVERIFIED
 $vals = $null

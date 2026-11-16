@@ -79,6 +79,12 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--version")
+        {
+            Version v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            Console.Out.WriteLine(v.Major + "." + v.Minor + "." + v.Build);
+            return;
+        }
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         MigrateLog();
@@ -1594,6 +1600,31 @@ static class Program
         string error = await OpenByPath(path, "forward");
         if (error != null && error != "CANCELLED") Log("forward failed error=" + error + " file=" + LogPath(path));
     }
+    static void RestoreAndForeground()
+    {
+        try
+        {
+            if (form == null) return;
+            form.BeginInvoke((Action)delegate
+            {
+                try
+                {
+                    if (form.WindowState == FormWindowState.Minimized) form.WindowState = FormWindowState.Normal;
+                    form.Show();
+                    form.Activate();
+                    ShowWindow(form.Handle, SW_RESTORE);
+                    SetForegroundWindow(form.Handle);
+                }
+                catch (Exception ex) { Log("restore error " + ex.Message); }
+            });
+        }
+        catch (Exception ex) { Log("restore invoke error " + ex.Message); }
+    }
+
+    const int SW_RESTORE = 9;
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
+
     static void StartPipeServer()
     {
         Thread thread = new Thread(delegate()
@@ -1608,11 +1639,19 @@ static class Program
                         server.WaitForConnection();
                         StreamReader reader = new StreamReader(server, new UTF8Encoding(false));
                         string line = reader.ReadLine();
-                        if (line != null && line.Trim().Length > 0)
+                        if (line != null)
                         {
                             string path = Encoding.UTF8.GetString(Convert.FromBase64String(line.Trim()));
-                            Log("pipe received file=" + LogPath(path));
-                            EnqueueForward(path);
+                            RestoreAndForeground();
+                            if (path.Length > 0)
+                            {
+                                Log("pipe received file=" + LogPath(path));
+                                EnqueueForward(path);
+                            }
+                            else
+                            {
+                                Log("pipe received empty payload (restore only)");
+                            }
                         }
                     }
                 }

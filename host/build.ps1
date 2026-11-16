@@ -44,6 +44,7 @@ $cscArgs = @(
     '/r:System.Windows.Forms.dll',
     '/r:System.Drawing.dll',
     '/r:System.Web.Extensions.dll',
+    (Join-Path $PSScriptRoot 'AssemblyInfo.cs'),
     (Join-Path $PSScriptRoot 'Program.cs')
 )
 & $csc $cscArgs

@@ -37,6 +37,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
     private var closePending = false
     private var closeTimer: Timer?
 
+    private var pendingPaths: [String] = []
+    private var booted = false
+
+    static var appVersion: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "unknown"
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let root = Bundle.main.resourceURL?.appendingPathComponent("www").path
             ?? (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("dist")
@@ -55,11 +62,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         do {
             try server.start()
         } catch {
-            showError("无法在 127.0.0.1:47821 启动本地服务：\(error)")
+            // 端口被占：优先激活已有实例，绝不静默开第二个窗口
+            if activateExistingInstance() { exit(0) }
+            showError("无法在 127.0.0.1:47821 启动本地服务：\(error)。可能已有一个 Sidelight 在运行。")
+            exit(1)
         }
 
         buildMenu()
         buildWindow()
+        booted = true
+
+        let queued = pendingPaths
+        pendingPaths = []
+        for path in queued { openPath(path) }
 
         let args = CommandLine.arguments.dropFirst()
         if let path = args.first(where: { !$0.hasPrefix("-") }), FileManager.default.fileExists(atPath: path) {
@@ -103,7 +118,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         let appItem = NSMenuItem()
         mainMenu.addItem(appItem)
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "关于 Sidelight", action: nil, keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: "关于 Sidelight", action: #selector(showAbout(_:)), keyEquivalent: "")
+        aboutItem.target = self
+        appMenu.addItem(aboutItem)
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "退出 Sidelight", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
@@ -184,12 +201,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
     }
 
     private func openPath(_ path: String) {
+        guard booted else {
+            pendingPaths.append(path)
+            return
+        }
         do {
             try store.open(path: path)
             let docName = (store.docJSON()?["fileName"] as? String) ?? "Sidelight"
             window.title = "\(docName) — Sidelight"
             rebuildRecentMenu()
             webView.reload()
+            revealWindow()
         } catch let error as HostError {
             showError("打不开这个文件（\(error.rawValue)）。")
         } catch {
@@ -202,6 +224,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         alert.messageText = "Sidelight"
         alert.informativeText = message
         alert.alertStyle = .warning
+        alert.addButton(withTitle: "好")
+        alert.runModal()
+    }
+
+    private func revealWindow() {
+        guard booted else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func openPaths(_ paths: [String]) {
+        let files = paths.filter { ["md", "markdown"].contains(($0 as NSString).pathExtension.lowercased()) }
+        guard let path = files.first else { return }
+        openPath(path)
+        revealWindow()
+    }
+
+    private func activateExistingInstance() -> Bool {
+        guard let id = Bundle.main.bundleIdentifier, !id.isEmpty else { return false }
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: id)
+            .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+        guard let other = others.first else { return false }
+        _ = other.activate(options: [.activateAllWindows])
+        return true
+    }
+
+    // Finder 双击 .md（Apple Event）
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        openPaths(filenames)
+        sender.reply(toOpenOrPrint: .success)
+    }
+
+    // 其它应用/命令行送来的 URL
+    func application(_ application: NSApplication, open urls: [URL]) {
+        openPaths(urls.map { $0.path })
+    }
+
+    // Dock 点击 / 再次启动：恢复并置前已有窗口
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        revealWindow()
+        return true
+    }
+
+    @objc private func showAbout(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "Sidelight \(Self.appVersion)"
+        alert.informativeText = "版本 \(Self.appVersion)\nmacOS \(ProcessInfo.processInfo.operatingSystemVersionString)"
         alert.addButton(withTitle: "好")
         alert.runModal()
     }

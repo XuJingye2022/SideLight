@@ -2145,6 +2145,25 @@ button:disabled {
   }
 
   .rail-toggle {
+  position: relative;
+}
+
+.rail-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.rail-toggle {
     display: inline-flex;
     align-items: center;
   }

@@ -12,6 +12,12 @@ final class HTTPServer {
         self.root = root
     }
 
+    enum ListenError: Error {
+        case failed(Error)
+        case timeout
+    }
+
+    /// 同步等到 ready/failed 再返回；端口被占时调用方才能拿到错误（单实例判断依赖这一点）。
     func start() throws {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
@@ -20,12 +26,28 @@ final class HTTPServer {
         listener.newConnectionHandler = { [weak self] connection in
             self?.handle(connection)
         }
+        let ready = DispatchSemaphore(value: 0)
+        var failure: Error?
         listener.stateUpdateHandler = { state in
-            if case .failed(let error) = state {
-                FileHandle.standardError.write(Data("listener failed: \(error)\n".utf8))
+            switch state {
+            case .ready:
+                ready.signal()
+            case .failed(let error):
+                failure = error
+                ready.signal()
+            default:
+                break
             }
         }
         listener.start(queue: queue)
+        if ready.wait(timeout: .now() + 3) == .timedOut {
+            listener.cancel()
+            throw ListenError.timeout
+        }
+        if let failure = failure {
+            listener.cancel()
+            throw ListenError.failed(failure)
+        }
         self.listener = listener
     }
 

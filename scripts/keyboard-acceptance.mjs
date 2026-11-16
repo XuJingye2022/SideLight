@@ -137,7 +137,7 @@ check('正文中间 Tab 前焦点在正文', middleState.focused === true, JSON.
 await page.keyboard.press('Tab')
 const middleTab = await page.evaluate(() => window.__middleTabPrevented)
 const middleCtx = await page.evaluate(() => window.__tabCtx)
-check('正文中间 Tab 不被劫持', middleTab === false, `${String(middleTab)} ctx=${JSON.stringify(middleCtx)}`)
+check('正文中间 Tab 由编辑器接管（插入空格）', middleTab === true, String(middleTab))
 
 // 1b) skip link：Enter 进正文
 await page.locator('.skip-link').focus()
@@ -341,6 +341,24 @@ if (last) {
 }
 check('纯键盘 E2E 导出 HTML 含正文', e2eText.includes('键盘链路-KB'), e2eText ? last?.suggestedFilename() : 'no-download')
 check('页面没有脚本错误', errors.length === 0, errors.slice(0, 2).join(' | '))
+
+// F4：Tab 插入两个空格并保持焦点；表格里保留默认 Tab
+await page.locator('.ProseMirror').click()
+await page.keyboard.press('Control+End')
+await page.keyboard.press('Tab')
+await page.keyboard.type('XYZ')
+const tabText = await page.locator('.ProseMirror').innerText()
+check('Tab 后输入 XYZ 正文含 XYZ', tabText.includes('XYZ'), tabText.slice(-20))
+await page.getByRole('button', { name: /插入/ }).click()
+await page.getByRole('button', { name: '表格', exact: true }).click()
+await page.waitForTimeout(300)
+const firstCell = page.locator('.ProseMirror td, .ProseMirror th').first()
+await firstCell.click()
+const beforeCell = await firstCell.innerText()
+await page.keyboard.press('Tab')
+await page.keyboard.type('Q')
+const afterCell = await firstCell.innerText()
+check('表格 Tab 不插空格', afterCell === beforeCell && !afterCell.startsWith('  '), JSON.stringify({ beforeCell, afterCell }))
 
 // T3：正文名称、错误 toast 单一 live region、aria-hidden 内无焦点
 const editorName = await page.evaluate(() => document.querySelector('.tiptap')?.getAttribute('aria-label') ?? '')

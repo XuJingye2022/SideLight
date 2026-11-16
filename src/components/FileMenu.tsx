@@ -7,6 +7,7 @@ type Props = {
   onSaveAs: () => void
   onOpenFile: () => void
   onOpenFolder: () => void
+  onFind: () => void
   /** 最近打开：no-host 由 App 传 null，整段不渲染 */
   recent: { kind: 'disabled'; reason: string } | { kind: 'volatile' | 'ok'; items: RecentItem[]; reason?: string } | { kind: 'error'; message: string } | null
   recentDisabledId?: string | null
@@ -15,11 +16,12 @@ type Props = {
   onClearRecent: () => Promise<boolean>
 }
 
-const ITEMS: Array<{ label: string; keys: string; keyshortcuts: string; action: 'new' | 'saveAs' | 'openFile' | 'openFolder' }> = [
+const ITEMS: Array<{ label: string; keys: string; keyshortcuts: string; action: 'new' | 'saveAs' | 'openFile' | 'openFolder' | 'find' }> = [
   { label: '新建', keys: 'Ctrl+Alt+N', keyshortcuts: 'Control+Alt+N', action: 'new' },
   { label: '另存为…', keys: 'Ctrl+Alt+S', keyshortcuts: 'Control+Alt+S', action: 'saveAs' },
   { label: '打开文件…', keys: 'Ctrl+Alt+O', keyshortcuts: 'Control+Alt+O', action: 'openFile' },
   { label: '打开文件夹…', keys: 'Ctrl+Alt+Shift+O', keyshortcuts: 'Control+Alt+Shift+O', action: 'openFolder' },
+  { label: '查找替换…', keys: 'Ctrl+F', keyshortcuts: 'Control+F', action: 'find' },
 ]
 
 /**
@@ -31,6 +33,7 @@ export function FileMenu({
   onSaveAs,
   onOpenFile,
   onOpenFolder,
+  onFind,
   recent,
   recentDisabledId,
   onRefreshRecent,
@@ -77,6 +80,7 @@ export function FileMenu({
     }
     if (action === 'saveAs') onSaveAs()
     else if (action === 'openFile') onOpenFile()
+    else if (action === 'find') onFind()
     else onOpenFolder()
     closeTo('trigger')
   }

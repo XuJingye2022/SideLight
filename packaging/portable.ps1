@@ -10,7 +10,7 @@ $bin = Join-Path $root 'host\bin'
 $stageRoot = Join-Path $root '.tmp\portable'
 $stage = Join-Path $stageRoot 'Sidelight'
 $release = Join-Path $root 'release'
-$version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
+$version = '0.31.1'
 $zip = Join-Path $release "Sidelight-$version-win-x64-portable.zip"
 $threshold = 940000
 

@@ -31,6 +31,14 @@ SetCompressorDictSize 32
 ShowInstDetails show
 ShowUninstDetails show
 
+VIProductVersion "0.31.1.0"
+VIAddVersionKey /LANG=2052 "ProductName" "Sidelight"
+VIAddVersionKey /LANG=2052 "ProductVersion" "${APPVERSION}"
+VIAddVersionKey /LANG=2052 "FileVersion" "0.31.1.0"
+VIAddVersionKey /LANG=2052 "CompanyName" "${PUBLISHER}"
+VIAddVersionKey /LANG=2052 "FileDescription" "Sidelight 安装器"
+VIAddVersionKey /LANG=2052 "LegalCopyright" "Sidelight contributors"
+
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_INSTFILES
@@ -54,7 +62,37 @@ Function CheckRuntimeDir
   FindClose $1
 FunctionEnd
 
+; Refuse to overwrite/remove while Sidelight.exe is running.
+Function CheckRunning
+  IfFileExists "$INSTDIR\Sidelight.exe" 0 done
+  ClearErrors
+  FileOpen $9 "$INSTDIR\Sidelight.exe" a
+  IfErrors running
+  FileClose $9
+  Goto done
+running:
+  MessageBox MB_ICONSTOP|MB_OK "请先退出 Sidelight，再运行安装或卸载。" /SD IDOK
+  SetErrorLevel 1
+  Abort
+done:
+FunctionEnd
+
+Function un.CheckRunning
+  IfFileExists "$INSTDIR\Sidelight.exe" 0 done
+  ClearErrors
+  FileOpen $9 "$INSTDIR\Sidelight.exe" a
+  IfErrors running
+  FileClose $9
+  Goto done
+running:
+  MessageBox MB_ICONSTOP|MB_OK "请先退出 Sidelight，再运行安装或卸载。" /SD IDOK
+  SetErrorLevel 1
+  Abort
+done:
+FunctionEnd
+
 Section "Sidelight" SEC_MAIN
+  Call CheckRunning
   ; WebView2 runtime check: EdgeUpdate pv (32-bit view, then 64-bit, then HKCU), or the loader exe.
   SetRegView 32
   ReadRegStr $0 HKLM "SOFTWARE\Microsoft\EdgeUpdate\Clients\${WEBVIEW2_CLIENT}" "pv"
@@ -144,6 +182,7 @@ SectionEnd
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 Section "Uninstall"
+  Call un.CheckRunning
   Delete "$SMPROGRAMS\Sidelight.lnk"
   RMDir /r "$INSTDIR"
   DeleteRegKey HKCU "${UNINST_KEY}"

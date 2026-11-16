@@ -126,6 +126,7 @@ const SAMPLE = `# 侧灯
 写作是件要自己完成的事。有三成的人会在第一章放弃；原因往往不是不会写，是不知道自己在写什么。
 ## 快捷键
 - Ctrl + Enter：对选区下批注
+- Ctrl + F：查找替换
 - Ctrl + B / I：粗体、斜体
 - Ctrl + S：保存
 `
@@ -706,6 +707,20 @@ export default function App() {
     contentType: 'markdown',
     editorProps: {
       attributes: { class: 'editor', spellcheck: 'false', 'aria-label': '正文编辑器' },
+      handleKeyDown: (view, event) => {
+        if (event.key !== 'Tab' || event.shiftKey || event.isComposing) return false
+        // 表格里保留默认 Tab（跳格）
+        for (let depth = view.state.selection.$from.depth; depth > 0; depth -= 1) {
+          const name = view.state.selection.$from.node(depth).type.name
+          if (name === 'table' || name === 'tableRow' || name === 'tableCell' || name === 'tableHeader') return false
+        }
+        event.preventDefault()
+        const { from, to } = view.state.selection
+        // 文档开头保留给 skip link：不清掉无障碍入口
+        if (from === 1 && to === 1) return false
+        view.dispatch(view.state.tr.insertText('  ', from, to))
+        return true
+      },
       handleDrop: (_view, event, _slice, moved) => {
         if (moved) return false
         const files = Array.from(event.dataTransfer?.files ?? []).filter((file) => file.type.startsWith('image/'))
@@ -1082,6 +1097,7 @@ export default function App() {
 
     let goalSeen = false
     let completed = 0
+    let addedCount = 0
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -1112,6 +1128,7 @@ export default function App() {
           const [annotation] = hit
           cursor = Math.max(cursor, offsetForPosition(index, annotation.to))
           setAnnotations((previous) => [...previous, annotation])
+          addedCount += 1
         }
       }
 
@@ -1148,6 +1165,7 @@ export default function App() {
       if (chunks.length > 1 && completed > 1) {
         show(`长文分成 ${chunks.length} 段分析，已处理 ${completed} 段。`)
       }
+      if (addedCount > 0 && window.matchMedia('(max-width: 1119px)').matches) openRail()
     } catch (error) {
       const aborted = error instanceof DOMException && error.name === 'AbortError'
       if (!aborted) fail(error, () => analyzeRef.current())
@@ -1155,7 +1173,7 @@ export default function App() {
       if (abortRef.current === controller) abortRef.current = null
       setAnalyzing(false)
     }
-  }, [editor, settings, analyzing])
+  }, [editor, settings, analyzing, openRail])
 
   useEffect(() => {
     analyzeRef.current = runAnalysis
@@ -3664,6 +3682,7 @@ export default function App() {
           onSaveAs={() => saveAsCopyRef.current()}
           onOpenFile={() => void openSingleFile()}
           onOpenFolder={() => void openFolder()}
+          onFind={() => setFindOpen(true)}
           recent={recent.kind === 'no-host' ? null : recent}
           recentDisabledId={recentStaleId}
           onRefreshRecent={() => void loadRecent()}
@@ -3788,9 +3807,12 @@ export default function App() {
           className="rail-toggle"
           aria-expanded={railOpen}
           aria-controls="margin-rail"
+          aria-label={`批注（${annotations.length} 条）`}
+          title={`批注（${annotations.length} 条）`}
           onClick={() => (railOpen ? closeRail() : openRail())}
         >
           批注
+          {railOpen && annotations.length > 0 && <span className="rail-count">{annotations.length}</span>}
         </button>
       </header>
 
