@@ -12,3 +12,14 @@ release/
 .build/
 host-mac/.build/
 *.app
+*.p12
+*.pfx
+*.pem
+*.key
+*.cer
+*.mobileprovision
+.env
+.env.*
+!.env.example
+.sidelight/
+*.dmg

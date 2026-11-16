@@ -1,4 +1,4 @@
-﻿# Sidelight 安装包（Windows x64）
+# Sidelight 安装包（Windows x64）
 
 两种包，二选一：
 
@@ -13,7 +13,7 @@
 2. Windows 可能弹「Windows 已保护你的电脑」——exe 没有代码签名，点「更多信息」→「仍要运行」。
 3. 安装位置默认 `%LOCALAPPDATA%\Programs\Sidelight`，可以改，但必须是当前用户可写的目录。
 4. 组件页有「在「打开方式」中加入 Sidelight」，**默认不勾**；勾了也只是把 Sidelight 加进 `.md` 的「打开方式」候选，不会改 `.md` 的默认程序。
-4. 装完从开始菜单「Sidelight」启动。
+5. 装完从开始菜单「Sidelight」启动。
 
 **需要 Microsoft WebView2 运行时。** Windows 11 自带；没有的话安装器会弹提示并**中止安装**（不会装出一个打不开的程序）。下载：<https://go.microsoft.com/fwlink/p/?LinkId=2124703>，装完再运行安装器。
 
@@ -21,7 +21,7 @@
 
 设置 → 应用 → 已安装的应用 → Sidelight → 卸载；或开始菜单右键卸载；或直接运行 `%LOCALAPPDATA%\Programs\Sidelight\uninstall.exe`。
 
-卸载会删除程序目录、开始菜单快捷方式与 HKCU 卸载项，并删掉关联登记的 ProgID 与「打开方式」候选；**不会**改你自己设的 `.md` 默认程序，也**不会删** `%LOCALAPPDATA%\Sidelight`（WebView2 配置、缓存、`recent.json` 最近列表与日志；这些只在本机，删除该目录可彻底清掉）。要彻底清掉，卸载后手动删这个目录。
+卸载会删除程序目录、开始菜单快捷方式与 HKCU 卸载项，并删掉关联登记的 ProgID 与「打开方式」候选；**不会**改你自己设的 `.md` 默认程序，也**不会删** `%LOCALAPPDATA%\Sidelight`（WebView2 配置、缓存与 `recent.json` 最近列表；这些只在本机，删除该目录可彻底清掉）。日志在**安装目录** `host.log*`，随程序目录卸载删除。要彻底清掉，卸载后手动删 `%LOCALAPPDATA%\Sidelight`。
 
 ## 静默安装（自动化用）
 

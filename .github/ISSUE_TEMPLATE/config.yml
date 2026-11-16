@@ -1,0 +1,11 @@
+# 关闭空白 Issue：强制走模板（缺陷/功能都有必填项）
+blank_issues_enabled: false
+contact_links:
+  - name: 已知限制与常见问题
+    url: https://github.com/XuJingye2022/SideLight#现在不能做什么
+    about: 先看 README 的「现在不能做什么」，很多问题已有说明。
+  # 私有漏洞报告未开启（enabled=false），先不启用下面的入口；
+  # 开启后取消注释，并同步更新 SECURITY.md 的状态 A。
+  # - name: 报告安全问题（私下）
+  #   url: https://github.com/XuJingye2022/SideLight/security/advisories/new
+  #   about: 不要在公开 Issue 里写漏洞细节。

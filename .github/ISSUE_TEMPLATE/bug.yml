@@ -1,0 +1,82 @@
+name: 缺陷报告
+description: 报告一个可复现的问题（请先读 README 的已知限制，并搜索已有 Issue）
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先读 [README](../README.md) 的「现在不能做什么」与已知限制；先搜索 Issue，避免重复。
+        **不要贴 API Key、文档正文或完整文件路径**；日志请先脱敏。
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 见 Release 页或 package.json
+      placeholder: 0.30.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 系统
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS 15+
+        - macOS 13–14
+        - 其他（请在补充里写）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式
+      options:
+        - Windows 安装包（setup）
+        - Windows 便携 zip
+        - macOS zip
+        - 从源码跑（npm run dev）
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开…
+        2. 输入…
+        3. 看到…
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志（可选，先脱敏）
+      description: 删掉 Key、正文与完整路径；Windows 日志在安装目录 host.log*
+      render: text
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我读过了 README 的已知限制
+          required: true
+        - label: 我搜索过现有 Issue
+          required: true
+        - label: 内容里没有 API Key、正文或完整路径
+          required: true

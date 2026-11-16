@@ -1,5 +1,7 @@
 # Sidelight
 
+[![CI](https://github.com/XuJingye2022/SideLight/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/XuJingye2022/SideLight/actions/workflows/ci.yml)
+
 你的写作，AI 在页边。左侧写作，右侧按需补光。
 
 发布目标：面向所有中文写作者的桌面 Markdown 编辑器。现有两套原生宿主：Windows 的 **C# WebView2 宿主**（`host/`）与 macOS 的 **Swift/AppKit/WKWebView 宿主**（`host-mac/`）。逐版本变更见 [docs/CHANGELOG.md](docs/CHANGELOG.md)。下文命令里的 `Ctrl` 在 macOS 上换成 `Cmd`（例如保存是 `Cmd + S`，撤销是 `Cmd + Z`）。
@@ -59,9 +61,9 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 
 ## 现在不能做什么
 
-- 文件树只能删文件：不能移动、复制、重命名文件，也不能删目录；没有应用内「恢复」或 trash 浏览界面，恢复要在资源管理器里把文件挪回去。trash 只增不减，不自动清理，卸载也不删。
+- 文件树只能删文件：不能移动、复制文件，也不能删目录；重命名只支持同目录 `.md`/`.markdown`（目标已存在会拒绝）。没有应用内「恢复」或 trash 浏览界面，恢复要在资源管理器里把文件挪回去。trash 只增不减，不自动清理，卸载也不删。
 - 可访问性还有 P2 延后项：骨架的 `role="dialog"`/`aria-busy`、批注卡可聚焦并按 Enter 跳句、正文开头 Tab 回环删除，本轮不做。
-- 还没有自动更新、没有代码签名；装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。安装用 `release/Sidelight-0.30.0-win-x64-setup.exe`（per-user，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
+- 还没有自动更新。Windows 包没有代码签名，SmartScreen 会拦一次；macOS 默认 ad-hoc（未签名、未公证），配了 Apple secrets 的流水线才会签名 + 公证。装完的 HKCU 卸载项、开始菜单快捷方式、默认安装路径、真人双击与 SmartScreen，以及勾选关联后「打开方式」是否出现、卸载是否残留，尚未人工验。Windows 安装包从 [Releases 页](https://github.com/XuJingye2022/SideLight/releases)下载（per-user，装到 `%LOCALAPPDATA%\\Programs\\Sidelight`，卸载保留用户数据），步骤见 [`packaging/README.md`](packaging/README.md)；也提供便携 zip。
 - `.md` 默认不关联。安装时勾选「在「打开方式」中加入 Sidelight」后，右键 `.md` 的「打开方式」里会多一项；默认程序仍要在 Windows 设置里自己选，安装器不改它。
 - 密钥存在浏览器 localStorage，没有加密，也没有系统钥匙串。
 - 表格：没动过的表格整块写回原文（表内字节与 02 型单空行）；改过单元格、增删行列或改对齐的表格会重新排版，且不弹保存确认；表格前后 ≥2 空行会规范化成一个。引用式链接定义块默认源码打开，写回原文；切回富文本首次保存仍拦一次。
@@ -77,13 +79,13 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 
 （待产品负责人确认后再作为对外承诺。以下只写当前实现的事实。）
 
-- 最近文件存在 `%LOCALAPPDATA%\Sidelight\recent.json`：只有本机路径、打开时间、文件大小与修改时间；不上传，不写进正文，也不进导出。页面只拿哈希 id，不拿路径。
+- 最近记录在磁盘上含**完整路径**、文件名与打开时间（Windows `%LOCALAPPDATA%\Sidelight\recent.json`；macOS `~/Library/Application Support/Sidelight/recent.json`）；不上传，不写进正文，也不进导出。页面只拿哈希 `id`、**文件名**与**目录段**。
 - 「清除」立即清空列表（可撤销一次）；`recent.json` 删掉，但日志与草稿不受影响。
-- 日志可能含文件名：宿主 `host.log` 只记 basename，超过 1 MB 轮转为 `host.log.1`；删除 `host.log*` 可清。
+- 日志在 Windows **安装目录**：`host.log` 只记 basename，超过 1 MB 轮转为 `host.log.1`；例外是 `navigate`/`permission` 会记**导航的完整 URL** 与权限请求 URI。删除 `host.log*` 可清；macOS 宿主不落盘日志。
 - 草稿与批注在文档同目录 `.sidelight/`：草稿 `drafts/`，批注 `annotations/`；只在本机，不发网络。
 - trash 只在本机：删除的文件进工作区 `.sidelight/trash/`，不发网络、不自动清理、卸载不删；要彻底清掉，手动删这个目录。
-- Windows 卸载保留 `%LOCALAPPDATA%\Sidelight`（WebView2 配置、`recent.json`）；要彻底清掉，卸载后手动删。
-- macOS 的最近文件与 WebView 存储：`~/Library/Application Support/Sidelight`；文档同目录 `.sidelight/`（草稿、批注、trash）与 Windows 一致。
+- Windows 卸载保留 `%LOCALAPPDATA%\Sidelight`（`recent.json` 与 `%LOCALAPPDATA%\Sidelight\WebView2` 配置）；要彻底清掉，卸载后手动删。
+- macOS 的最近记录在 `~/Library/Application Support/Sidelight`；WebView 存储由 WebKit 决定，位置**未核实**；文档同目录 `.sidelight/`（草稿、批注、trash）与 Windows 一致。
 - 换包/升级不丢数据；同一时间只保留一个 `Sidelight.app`；不要改 `CFBundleIdentifier`（改了会当成另一个应用，数据与 Gatekeeper 记录都会分叉）。
 - File 菜单有打开/打开最近/关闭窗口；Edit 菜单有撤销/重做/剪切/拷贝/粘贴/全选，快捷键交给系统（macOS 用 `Cmd`）。
 - 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
@@ -129,8 +131,8 @@ macOS 宿主（需要 macOS + Xcode Command Line Tools；本机是 Windows，**�
 
 ```bash
 npm run build                       # 先出 dist/
-bash host-mac/build.sh              # swift build -> .app -> 复制 dist 到 Resources/www -> 图标 -> ad-hoc 签名 -> release/Sidelight-<ver>-macos-<arch>.zip
-.tmp/mac/Sidelight.app/Contents/MacOS/SidelightMac --self-test   # 起本地服务、GET /__doc、退出码 0
+bash host-mac/build.sh              # Universal（arm64 + x86_64）-> .app -> ad-hoc 签名 -> release/Sidelight-<ver>-macos-universal.zip
+.tmp/mac/stage/Sidelight.app/Contents/MacOS/SidelightMac --self-test --require-bundle   # 6 项断言，失败退出码非 0
 ```
 
 CI 用 `macos-latest` runner 构建并上传 zip（见 `.github/workflows/ci.yml` 的 `macos-host` job）。
@@ -144,7 +146,7 @@ src/
   styles.css              全站样式（12px 小字、窄窗断点、暗色媒体查询）
   components/             文件树、大纲、页边批注、查找条、预览、设置、保存对比、状态栏、公式编辑器、浮层
   lib/                    上下文、批注、大纲、字数、frontmatter、脚注、HTML/callout、公式、导出、差分、图片命名、查找、缓存、搜索、错误文案
-  lib/*.test.ts           16 个测试文件，与实现同目录
+  lib/*.test.ts           16 个测试文件挂进 npm test（目录里还有 katexLazy.test.ts 未挂），与实现同目录
 host/                     C# WebView2 宿主（Program.cs、build.ps1、冒烟与转发探针）
 packaging/                NSIS 安装器、便携包、图标生成、安装/便携验收脚本
 scripts/                  截图、验收、缺陷探测、往返测量、字体裁剪
@@ -181,6 +183,16 @@ release/                  安装包与便携 zip，不进版本控制
 frontmatter、脚注定义、行内 HTML 与公式逐字节保真。表格只在「没动过」时整块写回原文；引用式链接定义块默认源码打开。差异见 [docs/roundtrip-report.md](docs/roundtrip-report.md)。
 
 三个兜底已经落地：未编辑不写盘、frontmatter 与 HTML 块按原文保留、保存前把格式变化给用户看。
+
+## 参与贡献
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)：环境、10 分钟上手、两档门禁、提交与 PR 规矩。
+- [SECURITY.md](SECURITY.md)：报告渠道（私有漏洞报告未开启时怎么报）、信任边界、Key 与日志边界。
+- [PRIVACY.md](PRIVACY.md)：**草案**，数据存哪 / 是否出网 / 怎么删；承诺句待产品负责人确认。
+- [AGENTS.md](AGENTS.md)：仓库纪律与门禁（内部协作也照此）。
+- [GLOSSARY.md](GLOSSARY.md)：正文、批注、大纲等领域词。
+- [docs/adr/](docs/adr/)：架构决策记录（0001–0015）。
+- [LICENSE](LICENSE)：MIT。
 
 ## 下一步
 

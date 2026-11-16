@@ -21,7 +21,7 @@
 ## 门禁
 
 - `npm run build`（类型检查 + 打包）
-- `npm test`（以 `package.json` 为准，当前 15 个文件）
+- `npm test`（以 `package.json` 为准，当前 16 个文件 205 条）
 - 改编辑器或 Markdown 序列化时加跑 `npm run roundtrip`
 - 界面变化必须截图，图落 `shots/`，实施报告里引用
 - 每轮结束根代理跑 `npm run build` + `npm test`，通过才 commit：`round-NN: <一句话>`

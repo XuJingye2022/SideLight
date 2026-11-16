@@ -7,14 +7,15 @@
 可访问性收尾：大纲页签真正隐藏文件树、深色对比度与焦点环、错误提示可被读屏播报。
 
 - 大纲页签：文件树真正隐藏（`display:none`、rect 高 0，节点仍在 DOM），切回时恢复滚动位置（`tree-acceptance` 49/49）。
-- 深色主题：颜色 token 化，浅/深 × 8 组 × 3 状态共 48/48 组对比度通过（`theme-acceptance` 26/26）。
+- 深色主题：颜色 token 化，浅/深 × 8 组 × 3 状态共 48 组对比度检查——**43 组适用、5 组排除**（大字号/禁用态等不适用），适用组全部通过（`theme-acceptance` 27/27）。
 - 焦点：统一焦点环（含源码模式）；`prefers-reduced-motion` 下不播动画。
 - 表单：输入边界 3:1 对比；正文编辑器加 `aria-label="正文编辑器"`。
 - 错误反馈：保存失败 toast 用 `role="alert"`；一次 notice 只更新一个 live region，toast 内按钮不被 `aria-hidden` 包住。
-- 测试：`tree-acceptance` 49/49、`theme-acceptance` 26/26（48/48 矩阵）、`keyboard-acceptance` 35/35；`npm test` 16 文件 205 条。
+- 测试：`tree-acceptance` 49/49、`theme-acceptance` 27/27（48 组中 43 组适用、全部通过）、`keyboard-acceptance` 35/35；`npm test` 16 文件 205 条。
 - **P2 延后**（不计入本轮达标）：骨架 `role="dialog"`/`aria-busy`、批注卡 `tabIndex`/Enter 跳句、正文开头 Tab 回环删除。
 - 首屏 gzip 283,826 → **284,210 B**（≤285,000，余 790 B）。
-- 体积与 SHA256 见 Release 页的 `SHA256SUMS-0.30.0.txt`（出包后回填）。
+- 体积：Windows 安装包 **817,983 B**、Windows 便携 zip **902,274 B**、macOS Universal zip **890,004 B**；SHA256 见 Release 页的 `SHA256SUMS-0.30.0.txt`。
+- （本条与更早条目的数字均为发布后回填。）
 ## 0.29.0 — 2026-11-16
 
 macOS 改为 Universal 包，签名/公证可选，self-test 与发布流程加固。

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要构建/发布的 tag（例如 v0.29.0）'
+        description: '要构建/发布的 tag（例如 v0.30.0）'
         required: true
         type: string
       publish:
@@ -116,6 +116,8 @@ jobs:
     needs: preflight
     runs-on: macos-latest
     timeout-minutes: 60
+    outputs:
+      signing: ${{ steps.signing.outputs.signing }}
     defaults:
       run:
         shell: bash
@@ -153,19 +155,13 @@ jobs:
         run: bash host-mac/sign.sh ".tmp/mac/stage/Sidelight.app" ".tmp/mac/stage" "release/Sidelight-$(node -p "require('./package.json').version")-macos-universal.zip"
 
       - name: Record signing status
+        id: signing
         run: |
           if [ "$HAS_APPLE_SIGNING" = "true" ]; then
-            {
-              echo '**已签名并公证**（Developer ID）'
-              echo 'signing=developer-id-notarized'
-            } > signing.txt
+            echo "signing=developer-id-notarized" >> "$GITHUB_OUTPUT"
           else
-            {
-              echo '**未签名、未公证**（ad-hoc 签名；首次打开步骤见 zip 内 README.txt）'
-              echo 'signing=adhoc'
-            } > signing.txt
+            echo "signing=adhoc" >> "$GITHUB_OUTPUT"
           fi
-          cat signing.txt
 
       - name: Self-test (bundle, 6 assertions)
         run: ./.tmp/mac/stage/Sidelight.app/Contents/MacOS/SidelightMac --self-test --require-bundle
@@ -180,12 +176,7 @@ jobs:
           path: release/Sidelight-*-macos-universal.zip
           if-no-files-found: error
 
-      - name: Upload signing status
-        uses: actions/upload-artifact@v4
-        with:
-          name: signing-status
-          path: signing.txt
-          if-no-files-found: error
+
 
   release:
     # tag push 一定发布；手动触发只有勾了 publish 才发布，默认只构建上传 artifact
@@ -195,6 +186,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+    env:
+      SIGNING: ${{ needs.macos-build.outputs.signing }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -207,9 +200,8 @@ jobs:
           VERSION="${{ needs.preflight.outputs.version }}"
 
           # download-artifact 会保留 artifact 名字目录；先摊平到 out/ 顶层，再按顶层文件名计算校验和。
-          cp out/signing-status/signing.txt out/signing.txt
           find out -mindepth 2 -type f \( -name '*.exe' -o -name '*.zip' \) -exec cp -n {} out/ \;
-          rm -rf out/windows-setup out/windows-portable out/macos-zip out/signing-status
+          rm -rf out/windows-setup out/windows-portable out/macos-zip
 
           SETUP="$(find out -maxdepth 1 -type f -name 'Sidelight-*-win-x64-setup.exe' | head -1)"
           WINZIP="$(find out -maxdepth 1 -type f -name 'Sidelight-*-win-x64-portable.zip' | head -1)"
@@ -227,10 +219,21 @@ jobs:
             cat "SHA256SUMS-${VERSION}.txt"
           )
 
-          FILES="$(find out -maxdepth 1 -type f ! -name 'signing.txt' | wc -l | tr -d ' ')"
+          FILES="$(find out -maxdepth 1 -type f | wc -l | tr -d ' ')"
           [ "$FILES" = "4" ] || { echo "::error::发布包应为 4 个文件（3 资产 + checksum），实际 $FILES"; exit 1; }
 
           ( cd out && sha256sum -c "SHA256SUMS-${VERSION}.txt" )
+      - name: Generate release notes (six sections)
+        shell: bash
+        run: |
+          node scripts/release-notes.mjs --dir out --out out/RELEASE_NOTES.md
+          test -s out/RELEASE_NOTES.md
+          for name in "Sidelight-${VERSION}-win-x64-setup.exe" "Sidelight-${VERSION}-win-x64-portable.zip" "Sidelight-${VERSION}-macos-universal.zip"; do
+            grep -q "$name" out/RELEASE_NOTES.md || { echo "::error::RELEASE_NOTES.md 缺资产 $name"; exit 1; }
+          done
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+
       - name: Remove stale arm64 assets from an earlier run
         if: github.event_name == 'push'
         env:
@@ -250,8 +253,8 @@ jobs:
         with:
           tag_name: v${{ needs.preflight.outputs.version }}
           name: Sidelight ${{ needs.preflight.outputs.version }}
-          body_path: out/signing.txt
-          append_body: true
+          body_path: out/RELEASE_NOTES.md
+          append_body: false
           files: |
             out/*.exe
             out/*.zip
