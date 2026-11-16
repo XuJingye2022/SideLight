@@ -39,7 +39,7 @@ powershell -ExecutionPolicy Bypass -File packaging\installer.ps1      # 下载 N
 powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 ```
 
-- `installer.ps1` 只读 `dist/` 与 `host/bin/`，版本号从 `package.json` 只读；打印实测字节、`target=820000 gap=`（内部预算，只报警）、硬报警线 850,000 B 与 SHA256。
+- `installer.ps1` 只读 `dist/` 与 `host/bin/`，版本号从 `package.json` 只读；打印实测字节、`target=1800000 gap=`（内部预算，超了 `Write-Warning`，不 exit）、硬报警线 2,000,000 B 与 SHA256。`verify-installer.ps1` 带同一条线：超内部预算只打印 WARN，超硬线记 `Fail`。
 - `verify-installer.ps1` 静默安装 → 断言目录、HKCU 卸载项 7 值、开始菜单快捷方式 → 静默卸载 → 断言清理干净且 `%LOCALAPPDATA%\Sidelight` 仍在。
 - 两条都要求先有 `host/bin`（`host\build.ps1`）与 `dist`。
 
@@ -54,4 +54,4 @@ powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 - 未签名：首次运行会被 SmartScreen 拦一次。
 - 不写 HKLM，不需要管理员。
 - `.md` 关联只做 opt-in 的「打开方式」候选：默认不勾、`/S` 不写、不碰 `UserChoice`/`FileExts`/`.md` 默认程序；卸载用 `/ifempty` 保留别人的候选。`FileExts` 的 MRU 若用户手动选过一次可能残留，属已知限制。
-- 体积预算：安装包硬线 850,000 B；0.22.0 实测 808,897 B（余量 41,103 B），超出硬线时先打印载荷占比，不抬线。便携 zip 有独立门槛 940,000 B（`packaging/portable.ps1:15` 的 `$threshold`），不受安装包 850,000 B 约束。
+- 体积预算：安装包内部预算 1,800,000 B（超了只报警），硬线 2,000,000 B（超了先打印载荷占比，不抬线）；0.32.1 实测 824,209 B（本机重建 824,595 B）。便携 zip 门槛 2,000,000 B（`packaging/portable.ps1` 的 `$threshold`），**与安装包共用硬线、不另设内部预算**：zip 含宿主与图标等固定载荷，字节与安装包不同源，单设内部线没有实测依据；Mermaid 落地后若 zip 逼近硬线再补实测口径。

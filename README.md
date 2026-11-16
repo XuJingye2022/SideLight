@@ -96,9 +96,9 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 - 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
 ## 依赖与体积
 
-首屏 gzip 从 364,960 B 降到 **285,937 B（−21.7%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 84 KB：JS 76,553 B + CSS 7,365 B）按需加载，首屏不再包含；第 30 轮再把预览面板与导出模板改成按需加载，首屏又少 1,309 B；第 31 轮加链接点击与列表缩进后 +232 B；第 32 轮加选区计数与字数明细段落口径后 +291 B；第 33 轮加智能标点与自动配对后 +839 B；第 34 轮加脚注拦截与焦点回正文后 +46 B。首屏临时上限 **286,000 B**（数据安全例外，STATE 记理由，余 63 B）；安装包内部预算 820,000 B，最新发布资产 824,209 B（超预算 4,209 B，距硬线 850,000 B 余 25,791 B）。安装包、便携 zip 与 macOS zip 的字节和 SHA256 **见 Release 页的 `SHA256SUMS-0.32.1.txt`**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
+首屏 gzip 从 364,960 B 降到 **286,056 B（−21.6%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 84 KB：JS 76,553 B + CSS 7,365 B）按需加载，首屏不再包含；第 30 轮再把预览面板与导出模板改成按需加载，首屏又少 1,309 B；第 31 轮加链接点击与列表缩进后 +232 B；第 32 轮加选区计数与字数明细段落口径后 +291 B；第 33 轮加智能标点与自动配对后 +839 B；第 34 轮加脚注拦截与焦点回正文后 +46 B；第 35 轮拆分 AI 提示词并修 Esc 焦点后 +119 B。首屏预算内部 **310,000 B** / 硬线 **320,000 B**（2026-11-17 产品负责人放宽；原临时上限与数据安全例外作废，历史理由见 STATE），当前 286,056 B（第 35 轮轮末 `npm run verify` 实测，距硬线余 **33,944 B**、距内部预算余 23,944 B）；安装包内部预算 **1,800,000 B** / 硬线 **2,000,000 B**，最新发布资产 824,209 B（本机重建 824,595 B，距硬线余 1,175,791 B）。安装包、便携 zip 与 macOS zip 的字节和 SHA256 **见 Release 页的 `SHA256SUMS-0.32.1.txt`**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
 
-**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 284,761 B（第 31 轮），原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 950`（主 chunk 896,149 B，2026-11-17 实测）。
+**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 284,761 B（第 31 轮），原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 950`（主 chunk 895,227 B，2026-11-17 实测）。
 
 运行时依赖只有两组，都不是为省几行代码引入的：
 
@@ -107,14 +107,14 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 
 开发期另有 `playwright-core`（截图与端到端验证）与 `@types/node`（测试）。
 
-宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms（**本机一次测量，非跨机承诺**）、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包与便携 zip 的字节和 SHA256 见 Release 页的 `SHA256SUMS-0.32.1.txt`（内部预算 820,000 B，硬线 850,000 B 不动），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
+宿主层另有 `host/`：用系统自带 `csc.exe` 编 C# 宿主，经 WebView2 SDK 加载同一份 `dist`，只在宿主层，不进运行时依赖。宿主自己起回环 HTTP 服务（固定端口 `127.0.0.1:47821`），origin 跨重启不变，首屏 FCP 304 ms（**本机一次测量，非跨机承诺**）、转发 reload 52–64 ms；窗口、单实例、argv 打开文件、真实文件夹读写都已跑通。安装包与便携 zip 的字节和 SHA256 见 Release 页的 `SHA256SUMS-0.32.1.txt`（内部预算 1,800,000 B，硬线 2,000,000 B），卸载不删 `%LOCALAPPDATA%\Sidelight` 里的用户数据，见 [`packaging/README.md`](packaging/README.md)、[ADR-0004](docs/adr/0004-webview2-host-before-admin.md) 与 [ADR-0005](docs/adr/0005-loopback-fixed-origin.md)。
 
 ## 跑起来
 
 ```bash
 npm install
 npm run dev       # http://localhost:5173
-npm test          # 22 个文件、287 条断言
+npm test          # 22 个文件、295 条断言
 npm run roundtrip # Markdown 往返损失测量，写 docs/roundtrip-report.md
 npm run build     # 类型检查 + 打包
 npm run verify    # build + 首屏 gzip 字节门
@@ -182,7 +182,7 @@ release/                  安装包与便携 zip，不进版本控制
 - 文件重命名：同目录、只接受 `.md`/`.markdown`、目标存在拒绝、`move()` 唯一路径、缓存写新成功才删旧。见 [ADR 0014](docs/adr/0014-file-rename.md)。
 - macOS 打包：默认 Universal（arm64 + x86_64），签名/公证可选三态，zip 内带 README。见 [ADR 0015](docs/adr/0015-macos-universal-and-signing.md)。
 - 会话恢复：IndexedDB 只存句柄、权限三态、失败退化；宿主 `/__annotations` 端点。见 [ADR 0016](docs/adr/0016-session-restore.md)。
-- Mermaid：本轮不实现（安装包真实增量破 850,000 B 硬线）；首屏 0 B 的惰性方案与实测数字见 [ADR 0017](docs/adr/0017-mermaid-lazy-loading.md)。
+- Mermaid：**第 36 轮实现**（产品负责人 2026-11-17 批准，预算已放宽到内部 1,800,000 / 硬线 2,000,000），惰性方案与体积实测见 [ADR 0017](docs/adr/0017-mermaid-lazy-loading.md)。
 
 ## 已知的重要问题：Markdown 往返损失
 

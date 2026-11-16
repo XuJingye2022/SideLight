@@ -1,6 +1,6 @@
 import type { ContextPayload } from './context.ts'
 import type { ParsedAnnotation } from './annotations.ts'
-import { DEFAULT_ANALYSIS_PROMPT, buildUserMessage } from './prompt.ts'
+import { ANALYSIS_SYSTEM_PROMPT, DEFAULT_USER_PROMPT, buildUserMessage } from './prompt.ts'
 import type { Settings } from './settings.ts'
 
 export type StreamOptions = {
@@ -18,12 +18,13 @@ export type ChatMessage = {
 
 export function buildMessages(
   context: ContextPayload,
-  prompt = DEFAULT_ANALYSIS_PROMPT,
+  prompt: string = DEFAULT_USER_PROMPT,
   mode: 'local' | 'full' = 'local',
 ): ChatMessage[] {
   return [
-    { role: 'system', content: prompt },
-    { role: 'user', content: buildUserMessage(context, mode) },
+    // system 固定内置：格式协议与安全规则不可被作者偏好覆盖
+    { role: 'system', content: ANALYSIS_SYSTEM_PROMPT },
+    { role: 'user', content: buildUserMessage(context, prompt.trim() ? prompt : DEFAULT_USER_PROMPT, mode) },
   ]
 }
 
@@ -119,7 +120,7 @@ async function remoteStream({ settings, context, onDelta, signal, mode }: Stream
       model: settings.model,
       temperature: 0.3,
       stream: true,
-      messages: buildMessages(context, settings.analysisPrompt, mode),
+      messages: buildMessages(context, settings.userPrompt, mode),
     }),
     signal,
   })

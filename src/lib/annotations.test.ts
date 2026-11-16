@@ -4,7 +4,7 @@ import test from 'node:test'
 import { getSchema } from '@tiptap/core'
 import { StarterKit } from '@tiptap/starter-kit'
 
-import { DEFAULT_ANALYSIS_PROMPT } from './prompt.ts'
+import { ANALYSIS_SYSTEM_PROMPT, DEFAULT_USER_PROMPT } from './prompt.ts'
 import { loadSettings } from './settings.ts'
 import {
   buildTextIndex,
@@ -384,9 +384,10 @@ test('replaceInWindow：两次重跑不翻倍、窗口外保留、id 复用', ()
 })
 
 test('提示词 <=1500 字且含 overall 与硬规则', () => {
-  assert.ok(DEFAULT_ANALYSIS_PROMPT.length <= 1500)
-  assert.match(DEFAULT_ANALYSIS_PROMPT, /"kind":"overall"/)
-  assert.match(DEFAULT_ANALYSIS_PROMPT, /最多 1 条 revision/)
+  assert.ok(ANALYSIS_SYSTEM_PROMPT.length <= 1500)
+  assert.match(ANALYSIS_SYSTEM_PROMPT, /"kind":"overall"/)
+  assert.match(ANALYSIS_SYSTEM_PROMPT, /最多 1 条 revision/)
+  assert.ok(DEFAULT_USER_PROMPT.length > 0)
 })
 
 test('设置：自定义提示词保留，空值回落默认', () => {
@@ -397,8 +398,8 @@ test('设置：自定义提示词保留，空值回落默认', () => {
     removeItem: (key: string) => map.delete(key),
     clear: () => map.clear(),
   }
-  map.set('sidelight.settings.v1', JSON.stringify({ analysisPrompt: '我的自定义' }))
-  assert.equal(loadSettings().analysisPrompt, '我的自定义')
-  map.set('sidelight.settings.v1', JSON.stringify({ analysisPrompt: '' }))
-  assert.equal(loadSettings().analysisPrompt, DEFAULT_ANALYSIS_PROMPT)
+  map.set('sidelight.settings.v1', JSON.stringify({ userPrompt: '我的自定义' }))
+  assert.equal(loadSettings().userPrompt, '我的自定义')
+  map.set('sidelight.settings.v1', JSON.stringify({ userPrompt: '' }))
+  assert.equal(loadSettings().userPrompt, DEFAULT_USER_PROMPT)
 })

@@ -2,7 +2,7 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–34 轮，未发版）
+## Unreleased（第 29–35 轮，未发版）
 
 数据安全 + 大纲折叠；计划里的 T2（状态栏字数点击明细）**未做**，留待下一轮。第 30 轮补上字数明细、修删除撤销丢正文，并给安装器版本与发版流水线加门。
 
@@ -57,6 +57,14 @@
 - 门禁：新增 `npm run verify`（build + 首屏 gzip 字节门），`measure-first-screen.mjs` 汇总行加 `headroom`；失败反例 exit 1 已实测。
 - 测试 `npm test` 22 文件 **287** 条；首屏 gzip **285,937 B**（≤286,000，余 63 B）；`keyboard-acceptance` 52/52；`tree-acceptance` 54/56（两条为既有脚本过期）。
 - UNVERIFIED：真实磁盘句柄上的脚注拦截；1 MB 带脚注文档的自动保存周期开销；真实中文输入法下的 Esc 后打字；宿主/WebView2 里的焦点修复；`npm run verify` 在 CI 两个 runner 上的字节一致性。
+
+**第 35 轮（同一未发版区间）**
+
+- 体积护栏换挡（产品负责人 2026-11-17 决定）：首屏 gzip 内部预算 **310,000 B** / 硬线 **320,000 B**，安装包内部 **1,800,000 B** / 硬线 **2,000,000 B**。`scripts/measure-first-screen.mjs` 新增 `--target`（超内部预算只 WARN、不 exit，硬线仍 exit 1），汇总行保留 `headroom` 并另起一行打印 `target=… gap=…`；`packaging/{installer,portable,verify-installer}.ps1`、`packaging/README.md`、README、AGENTS、STATE、ADR-0012/0017 同步。CI 不写死预算字面量（改前 6 处、改后 0 处，有改前正向对照）。便携 zip 门槛与安装包共用 2,000,000 B 硬线，不另设内部预算。`--target 280000` 曾把 `280000` 当目录（`readFileSync` ENOENT），`positional` 改为跳过所有 `--` flag 及其后一个值，正反例 exit 1 / exit 0 各一次。
+- **AI 提示词拆分**：格式与安全规则（JSON Lines 协议与示例、`quote` 约束、最多 1 条 revision、`overall` 总评、不编事实不换语体、`<前文>/<选区>/<后文>` 标记）内置为 `ANALYSIS_SYSTEM_PROMPT`，不进设置、不可编辑；设置里只剩「批注提示词（作者偏好）」，字段改名 `analysisPrompt` → `userPrompt`。旧存档按指纹迁移：第 26–34 轮默认提示词（795 字，FNV-1a `ebaf07b2`）自动换成新的 `DEFAULT_USER_PROMPT`，自定义值原样保留、不删不改写；`promptVersion` 升 3，自定义值保留原版本标记。落盘不再写 `analysisPrompt`。逐条追问的 system 提到 `DISCUSS_SYSTEM_PROMPT`。删掉「提示词里没提 JSON 格式」这条已失效的事后警告（格式规则已内置）；设置对话框的字号钳制原样保留。
+- **Esc 后焦点回正文**：退出预览、退出源码、关快速打开之后，焦点回到 `.ProseMirror`，下一次击键不再静默丢失（退出后 `activeElement` 曾是 `body`，4/4、3/3、3/3 复现）。`FindBar` 的两个 Esc 分支改成 `preventDefault()` + `stopPropagation()`，一个 Esc 只关查找，不再连带退出源码/预览；关闭查找后按模式分派焦点——源码模式回 `textarea.source-editor`（`.ProseMirror` 不在 DOM，`focusEditor()` 是空操作），预览模式显式不聚焦（预览 pane `contentEditable=false` 且无 `tabindex`，只读、快捷键由 window 处理），再按一次 Esc 才退出预览并聚焦正文。
+- 测试：`npm test` 22 个文件 **295** 条（287 + 提示词拆分 8，全部走既有测试文件，未新建文件）；`npx tsc --noEmit`、`npm run build`、`npm run verify`、`npm run roundtrip` 均 exit 0；首屏 gzip **286,056 B**（预算内部 310,000 / 硬线 320,000，距硬线余 33,944 B）；主 chunk `index-CYKrmZl7.js` 895,227 B raw / 279,028 B gzip。本轮不发版，原始命令输出与截图见 `docs/iteration/round-35/` 与 `shots/round-35/`。
+- UNVERIFIED：真模型在格式/偏好分离后是否更听话（无 Key，只验了请求体形状）；安装包新预算线的真实字节（本轮不打包，只做静态与语法检查）；CI 换线后的实际绿（不 push）；`packaging/verify-installer.ps1` 新增体积段的真机运行（会写 `release/`）；`scripts/qa15.mjs` 因提示词拆分失效的 4 行（不在任何门禁里，下一轮修）；WKWebView 下的 Esc 焦点行为（本机 Windows）；预览模式下关查找后焦点暂时在 `body`（只读视图无输入目标，下一轮可加 `tabIndex={-1}` + `.preview-pane:focus { outline: none }`）。
 
 ## 0.32.1 — 2026-11-16
 

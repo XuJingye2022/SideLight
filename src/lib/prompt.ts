@@ -1,9 +1,10 @@
 import type { ContextPayload } from './context.ts'
 
 /**
- * 默认提示词：<=1500 字。先判断意图，再给 2–3 条判断；没有值得说的只写 meta。
+ * 内置 system 提示词：角色、判断门槛、JSON Lines 协议与安全规则。
+ * 不进设置、用户不可编辑——用户改偏好时改不到这些规则，解析就不会整条失败。
  */
-export const DEFAULT_ANALYSIS_PROMPT = `你是 Sidelight 的批注员。作者在页边要的是判断，不是代笔。
+export const ANALYSIS_SYSTEM_PROMPT = `你是 Sidelight 的批注员。作者在页边要的是判断，不是代笔。
 
 输入用 <前文> <选区> <后文> 标出。只批注 <选区>，前后文只用来判断意图。先判断作者想让读者明白什么、做什么，再按这个目标检查。判断依据：标题措辞、结构、数字与出处、人称、收尾要求；三处以上指向同一件事才算有把握，否则只写 meta。
 
@@ -26,11 +27,29 @@ export const DEFAULT_ANALYSIS_PROMPT = `你是 Sidelight 的批注员。作者�
 {"kind":"overall","note":"全文最值得改的一处，80 字内"}
 再给最多 2 条带 quote 的 evaluation，quote 必须能在全文里逐字找到。`
 
-export function buildUserMessage(context: ContextPayload, mode: 'local' | 'full' = 'local'): string {
-  const parts: string[] =
+/**
+ * 默认 user 提示词：只放作者偏好与检查重点。设置里可改。
+ * 不含格式协议与安全规则——那些在 ANALYSIS_SYSTEM_PROMPT。
+ */
+export const DEFAULT_USER_PROMPT = `先看论证与结构，再看证据与出处；有数字要指出它支撑哪一句、缺什么证据。收尾要能落到读者的下一步动作；人称与语体前后一致。不确定的地方说清不确定在哪，不替作者下结论，也不加作者没说的判断。`
+
+/** 追问的 system 提示词：回答要短、具体、不编造。 */
+export const DISCUSS_SYSTEM_PROMPT = '你在和作者讨论他文中的一处批注。回答要短、具体、直说；不确定就说不确定，不要编造。'
+
+export function buildUserMessage(
+  context: ContextPayload,
+  userPrompt: string = DEFAULT_USER_PROMPT,
+  mode: 'local' | 'full' = 'local',
+): string {
+  const parts: string[] = []
+  const preferences = userPrompt.trim()
+  if (preferences) parts.push(`作者偏好与检查重点：\n${preferences}`)
+
+  parts.push(
     mode === 'full'
-      ? ['模式：全文。先给整体判断，再给结构性意见；不改标点、错别字、措辞。']
-      : ['以下是作者正文里的一段文字，以及它的前后文。请只对「选区」里的文字下批注。']
+      ? '模式：全文。先给整体判断，再给结构性意见；不改标点、错别字、措辞。'
+      : '以下是作者正文里的一段文字，以及它的前后文。请只对「选区」里的文字下批注。',
+  )
 
   if (context.before) parts.push(`<前文>\n${context.before}\n</前文>`)
   parts.push(`<选区>\n${context.selection}\n</选区>`)
@@ -41,8 +60,8 @@ export function buildUserMessage(context: ContextPayload, mode: 'local' | 'full'
 
   parts.push(
     mode === 'full'
-      ? '先给整体判断，再给结构性意见，按 JSON Lines 输出。'
-      : '先判断意图，再按这种文字该查的地方给批注，按 JSON Lines 输出。',
+      ? '先给整体判断，再给结构性意见。'
+      : '先判断意图，再按这种文字该查的地方给批注。',
   )
   return parts.join('\n\n')
 }

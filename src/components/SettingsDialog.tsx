@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { DEFAULT_ANALYSIS_PROMPT } from '../lib/prompt.ts'
+import { DEFAULT_USER_PROMPT } from '../lib/prompt.ts'
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, type Settings } from '../lib/settings.ts'
 import { useDialogFocus } from './useDialogFocus.ts'
 
@@ -165,20 +165,21 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
         )}
 
         <label className="field">
-          <span>批注提示词</span>
+          <span>批注提示词（作者偏好）</span>
           <textarea
             className="dialog-textarea"
-            value={draft.analysisPrompt}
+            value={draft.userPrompt}
             spellCheck={false}
-            onChange={(event) => update({ analysisPrompt: event.target.value })}
+            onChange={(event) => update({ userPrompt: event.target.value })}
           />
+          <span className="field-hint">格式与安全规则内置、不可改；这里只写你自己的偏好与检查重点。</span>
         </label>
         <div className="dialog-inline">
           <button
             type="button"
-            onClick={() => update({ analysisPrompt: DEFAULT_ANALYSIS_PROMPT })}
+            onClick={() => update({ userPrompt: DEFAULT_USER_PROMPT })}
           >
-            恢复默认提示词
+            恢复默认
           </button>
         </div>
 

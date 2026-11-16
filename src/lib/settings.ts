@@ -1,4 +1,4 @@
-import { DEFAULT_ANALYSIS_PROMPT } from './prompt.ts'
+import { DEFAULT_USER_PROMPT } from './prompt.ts'
 import type { SearchProvider } from './search.ts'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -14,9 +14,9 @@ export type Settings = {
   /** 联网核对用的搜索服务；off 表示不启用 */
   searchProvider: SearchProvider
   searchApiKey: string
-  /** 批注用的系统提示词，用户可改 */
-  analysisPrompt: string
-  /** 默认提示词版本：用于把旧默认升级成新默认，不碰自定义 */
+  /** 作者偏好与检查重点，设置里可改；格式与安全规则在 prompt.ts 的内置 system 里，改不到 */
+  userPrompt: string
+  /** 默认 user 提示词版本：用于把旧默认升级成新默认，不碰自定义 */
   promptVersion: number
   /** 停笔 2 秒自动保存（默认开；有结构损失时只提示，不写） */
   autoSave: boolean
@@ -37,14 +37,16 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   searchProvider: 'off',
   searchApiKey: '',
-  analysisPrompt: DEFAULT_ANALYSIS_PROMPT,
-  promptVersion: 2,
+  userPrompt: DEFAULT_USER_PROMPT,
+  promptVersion: 3,
   autoSave: true,
   smartPunctuation: true,
 }
 
-/** 旧默认提示词的指纹：长度 + FNV-1a；命中才升级，用户改过的不动 */
+/** 旧默认提示词的指纹（v1）：长度 + FNV-1a；命中才升级，用户改过的不动 */
 export const LEGACY_PROMPT_FINGERPRINT = '5967:3d38bf01'
+/** 第 26–34 轮的默认提示词指纹（v2，795 字，整段当 system 用）；拆分后命中就换成新的默认 user 提示词 */
+export const LEGACY_PROMPT_FINGERPRINT_V2 = '795:ebaf07b2'
 
 export function promptFingerprint(text: string): string {
   let hash = 2166136261
@@ -60,18 +62,26 @@ export function clampFontSize(value: number): number {
   return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(value)))
 }
 
+/** 落盘形状：新键 userPrompt；旧版把字段叫 analysisPrompt，读的时候兼容一次 */
+type StoredSettings = Partial<Settings> & { analysisPrompt?: string }
+
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return { ...DEFAULT_SETTINGS }
-    const parsed = JSON.parse(raw) as Partial<Settings>
-    const savedPrompt = typeof parsed.analysisPrompt === 'string' ? parsed.analysisPrompt : ''
+    const parsed = JSON.parse(raw) as StoredSettings
+    const savedPrompt =
+      typeof parsed.userPrompt === 'string'
+        ? parsed.userPrompt
+        : typeof parsed.analysisPrompt === 'string'
+          ? parsed.analysisPrompt
+          : ''
     const savedVersion = typeof parsed.promptVersion === 'number' ? parsed.promptVersion : 0
-    const legacyDefault = savedPrompt.trim().length > 0 && promptFingerprint(savedPrompt) === LEGACY_PROMPT_FINGERPRINT
-    const analysisPrompt =
-      savedPrompt.trim().length === 0 || (savedVersion < 2 && legacyDefault)
-        ? DEFAULT_ANALYSIS_PROMPT
-        : savedPrompt
+    const fingerprint = savedPrompt.trim().length > 0 ? promptFingerprint(savedPrompt) : ''
+    const legacyDefault = fingerprint === LEGACY_PROMPT_FINGERPRINT || fingerprint === LEGACY_PROMPT_FINGERPRINT_V2
+    // 空值回落默认；旧默认（v1/v2）升级成新默认；自定义原样保留，绝不覆盖
+    const userPrompt =
+      savedPrompt.trim().length === 0 || (savedVersion < 3 && legacyDefault) ? DEFAULT_USER_PROMPT : savedPrompt
     return {
       baseUrl: parsed.baseUrl?.trim() || DEFAULT_SETTINGS.baseUrl,
       apiKey: parsed.apiKey ?? '',
@@ -84,8 +94,8 @@ export function loadSettings(): Settings {
       searchProvider:
         parsed.searchProvider === 'tavily' || parsed.searchProvider === 'bocha' || parsed.searchProvider === 'deepseek' ? parsed.searchProvider : 'off',
       searchApiKey: parsed.searchApiKey ?? '',
-      analysisPrompt,
-      promptVersion: analysisPrompt === DEFAULT_ANALYSIS_PROMPT ? 2 : savedVersion || 0,
+      userPrompt,
+      promptVersion: userPrompt === DEFAULT_USER_PROMPT ? 3 : savedVersion || 0,
       autoSave: parsed.autoSave !== false,
       // 旧存档没有这个键，读出来必须是开（不能把老用户的功能默认关掉）
       smartPunctuation: parsed.smartPunctuation !== false,

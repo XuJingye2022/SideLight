@@ -64,6 +64,7 @@ import { cacheKey, legacyKeyFor, readCache, readCacheText, removeCache, writeCac
 import { buildChunkContext, buildContext, splitSelection, type Block, type ContextPayload } from './lib/context.ts'
 import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } from './lib/decorations.ts'
 import { MathInputRules } from './lib/mathInput.ts'
+import { DISCUSS_SYSTEM_PROMPT } from './lib/prompt.ts'
 import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDefinitions, lossLabels, type Loss } from './lib/risk.ts'
 import { repairCalloutMarkers } from './lib/escapes.ts'
 import { ensureKatex } from './lib/katexLazy.ts'
@@ -1560,7 +1561,7 @@ export default function App() {
 
       const context = buildContext(readBlocks(editor), annotation.from, annotation.to)
       const messages: ChatMessage[] = [
-        { role: 'system', content: '你在和作者讨论他文中的一处批注。回答要短、具体、直说；不确定就说不确定，不要编造。' },
+        { role: 'system', content: DISCUSS_SYSTEM_PROMPT },
         {
           role: 'user',
           content: `原文：「${annotation.quote}」\n批注：${annotation.note}\n\n上下文：\n${context.selection}`,
@@ -3533,10 +3534,12 @@ export default function App() {
         // 停在源码或预览里时，Esc 回到编辑；源码里改过的内容按「切回」规则落回正文
         if (sourceMode) {
           toggleSourceRef.current()
+          focusEditor()
           return
         }
         if (previewMode) {
           togglePreviewRef.current()
+          focusEditor()
           return
         }
         return
@@ -3715,10 +3718,6 @@ export default function App() {
     setSettings(safe)
     saveSettings(safe)
     setSettingsOpen(false)
-    // 提示词被改没了输出格式，模型多半会不按约定回；不阻止，但先提醒
-    if (!/json/i.test(safe.analysisPrompt)) {
-      show('提示词里没提 JSON 格式，模型可能不按约定回；已保存，可在设置里恢复默认。')
-    }
   }, [])
 
   /* ---------- 视图 ---------- */
@@ -4587,7 +4586,14 @@ export default function App() {
             onReplaceAll={replaceEvery}
             onClose={() => {
               setFindOpen(false)
-              focusEditor()
+              if (sourceMode) {
+                // 源码模式里 .ProseMirror 不在 DOM：focusEditor() 是空操作，焦点会掉到 body，改回源码输入框
+                requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea.source-editor')?.focus())
+              } else if (!previewMode) {
+                focusEditor()
+              }
+              // 预览模式显式不聚焦：预览 pane 是 contentEditable=false 且无 tabindex，
+              // focusEditor() 对它无效；预览只读、快捷键由 window 处理，不存在丢键
             }}
           />
         </Suspense>
@@ -5086,7 +5092,10 @@ export default function App() {
               setQuickOpen(false)
               focusEditor()
             }}
-            onClose={() => setQuickOpen(false)}
+            onClose={() => {
+              setQuickOpen(false)
+              focusEditor()
+            }}
           />
         </Suspense>
       )}

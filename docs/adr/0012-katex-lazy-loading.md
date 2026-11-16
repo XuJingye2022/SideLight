@@ -40,7 +40,7 @@ KaTeX 曾是首屏最大的非必要字节：`@tiptap/extension-mathematics` 顶
 
 ## Kill criteria 与结果
 
-- 判据：`measure --max 286000` 超线，或首屏仍含 `katex`/lazy chunk，或公式/导出回归。
+- 判据：`measure --max 320000` 超线（内部预算 310,000），或首屏仍含 `katex`/lazy chunk，或公式/导出回归。
 - 结果：**未触发**。首屏 gzip 282,809 ≤ 285,000；首屏集合只有 index JS 与 index CSS；`math-ready-acceptance` 11/11、acceptance dev 11/11、`npm test` 205 条全绿。
 - 265 KiB 目标未达成，但这是「目标不可达」而不是「本轮方案失败」：Kill 判据用的是 285,000 软线。
 

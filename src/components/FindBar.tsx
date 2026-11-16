@@ -49,7 +49,12 @@ export function FindBar({
               if (event.shiftKey) onPrev()
               else onNext()
             }
-            if (event.key === 'Escape') onClose()
+            if (event.key === 'Escape') {
+              // 一个按键只处理一次：不再冒泡到 window 的 Esc 分支（否则同一个 Esc 会连带退出源码/预览）
+              event.preventDefault()
+              event.stopPropagation()
+              onClose()
+            }
           }}
         />
         <span className="find-count">
@@ -77,7 +82,11 @@ export function FindBar({
               event.preventDefault()
               onReplace()
             }
-            if (event.key === 'Escape') onClose()
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              event.stopPropagation()
+              onClose()
+            }
           }}
         />
         <button type="button" onClick={onReplace} disabled={total === 0}>

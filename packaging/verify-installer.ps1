@@ -42,6 +42,18 @@ if (-not (Test-Path $setup)) {
     exit 1
 }
 
+# 1b) 体积护栏：与 installer.ps1 同一条线（内部预算 1,800,000 B / 硬线 2,000,000 B）。
+$setupBytes = (Get-Item $setup).Length
+Write-Host ("setup={0:N0} B  target=1800000 gap={1}" -f $setupBytes, ($setupBytes - 1800000))
+if ($setupBytes -gt 1800000) {
+    Write-Host ("WARN 安装包 {0} B 超过内部预算 1,800,000 B（越过 {1} B），仍在硬线 2,000,000 B 内" -f $setupBytes, ($setupBytes - 1800000))
+}
+if ($setupBytes -gt 2000000) {
+    Fail ("安装包 {0} B 超过硬线 2,000,000 B" -f $setupBytes)
+} else {
+    Pass ("体积在硬线 2,000,000 B 内（setup={0} B）" -f $setupBytes)
+}
+
 # 2) WebView2 运行时存在（本机前提；缺失时安装器应当 Abort）
 $pv = ''
 try { $pv = (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction Stop).pv } catch { }
