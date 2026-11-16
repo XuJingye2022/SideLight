@@ -189,6 +189,7 @@ jobs:
     env:
       SIGNING: ${{ needs.macos-build.outputs.signing }}
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: out
