@@ -93,7 +93,7 @@ test('引用式链接定义被删：基线命中，保存要拦', () => {
   assert.ok(has(active, 'reference-links'))
 })
 
-test('基线为空时永不拦：正常编辑不弹框', () => {
+test('基线为空时，非脚注类损失不拦', () => {
   const before = '正文 [Tiptap][tiptap] 结束。\n\n[tiptap]: https://tiptap.dev\n'
   const after = '正文 [Tiptap](https://tiptap.dev) 结束。\n'
   assert.deepEqual(activeLosses(before, after, []), [])
@@ -243,6 +243,20 @@ test('多行续行仍在时定义消失不被重复计入', () => {
   const kinds = classify(before, after).map((item) => item.kind)
   assert.equal(kinds.includes('footnote-loss'), false)
   assert.equal(kinds.includes('footnote-continuation'), true)
+})
+
+test('基线为空也要拦脚注定义丢失（第 34 轮 P0：定义被挤出文末块）', () => {
+  const before = '# 脚注篇\n\n引用[^1]。\n\n[^1]: 定义文字。\n\n末尾段。\n'
+  const after = '# 脚注篇\n\n引用[^1](定义文字。)。\n\n末尾段。\n'
+  const active = activeLosses(before, after, [])
+  assert.equal(active.length, 1)
+  assert.equal(active[0].kind, 'footnote-loss')
+})
+
+test('定义仍在文末块时只改正文 → 基线为空也不拦（防过度拦）', () => {
+  const before = '# 正常篇\n\n引用[^1]。\n\n[^1]: 定义。\n'
+  const after = '# 正常篇\n\n改了字[^1]。\n\n[^1]: 定义。\n'
+  assert.deepEqual(activeLosses(before, after, []), [])
 })
 test('公式里的 \\$ 转义消失 → 拦截', () => {
   const before = '价格 \\$100 与 $x^2$。\n'

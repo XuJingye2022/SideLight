@@ -104,6 +104,7 @@ export function FileTree({
   useEffect(() => {
     setFocusPath((previous) => previous ?? activePath)
     if (!wasFocusedRef.current) return
+    if (document.activeElement?.closest('.ProseMirror')) return // 第 34 轮：快速打开后焦点已交还正文，别抢
     const target =
       activePath ?? treeRef.current?.querySelector<HTMLElement>('[role="treeitem"]')?.dataset.path ?? null
     if (!target) return

@@ -53,7 +53,7 @@ for (const entry of entries) {
 // 预算按 gzip（首屏传输字节）算；raw 只做对照。与 Vite 日志的 gzip 相差约 1.3%，验收以本脚本为准。
 const saved = totalRaw - totalGzip
 const percent = totalRaw === 0 ? 0 : (saved / totalRaw) * 100
-console.log(`total raw=${totalRaw} gzip=${totalGzip} files=${entries.length} max=${max}`)
+console.log(`total raw=${totalRaw} gzip=${totalGzip} headroom=${max - totalGzip} files=${entries.length} max=${max}`)
 console.log(`gzip 省下 ${saved} B（${percent.toFixed(1)}%）`)
 
 const banned = entries.filter((entry) => /katex/i.test(entry.url) || /lazy/i.test(entry.url))

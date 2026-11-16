@@ -362,15 +362,20 @@ export function baselineLosses(original: string, serialized: string): Loss[] {
   return classify(original, serialized).filter((loss) => loss.blocking)
 }
 
+/** 脚注/引用式链接定义行；只做「要不要跑完整分类」的短路，误判只会多跑一次 classify */
+const FOOTNOTE_DEFINITION = /^\[\^[^\]]+\]:/m
+
 /**
  * 保存时要拦的损失：基线里存在、当前仍命中同一个结构位置。
- * 基线为空（新建/普通文档）永远返回空数组，正常编辑不弹框。
+ * 基线决定载入时的横幅与其它分类；只有 footnote-loss 例外——基线为空也拦
+ * （第 34 轮 P0：载入后编辑把定义挤出文末块，基线里没有这条）。
  */
 export function activeLosses(original: string, current: string, baseline: Loss[]): Loss[] {
-  if (baseline.length === 0) return []
+  // 基线为空但原文有脚注定义时仍要分类，其余文档保持原有的早退
+  if (baseline.length === 0 && !FOOTNOTE_DEFINITION.test(original)) return []
   const baselineKeys = new Set(baseline.map((loss) => `${loss.kind}:${loss.key}`))
   return classify(original, current).filter(
-    (loss) => loss.blocking && baselineKeys.has(`${loss.kind}:${loss.key}`),
+    (loss) => loss.blocking && (loss.kind === 'footnote-loss' || baselineKeys.has(`${loss.kind}:${loss.key}`)),
   )
 }
 

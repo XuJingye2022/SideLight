@@ -60,7 +60,7 @@ export function SaveDialog({ open, losses, onConfirm, onCancel, onOpenSource }: 
       >
         <h2 id="save-title">保存后这些写法会被改写</h2>
         <p className="dialog-note">
-          下面这些结构在载入时就存在，保存后会丢掉或重排。取消不会写入任何字节。
+          下面这些结构在保存后会丢掉或重排。取消不会写入任何字节。
         </p>
 
         <div className="loss-view">

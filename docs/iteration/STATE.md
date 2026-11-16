@@ -49,10 +49,10 @@
 
 ## 当前版本与体积
 
-- v0.32.1（第 30–32 轮改动都在同一个未发版区间）。首屏 JS+CSS gzip **285,052 B**（临时上限 286,000，余 948 B；第 30 轮 284,529 → 第 31 轮 +232 B → 第 32 轮 +291 B）；测试 **21 文件 276 条**（第 30 轮 18/260，第 31 轮挂进 settings/prompt/katexLazy 共 12 条，第 32 轮加句段 4 条）。
-- 第 31 轮修完两条 P0 数据丢失：删除当前文档后「撤销」、改名「非当前文档」都不再切走保存目标（`refreshTree` adopt 分支加不变量守卫 + 撤销改用 `refreshTreeRef`）；字数明细按中日韩字 / 拉丁词 / 合计分行并把焦点移进面板；点正文链接恢复就地编辑，列表内 Tab/Shift+Tab 缩进；`@tiptap/extension-strike` 改直接依赖。
-- 第 32 轮：Windows `Ctrl+Shift+P` 预览快捷键修复（条件里多余的 `!event.ctrlKey`）；状态栏随选区显示「选区 N 字」（预览/源码态归零）；字数明细「段」改按正文文本块计（编辑/源码同口径，新增 `countParagraphs`）；`chunkSizeWarningLimit` 1200→950，新增 ADR-0017（Mermaid 实测：主入口 + 48 个静态依赖 1,976,553 B raw，安装包预估 1,474,881 B 破 850,000 B 硬线 → 本轮不实现，待产品负责人三选一）。
-- 下一轮优先：① 工作区图片破图（Typora P1，需先找 ≥1.5 KB 省字节点或把 NodeView 抽成惰性，余量只 948 B）；② 修 `qa16`/`qa10` 两个过期脚本（`.editor` 类名、演示文档段落假设）；③ 表格列宽拖拽与「粘贴为纯文本」排队；④ 首屏余量 948 B，任何新功能前先配「省字节」任务。
+- v0.32.1（第 30–34 轮改动都在同一个未发版区间）。首屏 JS+CSS gzip **285,937 B**（临时上限 286,000，余 63 B；第 30 轮 284,529 → 31 轮 +232 → 32 轮 +291 → 33 轮 +839 → 34 轮 +46）；测试 **22 文件 287 条**（30 轮 18/260 → 31 轮 21/272 → 32 轮 21/276 → 33 轮 22/285 → 34 轮 22/287）。
+- 第 33 轮：智能标点与自动配对（设置可关，`src/lib/smartTyping.ts`）；`packaging/verify-installer.ps1` 与 release 流水线版本号变量化；首屏 285,891 B。
+- 第 34 轮：**脚注定义丢失拦截（P0，自动保存也拦）**、查找/快速打开焦点回正文、同一篇不弹切换框、新增 `npm run verify` 首屏门；首屏 285,937 B（余 63 B）。
+- 下一轮优先（产品负责人点名）：① AI 提示词拆分——格式/JSON 协议/安全规则进内置 system prompt，设置只暴露可编辑 user prompt，旧自定义迁移不丢，追问等 AI 调用一并审计；② 体积预算更新——安装包内部 1,800,000 B / 硬线 2,000,000 B，首屏内部 310,000 B / 硬线 320,000 B，同步 measure/verify/CI/README/AGENTS/ADR-0012/0017；③ Mermaid 懒加载实现（功能优先，同功能取最小体积）；④ 排序：稳定性 > 核心功能 > 体积优化 > 节省 Token > 速度。
 - 首启：空白 `未命名.md`，不再加载示例；文件菜单「关闭文档」；工作区无句柄文档 Ctrl+S 直接落 `未命名.md`。
 - 发布资产：Windows setup 824,209 B、Windows zip 910,360 B、macOS Universal 905,892 B；校验和见 `SHA256SUMS-0.32.1.txt`。
 - 重开恢复：IndexedDB 只存 FSA 句柄；宿主 `/__annotations` 读回；Ctrl+S 原地。批注 v2（overall/unresolved）；重跑整窗替换。
@@ -95,6 +95,8 @@
 | 30 | 状态栏字数明细 + 删除撤销丢正文 + 安装器版本 | round-30/plan.md | PASS-WITH-UNVERIFIED：T1 删除后撤销不再丢正文、T2 字数明细面板、首屏 284,529、测试 18/260、keyboard 49/49；0.32.1 未发版 | 5b36b71 |
 | 31 | 撤销/改名保存目标 P0 + 字数明细口径 + 链接点击与列表 Tab | round-31/plan.md | PASS-WITH-UNVERIFIED：T1 21/21、T2 14/14、T3 18/18、keyboard 49/49、roundtrip 0、首屏 284,761、测试 21/272；未发版 | 64002a8 |
 | 32 | 预览快捷键 + 选区计数 + 段落口径 + 体积护栏与 Mermaid ADR | round-32/plan.md | PASS-WITH-UNVERIFIED：keyboard 52/52、T2 9/9、T3 7/7、qa17 7/7、首屏 285,052（余 948）、测试 21/276、tsc/build PASS；Mermaid 本轮不实现待产品负责人三选一；qa16/qa10 脚本过期（非本轮回归）；未发版 | e399805 |
+| 33 | 智能标点与自动配对 + 验收/发版门禁版本号 | round-33/plan.md | PASS-WITH-UNVERIFIED：智能标点 8 条单测、e2e 13 组、keyboard 52/52、首屏 285,891、测试 22/285、verify-installer 版本号正反例 | 186dfeb |
+| 34 | 脚注定义丢失拦截 P0 + 焦点回正文 + verify 门禁 | round-34/plan.md | PASS-WITH-UNVERIFIED：T1 6/6（自动保存也拦）、T2 6/6、verify 正反例、keyboard 52/52、树 54/56（2 条旧脚本过期）、首屏 285,937、测试 22/287；验收后未提交，根代理补交 | 本次提交 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
@@ -127,7 +129,7 @@
 3. CDP 用 9222–9226（每个端口独立 profile；9227 不可用）。每轮 E2E 前跑 `node .tmp/reset.mjs <端口>`：它会关旧页面、清 localStorage/IndexedDB。旧页面会执行 HMR 没应用的 App.tsx 中间版本，见 AGENTS §8。
 4. 用 DSH `workflow` 调度五角色：3–5 个只读 finder 并行 → planner → critic（REVISE 回 planner，最多 2 次）→ executor → tester；FAIL 返修最多 2 次，仍 FAIL 回滚。不再复用持久代理或 send_message。
 5. 根代理只在批次之间做事：读报告与 `git log`、串行跑 `npm run build`/`npm test`/`measure`、更新本文件、决定下一批。产品代码由子代理写。
-6. 第 32 轮完成（PASS-WITH-UNVERIFIED，未发版，HEAD `e9d90a8`）。后续优先：① 工作区图片破图（Typora P1，先省字节或把 NodeView 抽成惰性，首屏余量只 948 B）；② 修 `qa16`/`qa10` 两个过期脚本（`.editor` 类名、演示文档假设）；③ 表格列宽拖拽与「粘贴为纯文本」排队；④ 首屏余量 948 B，任何新功能前先配「省字节」任务；⑤ Mermaid 等产品负责人对 ADR-0017 三选一裁决；⑥ 真实 macOS/Intel/签名公证；1 MB 性能包线。
+6. 第 34 轮完成（PASS-WITH-UNVERIFIED，未发版）。后续优先：① AI 提示词拆分（格式内置 system / 用户只改 user prompt，旧值迁移不丢）；② 体积预算更新（安装包内部 1,800,000 B / 硬线 2,000,000 B；首屏内部 310,000 B / 硬线 320,000 B）并同步 measure/verify/CI/README/AGENTS/ADR-0012/0017；③ Mermaid 懒加载实现（功能优先、同功能最小体积）；④ 工作区图片破图、qa16/qa10 过期脚本、表格列宽拖拽排队；⑤ 真实 macOS/Intel/签名公证、1 MB 性能包线。排序：稳定性 > 核心功能 > 体积优化 > 节省 Token > 速度。
 
 ## 决策记录
 
@@ -151,5 +153,8 @@
 
 - 2026-11-17 根代理：第 29 轮起用 `http://localhost:5175` 与 CDP 9222–9226；DSH 沙箱禁止启动 Chromium，复用上一会话遗留的 5 个 headless Edge；`.tmp/reset.mjs` 只关 localhost 页面，不杀浏览器。沙箱挡住浏览器时记 UNVERIFIED，不反复重试。
 - 2026-11-17 根代理：五角色提示词外置到 `.tmp/iteration/common.md` 与 `.tmp/iteration/roles/*.md`；workflow 只传轮次、报告目录、端口与上一轮摘要。每轮报告仍在 `docs/iteration/round-NN/`。
-- 2026-11-17 根代理：Mermaid 暂不实现。ADR-0017 实测真实最小增量把安装包从 824,595 B 推到 1,474,881 B，破 850,000 B 硬线；按 AGENTS §1 需产品负责人三选一（放宽硬线 / 只上 flowchart+sequence 子集 / 不做）。未裁决前不新增 mermaid 依赖、不改安装包硬线；要推进先做选项 2 的子集实测。
 - 2026-11-17 根代理：第 30–32 轮完成（3 轮 PASS-WITH-UNVERIFIED，未发版）。累计：字数明细、选区计数、列表缩进、删除撤销恢复、链接就地编辑、预览快捷键、段落口径、体积护栏、ADR-0017。测试 21 文件 276 条；首屏 285,052 B；HEAD e9d90a8。
+- 2026-11-17 根代理：第 33 轮完成（智能标点与自动配对；22/285；首屏 285,891）。第 34 轮验收 PASS 但没有 commit，批次中止后由根代理补提交（脚注 P0 + 焦点 + verify；22/287；首屏 285,937）。workflow 修法：PASS 后 `head` 必须不同于轮前 SHA，否则按失败回滚。
+- 2026-11-17 产品负责人：AI 提示词拆分——格式/JSON 协议/安全规则内置为 system prompt；设置只暴露可编辑 user prompt。列入第 35 轮。
+- 2026-11-17 产品负责人：Mermaid 采用完整实现，允许放宽安装包线；但同功能必须取最小体积，首屏 0 B。安装包内部预算 1,800,000 B / 硬线 2,000,000 B；首屏内部 310,000 B / 硬线 320,000 B。首次真实打包后按实测 + 5% 复核。
+- 2026-11-17 产品负责人：优先级固定为 **稳定性 > 核心功能 > 体积优化 > 节省 Token > 工作速度**；不要为省几 KB 砍能提升体验的功能。

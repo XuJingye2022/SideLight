@@ -320,6 +320,12 @@ function hostErrorCopy(code: string): string {
 }
 
 
+/**
+ * 把焦点送回正文：关浮层/关查找后都用它，否则下一次击键掉在 body 上（第 34 轮）
+ * 模块级常量：不进 useCallback 依赖数组，也省掉陈旧闭包
+ */
+const focusEditor = () => requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
+
 export default function App() {
   const [settings, setSettings] = useState<Settings>(() => loadSettings())
   // 没配 Key 时走本地模拟流，界面必须明说，否则用户会以为模型读过文章
@@ -2116,13 +2122,19 @@ export default function App() {
         await Promise.all([waitForHostSave(), waitForCommit()])
         if (epoch !== loadEpochRef.current) return
         if (dirty) {
+          // 选中的就是当前这篇（快速打开里回车、文件树上点自己）：没有切换可言，别弹「要保存吗」
+          const same = file?.handle && activeFile?.handle ? await file.handle.isSameEntry(activeFile.handle) : false
+          if (same) {
+            focusEditor()
+            return
+          }
           setPendingSwitch({ text, name, file })
           return
         }
         loadIntoEditor(text, name, file)
       })()
     },
-    [dirty, loadIntoEditor, waitForHostSave],
+    [dirty, loadIntoEditor, waitForHostSave, activeFile],
   )
 
   const openFolder = useCallback(async () => {
@@ -2434,7 +2446,7 @@ export default function App() {
     await waitForHostSave()
     // 新建/关闭文档：始终从空白未命名文档开始，不替用户在文件夹里建文件
     loadIntoEditor('', '未命名.md', null)
-    requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
+    focusEditor()
   }, [loadIntoEditor, waitForHostSave])
 
   /** 新建前先走同一套未保存确认；取消则什么都不做 */
@@ -2444,7 +2456,7 @@ export default function App() {
     const root = space?.rootHandle
     if (!space || !root || space.root?.kind !== 'dir') {
       loadIntoEditor('', '未命名.md', null)
-      requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
+      focusEditor()
       return
     }
     try {
@@ -2458,7 +2470,7 @@ export default function App() {
       await refreshTree({ mode: 'adopt', activePath: path })
       show(`已新建 ${name}`)
       show(`已新建 ${name}`)
-      requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
+      focusEditor()
     } catch (error) {
       setNotice({ text: `新建失败：${reasonOf(error)}。`, kind: 'error' })
     }
@@ -3489,6 +3501,7 @@ export default function App() {
         }
         if (findOpen) {
           setFindOpen(false)
+          focusEditor()
           return
         }
         if (settingsOpen) {
@@ -4572,7 +4585,10 @@ export default function App() {
             onNext={nextMatch}
             onReplace={replaceCurrent}
             onReplaceAll={replaceEvery}
-            onClose={() => setFindOpen(false)}
+            onClose={() => {
+              setFindOpen(false)
+              focusEditor()
+            }}
           />
         </Suspense>
       )}
@@ -5068,6 +5084,7 @@ export default function App() {
               const node = flattenFiles(workspace?.root ?? null).find((file) => file.path === picked.path)
               if (node) void openWorkspaceFile(node)
               setQuickOpen(false)
+              focusEditor()
             }}
             onClose={() => setQuickOpen(false)}
           />

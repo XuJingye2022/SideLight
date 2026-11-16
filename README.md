@@ -96,7 +96,7 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 - 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
 ## 依赖与体积
 
-首屏 gzip 从 364,960 B 降到 **285,891 B（−21.7%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 84 KB：JS 76,553 B + CSS 7,365 B）按需加载，首屏不再包含；第 30 轮再把预览面板与导出模板改成按需加载，首屏又少 1,309 B；第 31 轮加链接点击与列表缩进后 +232 B；第 32 轮加选区计数与字数明细段落口径后 +291 B；第 33 轮加智能标点与自动配对后 +839 B。首屏临时上限 **286,000 B**（数据安全例外，STATE 记理由，余 109 B）；安装包内部预算 820,000 B，最新发布资产 824,209 B（超预算 4,209 B，距硬线 850,000 B 余 25,791 B）。安装包、便携 zip 与 macOS zip 的字节和 SHA256 **见 Release 页的 `SHA256SUMS-0.32.1.txt`**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
+首屏 gzip 从 364,960 B 降到 **285,937 B（−21.7%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 84 KB：JS 76,553 B + CSS 7,365 B）按需加载，首屏不再包含；第 30 轮再把预览面板与导出模板改成按需加载，首屏又少 1,309 B；第 31 轮加链接点击与列表缩进后 +232 B；第 32 轮加选区计数与字数明细段落口径后 +291 B；第 33 轮加智能标点与自动配对后 +839 B；第 34 轮加脚注拦截与焦点回正文后 +46 B。首屏临时上限 **286,000 B**（数据安全例外，STATE 记理由，余 63 B）；安装包内部预算 820,000 B，最新发布资产 824,209 B（超预算 4,209 B，距硬线 850,000 B 余 25,791 B）。安装包、便携 zip 与 macOS zip 的字节和 SHA256 **见 Release 页的 `SHA256SUMS-0.32.1.txt`**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
 
 **KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 284,761 B（第 31 轮），原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 950`（主 chunk 896,149 B，2026-11-17 实测）。
 
@@ -114,9 +114,10 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 ```bash
 npm install
 npm run dev       # http://localhost:5173
-npm test          # 22 个文件、285 条断言
+npm test          # 22 个文件、287 条断言
 npm run roundtrip # Markdown 往返损失测量，写 docs/roundtrip-report.md
 npm run build     # 类型检查 + 打包
+npm run verify    # build + 首屏 gzip 字节门
 npm run shot      # 无头浏览器跑流程并截图（需先起 dev；默认写 .tmp/shots/shot.png，--out 指定路径）
 npm run acceptance # 11 项：草稿、货币、查找、公式、字体、表格、导出、三处保真、无控制台错误（需先起 dev + 无头浏览器）
 node scripts/qa.mjs  # 缺陷探测：切换文档、设置、字号、批注漂移、空文档、专注模式（qa7、qa9–qa18 是单项探测）
