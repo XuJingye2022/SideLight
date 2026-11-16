@@ -57,7 +57,7 @@ await page.evaluate(async () => {
 })
 
 await page.locator('.file-menu-trigger').click()
-await page.getByRole('button', { name: '打开文件夹…' }).click()
+await page.locator('[role="menuitem"]', { hasText: '打开文件夹…' }).click()
 await page.locator('[role="treeitem"]', { hasText: 'doc.md' }).first().waitFor({ timeout: 10000 })
 await page.locator('[role="treeitem"]', { hasText: 'doc.md' }).first().dblclick()
 await page.waitForTimeout(1200)
@@ -154,6 +154,57 @@ const single = await page2.evaluate(async () => {
 check('单文件会话重载后名称正确', single.name === 'single.md', String(single.name))
 check('单文件 Ctrl+S 不弹 picker', single.saveCalls === 0, String(single.saveCalls))
 check('单文件 Ctrl+S 写回 OPFS', single.text.includes('SAVED'), single.text.slice(-30))
+
+// 空白文档 + 工作区 Ctrl+S：落到根目录，不弹 picker
+const page4 = await context.newPage()
+await page4.addInitScript(() => {
+  localStorage.removeItem('sidelight.doc.v1')
+  window.__savePickerCalls = 0
+  window.showDirectoryPicker = async () => {
+    const root = await navigator.storage.getDirectory()
+    return root.getDirectoryHandle('proj', { create: true })
+  }
+  window.showSaveFilePicker = async () => {
+    window.__savePickerCalls += 1
+    throw new DOMException('不应弹保存选择器', 'AbortError')
+  }
+})
+await page4.goto(URL, { waitUntil: 'networkidle' })
+await page4.evaluate(() => indexedDB.deleteDatabase('sidelight.session'))
+await page4.reload({ waitUntil: 'networkidle' })
+const blank = await page4.evaluate(() => ({
+  name: document.querySelector('.doc-name')?.textContent?.trim(),
+  text: document.querySelector('.ProseMirror')?.textContent ?? '',
+  demo: document.querySelectorAll('.ProseMirror').length,
+}))
+check('首屏是空白未命名文档', blank.name === '未命名.md' && blank.text.trim() === '', JSON.stringify(blank))
+await page4.locator('.file-menu-trigger').click()
+await page4.locator('[role="menuitem"]', { hasText: '打开文件夹…' }).click()
+await page4.locator('[role="treeitem"]', { hasText: 'doc.md' }).first().waitFor({ timeout: 10000 })
+await page4.keyboard.press('Control+Alt+N')
+await page4.waitForTimeout(400)
+await page4.locator('.ProseMirror').click()
+await page4.keyboard.type('ROOT-SAVE')
+await page4.keyboard.press('Control+S')
+await page4.waitForTimeout(1200)
+const rootSave = await page4.evaluate(async () => {
+  const root = await navigator.storage.getDirectory()
+  const dir = await root.getDirectoryHandle('proj')
+  let text = null
+  try {
+    text = await (await (await dir.getFileHandle('未命名.md')).getFile()).text()
+  } catch {
+    text = null
+  }
+  return {
+    text,
+    pickers: window.__savePickerCalls,
+    active: document.querySelector('.tree-file.is-active')?.textContent?.trim(),
+    notice: document.querySelector('.toast-text')?.textContent ?? '',
+  }
+})
+check('工作区 Ctrl+S 落到根目录 未命名.md', Boolean(rootSave.text?.includes('ROOT-SAVE')), JSON.stringify(rootSave))
+check('工作区保存不弹 picker 且树选中', rootSave.pickers === 0 && rootSave.active === '未命名.md', `${rootSave.pickers}/${rootSave.active}`)
 
 // 宿主重开：/__doc 成功也要恢复文件夹与树
 const page3 = await context.newPage()

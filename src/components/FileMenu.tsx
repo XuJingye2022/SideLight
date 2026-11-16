@@ -4,6 +4,7 @@ type RecentItem = { id: string; seq: number; name: string; dir: string }
 
 type Props = {
   onNew: () => void
+  onCloseDocument: () => void
   onSaveAs: () => void
   onOpenFile: () => void
   onOpenFolder: () => void
@@ -16,8 +17,9 @@ type Props = {
   onClearRecent: () => Promise<boolean>
 }
 
-const ITEMS: Array<{ label: string; keys: string; keyshortcuts: string; action: 'new' | 'saveAs' | 'openFile' | 'openFolder' | 'find' }> = [
+const ITEMS: Array<{ label: string; keys: string; keyshortcuts: string; action: 'new' | 'closeDocument' | 'saveAs' | 'openFile' | 'openFolder' | 'find' }> = [
   { label: '新建', keys: 'Ctrl+Alt+N', keyshortcuts: 'Control+Alt+N', action: 'new' },
+  { label: '关闭文档', keys: '', keyshortcuts: '', action: 'closeDocument' },
   { label: '另存为…', keys: 'Ctrl+Alt+S', keyshortcuts: 'Control+Alt+S', action: 'saveAs' },
   { label: '打开文件…', keys: 'Ctrl+Alt+O', keyshortcuts: 'Control+Alt+O', action: 'openFile' },
   { label: '打开文件夹…', keys: 'Ctrl+Alt+Shift+O', keyshortcuts: 'Control+Alt+Shift+O', action: 'openFolder' },
@@ -30,6 +32,7 @@ const ITEMS: Array<{ label: string; keys: string; keyshortcuts: string; action: 
  */
 export function FileMenu({
   onNew,
+  onCloseDocument,
   onSaveAs,
   onOpenFile,
   onOpenFolder,
@@ -75,6 +78,11 @@ export function FileMenu({
   const run = (action: (typeof ITEMS)[number]['action']) => {
     if (action === 'new') {
       onNew()
+      closeTo('editor')
+      return
+    }
+    if (action === 'closeDocument') {
+      onCloseDocument()
       closeTo('editor')
       return
     }

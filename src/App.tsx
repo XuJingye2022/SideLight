@@ -414,21 +414,18 @@ export default function App() {
   // 草稿、文档名、frontmatter 一起恢复，避免刷新后元数据与文件名丢失
   const [initial] = useState(() => {
     const fallback = {
-      text: SAMPLE,
+      text: '',
       frontmatter: '',
       footnotes: '',
-      name: DEMO_DOC_NAME,
+      name: '未命名.md',
       savedAt: 0,
       readOnly: false,
     }
     try {
       const raw = localStorage.getItem(DOC_KEY)
-      if (!raw) {
-        const split = splitFrontmatter(SAMPLE)
-        const footnoteSplit = extractFootnotes(split.body)
-        return { ...fallback, text: footnoteSplit.body, frontmatter: split.frontmatter, footnotes: footnoteSplit.footnotes }
-      }
+      if (!raw) return fallback
       const parsed = JSON.parse(raw) as { text?: string; name?: string; savedAt?: number; readOnly?: boolean }
+      if (parsed.name === DEMO_DOC_NAME) return fallback
       const text = typeof parsed.text === 'string' ? parsed.text : raw
       const split = splitFrontmatter(text)
       const footnoteSplit = extractFootnotes(split.body)
@@ -436,7 +433,7 @@ export default function App() {
         text: footnoteSplit.body,
         frontmatter: split.frontmatter,
         footnotes: footnoteSplit.footnotes,
-        name: parsed.name ?? DEMO_DOC_NAME,
+        name: parsed.name ?? '未命名.md',
         savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : 0,
         // 宿主 argv 打开的文件是只读的：保存只能另存为，不能假装写回原文件
         readOnly: parsed.readOnly === true,
@@ -2364,11 +2361,18 @@ export default function App() {
   /** 新建：有真实文件夹就建空文件并刷新树快照；示例/空态只换内存文档 */
   const startNewDocument = useCallback(async () => {
     await waitForHostSave()
+    // 新建/关闭文档：始终从空白未命名文档开始，不替用户在文件夹里建文件
+    loadIntoEditor('', '未命名.md', null)
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
+  }, [loadIntoEditor, waitForHostSave])
+
+  /** 新建前先走同一套未保存确认；取消则什么都不做 */
+  const createWorkspaceFile = useCallback(async () => {
+    await waitForHostSave()
     const space = workspaceRef.current
-    const root = space ? space.rootHandle : null
+    const root = space?.rootHandle
     if (!space || !root || space.root?.kind !== 'dir') {
       loadIntoEditor('', '未命名.md', null)
-      // 纯键盘流程：新建后直接能打字
       requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
       return
     }
@@ -2382,14 +2386,21 @@ export default function App() {
       saveTargetRef.current = { handle, name }
       await refreshTree({ mode: 'adopt', activePath: path })
       show(`已新建 ${name}`)
-      // 纯键盘流程：新建后直接能打字
+      show(`已新建 ${name}`)
       requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
     } catch (error) {
       setNotice({ text: `新建失败：${reasonOf(error)}。`, kind: 'error' })
     }
-  }, [loadIntoEditor, nextNewName, refreshTree, show])
+  }, [loadIntoEditor, nextNewName, refreshTree, show, waitForHostSave])
 
-  /** 新建前先走同一套未保存确认；取消则什么都不做 */
+  const newFileInWorkspace = useCallback(() => {
+    if (dirty) {
+      setPendingSwitch({ text: '', name: '未命名.md', file: null, after: () => void createWorkspaceFile() })
+      return
+    }
+    void createWorkspaceFile()
+  }, [createWorkspaceFile, dirty])
+
   const newDocument = useCallback(() => {
     if (dirty) {
       setPendingSwitch({ text: '', name: '未命名.md', file: null, after: () => void startNewDocument() })
@@ -2504,6 +2515,25 @@ export default function App() {
   )
 
   /** 真正写盘：有句柄写句柄，没有就弹保存位置；调用前已经过差异门 */
+  /** 有真实工作区时，无句柄保存落到根目录，不弹系统另存为 */
+  const saveIntoWorkspace = useCallback(
+    async (normalized: string, withEol: string): Promise<boolean> => {
+      const space = workspaceRef.current
+      const root = space?.rootHandle
+      if (!space || !root || space.root?.kind !== 'dir') return false
+      const name = nextNewName(space)
+      const handle = await root.getFileHandle(name, { create: true })
+      const file: WorkspaceFileNode = { kind: 'file', name, path: `${space.name}/${name}`, handle }
+      await writeNode(file, withEol)
+      finishSaved(name, { handle, name }, normalized, withEol)
+      setActiveFile(file)
+      await refreshTree({ mode: 'adopt', activePath: file.path })
+      setNotice({ text: `已保存到 ${name}`, kind: 'info', persist: true })
+      return true
+    },
+    [finishSaved, nextNewName, refreshTree],
+  )
+
   const performCommit = useCallback(
     async (normalized: string, withEol: string, keepLosses = false) => {
       setDraftShown(false)
@@ -2585,6 +2615,7 @@ export default function App() {
           return ok
         }
 
+        if (await saveIntoWorkspace(normalized, withEol)) return true
         const result = await saveAsFile(docName, withEol)
         if (result === null) {
           // 用户取消：不留「已保存」的假象
@@ -2610,7 +2641,7 @@ export default function App() {
         return false
       }
     },
-    [activeFile, docName, finishSaved, saveBlob],
+    [activeFile, docName, finishSaved, saveBlob, saveIntoWorkspace],
   )
 
   const currentMarkdown = useCallback(() => {
@@ -4108,6 +4139,7 @@ export default function App() {
         </div>
         <FileMenu
           onNew={newDocument}
+          onCloseDocument={newDocument}
           onSaveAs={() => saveAsCopyRef.current()}
           onOpenFile={() => void openSingleFile()}
           onOpenFolder={() => void openFolder()}
@@ -4473,7 +4505,7 @@ export default function App() {
             collapsed={treeCollapsed}
             onToggle={() => setTreeCollapsed((value) => !value)}
             onOpenFolder={openFolder}
-            onNewFile={newDocument}
+            onNewFile={newFileInWorkspace}
             onNewFolder={() => void createFolder()}
             onRefresh={() => void refreshTree()}
             onDeleteFile={(file) => void removeFile(file)}
