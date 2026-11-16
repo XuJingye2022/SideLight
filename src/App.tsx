@@ -1910,25 +1910,18 @@ export default function App() {
       setPendingSwitch(null)
       try {
         await waitForCommit()
-        const { deleteFileToTrash } = await import('./lib/trash.ts')
+        const { deleteDocumentToTrash } = await import('./lib/trash.ts')
         const wasActive = activeFile?.path === node.path
         const files = flattenFiles(workspaceRef.current?.root ?? null)
         const index = files.findIndex((file) => file.path === node.path)
         const nextFile = files[index + 1] ?? files[index - 1] ?? null
-        const result = await deleteFileToTrash(root, node)
+        const currentText = wasActive && dirtyRef.current ? currentMarkdown() : null
+        const result = await deleteDocumentToTrash(root, node, currentText)
         if (!result.ok) {
           setNotice({ text: result.error ?? '移到回收站失败。', kind: 'error' })
           return
         }
-        try {
-          const dir = await parentDirectory(space!, node.path)
-          if (dir) {
-            await removeCache(dir, 'draft', cacheKey(node.name))
-            await removeCache(dir, 'annotations', cacheKey(node.name))
-          }
-        } catch {
-          // 缓存清不掉不影响删除结果
-        }
+        // 缓存已提前搬进 trash，不再 removeCache
         const fresh = await refreshTree()
         if (wasActive) {
           saveTargetRef.current = null
@@ -1952,8 +1945,8 @@ export default function App() {
                 label: '撤销',
                 onClick: () => {
                   void (async () => {
-                    const { restoreFromTrash } = await import('./lib/trash.ts')
-                    const restored = await restoreFromTrash(root, trashFile, node.path)
+                    const { restoreDocumentFromTrash } = await import('./lib/trash.ts')
+                    const restored = await restoreDocumentFromTrash(root, node, trashFile)
                     if (restored.ok) {
                       await refreshTree()
                       show(`已恢复 ${node.name}`)
@@ -3992,6 +3985,7 @@ export default function App() {
             refreshing={treeRefreshing}
             onBeforeRename={prepareRename}
             onRenameFile={(file, newName) => void handleRenamedFile(file, newName)}
+            dirtyPath={dirty ? (activeFile?.path ?? null) : null}
             onOpenFile={openWorkspaceFile}
           />
 

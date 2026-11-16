@@ -1,4 +1,5 @@
 import type { WorkspaceFileNode } from './workspace.ts'
+import { cacheKey } from './cache.ts'
 
 export type TrashResult = {
   ok: boolean
@@ -147,7 +148,164 @@ export async function deleteFileToTrash(root: FileSystemDirectoryHandle, node: W
   return copyThenVerify(node.handle, parent, node.name, trashDir, finalName)
 }
 
-/** 撤销：把 trash 里的文件移回原路径（优先 move，否则复制+校验后删 trash 副本） */
+/** 删除脏文档：用编辑器当前正文写 trash 副本，校验成功后才删原文件 */
+export async function deleteFileWithText(
+  root: FileSystemDirectoryHandle,
+  node: WorkspaceFileNode,
+  text: string,
+  explicitName?: string,
+): Promise<TrashResult> {
+  try {
+    const ensured = await ensureTrashDir(root)
+    if (!ensured.dir) return { ok: false, error: ensured.error ?? '回收站不可用。' }
+    const trashDir = ensured.dir
+    const finalName = explicitName ?? trashName(node.name)
+    const target = await trashDir.getFileHandle(finalName, { create: true })
+    const writable = await target.createWritable()
+    try {
+      await writable.write(text)
+      await writable.close()
+    } catch (error) {
+      await writable.abort().catch(() => undefined)
+      await trashDir.removeEntry(finalName).catch(() => undefined)
+      return { ok: false, error: `写入回收站失败：${error instanceof Error ? error.message : '未知错误'}` }
+    }
+    const copied = await (await target.getFile()).text()
+    if (copied !== text) {
+      await trashDir.removeEntry(finalName).catch(() => undefined)
+      return { ok: false, error: '回收站副本校验失败，已保留原文件。' }
+    }
+    const parent = await parentForPath(root, node.path)
+    await parent.removeEntry(node.name)
+    return { ok: true, trashName: finalName, mode: 'copy' }
+  } catch (error) {
+    return { ok: false, error: `删除失败：${error instanceof Error ? error.message : '未知错误'}` }
+  }
+}
+
+/** 把文档缓存搬进 trash；返回搬成功的文件后缀，失败时由调用方中止删除 */
+export async function moveCachesToTrash(
+  root: FileSystemDirectoryHandle,
+  cacheDir: FileSystemDirectoryHandle,
+  fileName: string,
+  trashNameValue: string,
+): Promise<{ ok: boolean; moved: string[]; error?: string }> {
+  try {
+    const ensured = await ensureTrashDir(root)
+    if (!ensured.dir) return { ok: false, moved: [], error: ensured.error ?? '回收站不可用。' }
+    const trashDir = ensured.dir
+    const moved: string[] = []
+    const key = cacheKey(fileName)
+    for (const [kind, suffix] of [
+      ['draft', '.draft'],
+      ['annotations', '.json'],
+    ] as const) {
+      const legacy = kind === 'draft' ? null : null
+      const text = await readCacheText(cacheDir, kind, key)
+      if (text === null) continue
+      const target = await trashDir.getFileHandle(`${trashNameValue}${suffix}`, { create: true })
+      const writable = await target.createWritable()
+      await writable.write(text)
+      await writable.close()
+      await removeCacheText(cacheDir, kind, key)
+      moved.push(suffix)
+    }
+    return { ok: true, moved }
+  } catch (error) {
+    return { ok: false, moved: [], error: `缓存搬移失败：${error instanceof Error ? error.message : '未知错误'}` }
+  }
+}
+
+async function readCacheText(dir: FileSystemDirectoryHandle, kind: 'draft' | 'annotations', key: string): Promise<string | null> {
+  try {
+    const folder = await dir.getDirectoryHandle('.sidelight', { create: false })
+    const sub = await folder.getDirectoryHandle(kind === 'draft' ? 'drafts' : 'annotations', { create: false })
+    const file = await sub.getFileHandle(`${key}.${kind === 'draft' ? 'md' : 'json'}`, { create: false })
+    return await (await file.getFile()).text()
+  } catch {
+    return null
+  }
+}
+
+async function removeCacheText(dir: FileSystemDirectoryHandle, kind: 'draft' | 'annotations', key: string): Promise<void> {
+  try {
+    const folder = await dir.getDirectoryHandle('.sidelight', { create: false })
+    const sub = await folder.getDirectoryHandle(kind === 'draft' ? 'drafts' : 'annotations', { create: false })
+    await sub.removeEntry(`${key}.${kind === 'draft' ? 'md' : 'json'}`)
+  } catch {
+    // 旧缓存不存在就算了
+  }
+}
+/** 撤销时把 trash 里的 .draft/.json 搬回原缓存键 */
+export async function restoreCachesFromTrash(
+  root: FileSystemDirectoryHandle,
+  cacheDir: FileSystemDirectoryHandle,
+  fileName: string,
+  trashNameValue: string,
+): Promise<void> {
+  const ensured = await ensureTrashDir(root)
+  if (!ensured.dir) return
+  const key = cacheKey(fileName)
+  for (const [kind, suffix, ext] of [
+    ['draft', '.draft', 'md'],
+    ['annotations', '.json', 'json'],
+  ] as const) {
+    try {
+      const source = await ensured.dir.getFileHandle(`${trashNameValue}${suffix}`, { create: false })
+      const text = await (await source.getFile()).text()
+      const folder = await cacheDir.getDirectoryHandle('.sidelight', { create: true })
+      const sub = await folder.getDirectoryHandle(kind === 'draft' ? 'drafts' : 'annotations', { create: true })
+      const target = await sub.getFileHandle(`${key}.${ext}`, { create: true })
+      const writable = await target.createWritable()
+      await writable.write(text)
+      await writable.close()
+      await ensured.dir.removeEntry(`${trashNameValue}${suffix}`)
+    } catch {
+      // 这份缓存不在 trash 里
+    }
+  }
+}
+
+/** 删除文档：正文（可传当前编辑器内容）+ 两份缓存一起进 trash，失败不动原文件 */
+export async function deleteDocumentToTrash(
+  root: FileSystemDirectoryHandle,
+  node: WorkspaceFileNode,
+  currentText: string | null,
+): Promise<TrashResult> {
+  const name = trashName(node.name)
+  let cacheDir: FileSystemDirectoryHandle | null = null
+  try {
+    cacheDir = await parentForPath(root, node.path)
+  } catch {
+    cacheDir = null
+  }
+  if (cacheDir) {
+    const caches = await moveCachesToTrash(root, cacheDir, node.name, name)
+    if (!caches.ok) return { ok: false, error: caches.error ?? '缓存搬移失败，已中止删除。' }
+  }
+  if (currentText !== null) return deleteFileWithText(root, node, currentText, name)
+  const existing = node.handle ? await node.handle.getFile().then((file) => file.text()).catch(() => '') : ''
+  return deleteFileWithText(root, node, existing, name)
+}
+
+/** 撤销文档：正文先回原位，再把 trash 里的缓存搬回原键 */
+export async function restoreDocumentFromTrash(
+  root: FileSystemDirectoryHandle,
+  node: WorkspaceFileNode,
+  trashNameValue: string,
+): Promise<TrashResult> {
+  const restored = await restoreFromTrash(root, trashNameValue, node.path)
+  if (restored.ok) {
+    try {
+      const cacheDir = await parentForPath(root, node.path)
+      await restoreCachesFromTrash(root, cacheDir, node.name, trashNameValue)
+    } catch {
+      // 缓存目录找不到就只恢复文件
+    }
+  }
+  return restored
+}
+
 export async function restoreFromTrash(root: FileSystemDirectoryHandle, trashNameValue: string, targetPath: string): Promise<TrashResult> {
   try {
     const ensured = await ensureTrashDir(root)

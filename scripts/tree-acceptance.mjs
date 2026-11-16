@@ -263,7 +263,7 @@ const sha = (page, path) => page.evaluate((value) => window.__fs.sha(value), pat
   check('删除确认框出现', (await dialog.count()) === 1)
   check('确认框默认焦点「取消」', (await page.evaluate(() => document.activeElement?.textContent?.trim())) === '取消')
   await dialog.getByRole('button', { name: '移到回收站' }).click()
-  await page.waitForTimeout(900)
+  await page.waitForTimeout(2000)
   const trash = await page.evaluate(() => window.__fs.trashNames())
   const trashSha = trash[0] ? await sha(page, `.sidelight/trash/${trash[0]}`) : null
   check('删除后 trash 有 1 份', trash.length === 1, JSON.stringify(trash))
@@ -272,10 +272,11 @@ const sha = (page, path) => page.evaluate((value) => window.__fs.sha(value), pat
   const toast = await page.evaluate(() => document.querySelector('.toast-text')?.textContent ?? '')
   check('toast 含「已移到回收站」与「撤销」', toast.includes('已移到回收站') && Boolean(await page.locator('.toast-action', { hasText: '撤销' }).count()), toast)
   await page.screenshot({ path: `${OUT}/t1-trash.png` })
+  await page.waitForTimeout(800)
 
   await page.locator('.toast-action', { hasText: '撤销' }).click()
   await page.waitForTimeout(900)
-  check('撤销后文件回到原位、trash 清空', (await page.evaluate(() => window.__fs.exists('a.md'))) && (await page.evaluate(() => window.__fs.trashNames())).length === 0)
+  check('撤销后文件回到原位、trash 清空', (await page.evaluate(() => window.__fs.exists('a.md'))) && (await page.evaluate(() => window.__fs.trashNames())).length === 0, JSON.stringify(await page.evaluate(() => ({ a: window.__fs.exists('a.md'), trash: window.__fs.trashNames(), toast: document.querySelector('.toast-text')?.textContent }))))
   await context.close()
 }
 
@@ -417,7 +418,7 @@ const sha = (page, path) => page.evaluate((value) => window.__fs.sha(value), pat
   await page.locator('[aria-label="删除文件"]').getByRole('button', { name: '移到回收站' }).click()
   await page.waitForTimeout(3500)
   check('慢写期间删除：原路径仍不存在', (await page.evaluate(() => window.__fs.exists('a.md'))) === false)
-  check('慢写期间删除：trash 仍有一份', (await page.evaluate(() => window.__fs.trashNames())).length === 1)
+  check('慢写期间删除：trash 仍有一份 .md', (await page.evaluate(() => window.__fs.trashNames())).filter((name) => name.endsWith('.md')).length === 1)
   await context.close()
 }
 
@@ -632,6 +633,56 @@ const sha = (page, path) => page.evaluate((value) => window.__fs.sha(value), pat
   const afterScroll = await page.evaluate(() => document.querySelector('[role="tree"]')?.scrollTop ?? -1)
   check('切回文件树 scrollTop 仍为 148', beforeScroll === 148 && afterScroll === 148, `${beforeScroll} -> ${afterScroll}`)
   await page.screenshot({ path: `${OUT}/t1-scroll-back.png` })
+  await context.close()
+}
+
+// ---------- D1 删除脏文件：正文与缓存一起进 trash，撤销一起回来 ----------
+{
+  const { context, page } = await openPage({
+    'a.md': 'OLD-A\n',
+    '.sidelight/drafts/a.md': 'OLD-DRAFT',
+    '.sidelight/annotations/a.json': JSON.stringify([
+      { id: 'keep-me', kind: 'evaluation', quote: 'OLD-A', note: '保留这条', from: 1, to: 6 },
+    ]),
+  })
+  await fileRow(page, 'a.md').click()
+  await page.waitForTimeout(500)
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('IMPORTANT-NEW')
+  await page.waitForTimeout(500)
+  await fileRow(page, 'a.md').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: /删除（移到回收站）/ }).click()
+  await page.waitForTimeout(300)
+  const dialogText = await page.locator('[aria-label="删除文件"]').innerText()
+  check('脏删除确认写明正文与批注会一起删除', dialogText.includes('未保存的正文') && dialogText.includes('批注'), dialogText)
+  check('脏删除确认有直接删除与取消', (await page.locator('[aria-label="删除文件"]').getByRole('button').count()) === 2, String(await page.locator('[aria-label="删除文件"]').getByRole('button').count()))
+  await page.locator('[aria-label="删除文件"]').getByRole('button', { name: '移到回收站' }).click()
+  await page.waitForTimeout(2200)
+  const trashNames = await page.evaluate(() => window.__fs.trashNames())
+  const bodyName = trashNames.find((name) => name.endsWith('.md'))
+  check('脏删除 trash 里有 .md/.draft/.json', Boolean(bodyName) && trashNames.some((name) => name.endsWith('.draft')) && trashNames.some((name) => name.endsWith('.json')), JSON.stringify(trashNames))
+  check('trash 的 .md 是最后编辑正文', bodyName ? (await page.evaluate((name) => window.__fs.read(`.sidelight/trash/${name}`), bodyName)).includes('IMPORTANT-NEW') : false)
+  await page.locator('.toast-action', { hasText: '撤销' }).click()
+  await page.waitForTimeout(1800)
+  check('撤销后正文含最后编辑内容', (await page.evaluate(() => window.__fs.read('a.md'))).includes('IMPORTANT-NEW'))
+  check('撤销后草稿与批注缓存回来', (await page.evaluate(() => window.__fs.exists('.sidelight/drafts/a.md'))) && (await page.evaluate(() => window.__fs.exists('.sidelight/annotations/a.json'))))
+  await context.close()
+}
+
+// ---------- 三选一取消不改文件 ----------
+{
+  const { context, page } = await openPage({ 'a.md': 'OLD-A\n' })
+  await fileRow(page, 'a.md').click()
+  await page.waitForTimeout(500)
+  await page.locator('.ProseMirror').click()
+  await page.keyboard.type('CANCEL-ME')
+  await fileRow(page, 'a.md').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: /删除（移到回收站）/ }).click()
+  await page.waitForTimeout(300)
+  const before = await page.evaluate(() => window.__fs.read('a.md'))
+  await page.locator('[aria-label="删除文件"]').getByRole('button', { name: '取消' }).click()
+  await page.waitForTimeout(500)
+  check('取消删除不改文件/不产生 trash', (await page.evaluate(() => window.__fs.read('a.md'))) === before && (await page.evaluate(() => window.__fs.trashNames())).length === 0)
   await context.close()
 }
 

@@ -39,6 +39,7 @@ type Props = {
   onAskDelete: (file: WorkspaceFileNode) => void
   onCancelDelete: () => void
   onConfirmDelete: (file: WorkspaceFileNode) => void
+  deleteIsDirty: boolean
   onNewFile: () => void
   onNewFolder: () => void
   onOpenFolder: () => void
@@ -172,6 +173,7 @@ export default function TreeActions({
   onAskDelete,
   onCancelDelete,
   onConfirmDelete,
+  deleteIsDirty,
   onNewFile,
   onNewFolder,
   onOpenFolder,
@@ -283,7 +285,11 @@ export default function TreeActions({
           >
             <h2>删除「{deleteTarget.name}」？</h2>
             <p className="dialog-note">
-              移到这个文件夹的 <code>.sidelight/trash/</code>，不会当场永久删除。要恢复，用文件管理器把 trash 里的文件移回原位。
+              {deleteIsDirty
+                ? '这篇还有未保存的正文。移到回收站时，未保存的正文与这篇的批注会一起删除；撤销会一起搬回。'
+                : '移到这个文件夹的 '}
+              {!deleteIsDirty && <code>.sidelight/trash/</code>}
+              {!deleteIsDirty && '，不会当场永久删除。要恢复，用文件管理器把 trash 里的文件移回原位。'}
             </p>
             <div className="dialog-actions">
               <button ref={cancelRef} type="button" onClick={onCancelDelete}>

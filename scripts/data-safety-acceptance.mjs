@@ -366,6 +366,61 @@ const cancel = async (page) => {
   await context.close()
 }
 
+// ---------- 8) 脚注：多行续行与混合尾块（C1） ----------
+{
+  const FOOTNOTE_MULTILINE = `# 脚注
+
+正文[^a] 与[^b]。
+
+[^a]: 第一行
+    续行内容
+[^b]: 第二行
+`
+  const FOOTNOTE_MIXED = `# 混合
+
+正文[^a]。
+
+[^a]: 脚注首行
+    续行
+[ref]: https://example.com
+`
+
+  const multiline = await browserPage()
+  await openFile(multiline.page, 'footnote-multiline.md', FOOTNOTE_MULTILINE)
+  let state = await info(multiline.page)
+  check('多行脚注：载入后无风险横幅', state.riskBanner === '', state.riskBanner.slice(0, 60))
+  await edit(multiline.page, '改')
+  await multiline.page.keyboard.press('Control+s')
+  await multiline.page.waitForTimeout(600)
+  state = await info(multiline.page)
+  check('多行脚注：保存不弹确认框', !state.dialog, state.dialogText.slice(0, 60))
+  const expectedMultiline = FOOTNOTE_MULTILINE.replace('正文[^a] 与[^b]。', '正文[^a] 与[^b]。改')
+  check('多行脚注：写回逐字节相同', state.writes.length === 1 && state.writes[0].text === expectedMultiline, JSON.stringify(state.writes[0]?.text?.slice(-60)))
+  check('多行脚注：保留 4 空格续行', state.writes[0]?.text.includes('\n    续行内容\n') === true)
+
+  await edit(multiline.page, 'x')
+  await multiline.page.keyboard.press('Control+z')
+  await multiline.page.waitForTimeout(300)
+  await multiline.page.keyboard.press('Control+s')
+  await multiline.page.waitForTimeout(600)
+  state = await info(multiline.page)
+  check('多行脚注：两次保存逐字节相同', state.writes.length === 2 && state.writes[1].text === state.writes[0].text, String(state.writes.length))
+  await multiline.context.close()
+
+  const mixed = await browserPage()
+  await openFile(mixed.page, 'footnote-mixed.md', FOOTNOTE_MIXED)
+  state = await info(mixed.page)
+  check('混合尾块：载入后无风险横幅', state.riskBanner === '', state.riskBanner.slice(0, 60))
+  await edit(mixed.page, '改')
+  await mixed.page.keyboard.press('Control+s')
+  await mixed.page.waitForTimeout(600)
+  state = await info(mixed.page)
+  check('混合尾块：保存不弹确认框', !state.dialog, state.dialogText.slice(0, 60))
+  const expectedMixed = FOOTNOTE_MIXED.replace('正文[^a]。', '正文[^a]。改')
+  check('混合尾块：写回逐字节相同（脚注 + [ref]: 原序）', state.writes.length === 1 && state.writes[0].text === expectedMixed, JSON.stringify(state.writes[0]?.text?.slice(-80)))
+  await mixed.context.close()
+}
+
 console.log(`\n${results.filter((item) => item.ok).length}/${results.length} PASS`)
 await browser.close()
 if (results.some((item) => !item.ok)) process.exit(1)

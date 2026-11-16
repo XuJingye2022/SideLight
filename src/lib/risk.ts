@@ -9,6 +9,7 @@ export type LossKind =
   | 'reference-links'
   | 'table-separator'
   | 'footnote-continuation'
+  | 'footnote-definition'
   | 'html-ampersand'
   | 'autolink'
   | 'html-comment'
@@ -125,31 +126,53 @@ function tableLosses(beforeText: string, afterText: string): Loss[] {
 }
 
 function footnoteLosses(beforeText: string, afterText: string): Loss[] {
-  const parse = (text: string) => {
+  // 一次扫描同时收集定义（含续行）与正文引用；围栏代码内跳过。
+  const scan = (text: string) => {
     const fenced = fenceMap(text)
     const lines = text.replace(/\r\n?/g, '\n').split('\n')
-    const blocks = new Map<string, string[]>()
+    const definitions = new Map<string, string[]>()
+    const references = new Set<string>()
+    let current: string | null = null
     for (let index = 0; index < lines.length; index += 1) {
-      if (fenced[index].fenced) continue
-      const match = /^\[\^([^\]]+)\]:\s*(.*)$/.exec(lines[index])
-      if (!match) continue
-      const continuation: string[] = []
-      let cursor = index + 1
-      while (cursor < lines.length && /^(?: {2,}|\t)\S/.test(lines[cursor])) {
-        continuation.push(lines[cursor].trim())
-        cursor += 1
+      if (fenced[index].fenced) {
+        current = null
+        continue
       }
-      blocks.set(match[1].trim(), continuation)
+      const match = /^\[\^([^\]]+)\]:/.exec(lines[index])
+      if (match) {
+        current = match[1].trim()
+        definitions.set(current, [])
+        continue
+      }
+      if (current !== null && /^(?: {2,}|\t)\S/.test(lines[index])) {
+        definitions.get(current)?.push(lines[index].trim())
+        continue
+      }
+      current = null
+      for (const ref of lines[index].matchAll(/\[\^([^\]\s]+)\](?!:)/g)) references.add(ref[1].trim())
     }
-    return blocks
+    return { definitions, references }
   }
 
-  const after = parse(afterText)
+  const before = scan(beforeText)
+  const after = scan(afterText)
   const losses: Loss[] = []
-  for (const [id, continuation] of parse(beforeText)) {
-    if (continuation.length === 0) continue
-    const current = after.get(id)
-    if (!current) continue // 用户删除了这条脚注
+  for (const [id, continuation] of before.definitions) {
+    // 只在「原文有定义、正文仍有引用、保存后定义消失」时拦截；
+    // 用户把引用与定义一起删掉，不拦。
+    if (!after.definitions.has(id) && before.references.has(id) && after.references.has(id)) {
+      losses.push({
+        kind: 'footnote-definition',
+        key: `footnote-def:${id}`,
+        label: `脚注 [^${id}] 的定义在保存后会消失（正文还在引用它）`,
+        blocking: true,
+        before: [`[^${id}]: …`],
+        after: [],
+        count: 1,
+      })
+    }
+    const current = after.definitions.get(id)
+    if (!current || continuation.length === 0) continue
     const missing = continuation.filter((line) => !current.includes(line))
     if (missing.length === 0) continue
     losses.push({
@@ -164,7 +187,6 @@ function footnoteLosses(beforeText: string, afterText: string): Loss[] {
   }
   return losses
 }
-
 function htmlLosses(beforeText: string, afterText: string): Loss[] {
   const afterLines = new Set(fenceMap(afterText).filter((item) => !item.fenced).map((item) => item.line.trim()))
   const losses: Loss[] = []

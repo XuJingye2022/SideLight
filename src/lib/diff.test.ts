@@ -221,3 +221,25 @@ test('表格前后空行不属于表格块，复用只换表格行', () => {
   assert.equal(tables.length, 1)
   assert.equal(tables[0].lines.length, 4)
 })
+
+test('定义消失但正文仍引用 → 拦截', () => {
+  const before = '正文[^1]。\n\n[^1]: 定义\n'
+  const after = '正文[^1]。\n'
+  const loss = classify(before, after).find((item) => item.kind === 'footnote-definition')
+  assert.ok(loss)
+  assert.equal(loss.blocking, true)
+})
+
+test('引用与定义一起删 → 不拦截', () => {
+  const before = '正文[^1]。\n\n[^1]: 定义\n'
+  const after = '正文。\n'
+  assert.equal(classify(before, after).some((item) => item.kind === 'footnote-definition'), false)
+})
+
+test('多行续行仍在时定义消失不被重复计入', () => {
+  const before = '正文[^1]。\n\n[^1]: 首行\n    续行\n'
+  const after = '正文[^1]。\n\n[^1]: 首行\n'
+  const kinds = classify(before, after).map((item) => item.kind)
+  assert.equal(kinds.includes('footnote-definition'), false)
+  assert.equal(kinds.includes('footnote-continuation'), true)
+})

@@ -1,51 +1,80 @@
-const DEFINITION = /^\[\^[^\]]+\]:/
+const DEF = /^\[\^[^\]]+\]:/
+const REF = /^\[[^\]]+\]:/
+const CONT = /^(?: {2,}|\t)\S/
+
+export type FootnoteBlock = {
+  /** `footnote` 是 `[^id]:` 定义，`ref` 是 `[label]:` 引用式链接定义 */
+  kind: 'footnote' | 'ref'
+  /** 块原文（含续行），不 trim，拼回时逐字节保留 */
+  text: string
+  /** 与上一块之间的空行数；第一块是正文与脚注块之间的空行数 */
+  gapBefore: number
+}
 
 export type FootnoteSplit = {
   /** 去掉脚注定义之后的正文 */
   body: string
   /** 脚注定义块，原样保留，拼回时逐字节一致 */
   footnotes: string
+  /** 结构化视图：脚注与引用定义按原序分块 */
+  blocks: FootnoteBlock[]
 }
 
-function splitLines(text: string): string[] {
-  return text.replace(/\r\n/g, '\n').split('\n')
+const linesOf = (text: string): string[] => text.replace(/\r\n/g, '\n').split('\n')
+
+/** 从 `start` 起解析尾部块组；出现非定义、非续行的内容就返回 null。 */
+function parseBlocks(lines: string[], start: number): FootnoteBlock[] | null {
+  const blocks: FootnoteBlock[] = []
+  let gap = 0
+  for (let index = start; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (line.trim().length === 0) {
+      gap += 1
+      continue
+    }
+    const kind: FootnoteBlock['kind'] | null = DEF.test(line)
+      ? 'footnote'
+      : REF.test(line)
+        ? 'ref'
+        : null
+    if (kind) {
+      blocks.push({ kind, text: line, gapBefore: gap })
+      gap = 0
+      continue
+    }
+    if (blocks.length === 0 || !CONT.test(line)) return null
+    blocks[blocks.length - 1].text += `\n${line}`
+  }
+  return blocks.length > 0 ? blocks : null
 }
 
 /**
  * 把文末的脚注定义块从正文里摘出去。
- * 只有「从某一行开始到最后全是定义行（中间允许空行）」才算，正文中间的零散定义不动。
+ * 尾部可以同时有 `[^id]:` 脚注定义与 `[label]:` 引用式链接定义；
+ * 脚注块内允许 2+ 空格或 tab 开头的续行。正文中间的零散定义不动。
  */
 export function extractFootnotes(text: string): FootnoteSplit {
-  const lines = splitLines(text)
-  let start = -1
-
-  for (let index = 0; index < lines.length; index += 1) {
-    if (DEFINITION.test(lines[index])) {
-      start = index
-      break
-    }
+  const lines = linesOf(text)
+  for (let start = 0; start < lines.length; start += 1) {
+    if (!DEF.test(lines[start])) continue
+    const blocks = parseBlocks(lines, start)
+    if (!blocks) continue
+    let bodyEnd = start
+    while (bodyEnd > 0 && lines[bodyEnd - 1].trim().length === 0) bodyEnd -= 1
+    return { body: lines.slice(0, bodyEnd).join('\n'), footnotes: lines.slice(start).join('\n'), blocks }
   }
-
-  if (start < 0) return { body: text, footnotes: '' }
-
-  for (let index = start; index < lines.length; index += 1) {
-    const line = lines[index]
-    if (line.trim().length === 0) continue
-    if (!DEFINITION.test(line)) return { body: text, footnotes: '' }
-  }
-
-  let bodyEnd = start
-  while (bodyEnd > 0 && lines[bodyEnd - 1].trim().length === 0) bodyEnd -= 1
-
-  return {
-    body: lines.slice(0, bodyEnd).join('\n'),
-    footnotes: lines.slice(start).join('\n'),
-  }
+  return { body: text, footnotes: '', blocks: [] }
 }
 
+/** 按 `gapBefore` 拼回：正文与第一块之间空一行，块与块之间保留原有空行。 */
 export function joinFootnotes(body: string, footnotes: string): string {
-  if (footnotes.trim().length === 0) return body
-  return `${body.replace(/\s+$/, '')}\n\n${footnotes}`
+  const blocks = parseBlocks(linesOf(footnotes), 0)
+  if (!blocks) return body
+  let out = body.replace(/\s+$/, '')
+  blocks.forEach((block, index) => {
+    out += `${index === 0 ? '\n\n' : '\n'.repeat(block.gapBefore + 1)}${block.text}`
+  })
+  return out
 }
 
 /**

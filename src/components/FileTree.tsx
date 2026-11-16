@@ -31,6 +31,7 @@ type Props = {
   onDeleteFile: (file: WorkspaceFileNode) => void
   onBeforeRename: () => Promise<void>
   onRenameFile: (file: WorkspaceFileNode, newName: string) => void
+  dirtyPath?: string | null
   panelId?: string
   hidden?: boolean
   inert?: boolean
@@ -69,6 +70,7 @@ export function FileTree({
   onDeleteFile,
   onBeforeRename,
   onRenameFile,
+  dirtyPath,
   panelId,
   hidden,
   inert,
@@ -470,6 +472,7 @@ export function FileTree({
           }}
           onAskDelete={(file) => setDeleteTarget(file)}
           onCancelDelete={() => setDeleteTarget(null)}
+          deleteIsDirty={Boolean(deleteTarget && dirtyPath === deleteTarget.path)}
           onConfirmDelete={(file) => {
             setDeleteTarget(null)
             onDeleteFile(file)
