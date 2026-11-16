@@ -94,7 +94,7 @@
 | 29 | 数据安全 + 大纲折叠 | round-29/plan.md | PASS-WITH-UNVERIFIED：T1 草稿守卫 4/4、T3 大纲 12/12、首屏 285,838、测试 251、draft 57/57、keyboard 49/49；T2 未做、T1-B 被陈旧模块挡住 | cdcf83e |
 | 30 | 状态栏字数明细 + 删除撤销丢正文 + 安装器版本 | round-30/plan.md | PASS-WITH-UNVERIFIED：T1 删除后撤销不再丢正文、T2 字数明细面板、首屏 284,529、测试 18/260、keyboard 49/49；0.32.1 未发版 | 5b36b71 |
 | 31 | 撤销/改名保存目标 P0 + 字数明细口径 + 链接点击与列表 Tab | round-31/plan.md | PASS-WITH-UNVERIFIED：T1 21/21、T2 14/14、T3 18/18、keyboard 49/49、roundtrip 0、首屏 284,761、测试 21/272；未发版 | 64002a8 |
-| 32 | 预览快捷键 + 选区计数 + 段落口径 + 体积护栏与 Mermaid ADR | round-32/plan.md | PASS-WITH-UNVERIFIED：keyboard 52/52、T2 9/9、T3 7/7、qa17 7/7、首屏 285,052（余 948）、测试 21/276、tsc/build PASS；Mermaid 本轮不实现待产品负责人三选一；qa16/qa10 脚本过期（非本轮回归）；未发版 | 待补 |
+| 32 | 预览快捷键 + 选区计数 + 段落口径 + 体积护栏与 Mermaid ADR | round-32/plan.md | PASS-WITH-UNVERIFIED：keyboard 52/52、T2 9/9、T3 7/7、qa17 7/7、首屏 285,052（余 948）、测试 21/276、tsc/build PASS；Mermaid 本轮不实现待产品负责人三选一；qa16/qa10 脚本过期（非本轮回归）；未发版 | e399805 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
