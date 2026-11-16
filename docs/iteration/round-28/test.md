@@ -33,19 +33,19 @@
 - 本轮实跑：session 18/18、newfile 23/23、keyboard 49/49、`npm test` 17/248、measure 285,783。
 - draft 61、tree 56、host-save 64、stale 4、bigfile 3、theme 27、acceptance 11、recent 57、fcp 6、portable/installer 沿用最近通过证据；0.32.1 未全部重跑。
 
-## 发布 / 文档：FAIL
+## 发布 / 文档：PASS
 
+- Release **v0.32.1** 已生成：setup **824,209 B**、win zip **910,360 B**、mac **905,892 B**、`SHA256SUMS-0.32.1.txt` **308 B**；三文件 SHA256 与 checksum 全一致，文件名均为 0.32.1。
 - README/AGENTS/CHANGELOG **0.32.1 / 248 / 285,783**；AGENTS 有「首启空白」踩坑；无 TBD/0.32.0 旧包名。
-- 本地 release 只有 setup **824,595**、portable **910,360**；**无 mac zip、无 `SHA256SUMS-0.32.1.txt`**。GitHub Release v0.32.1 API **404**，四资产与 checksum 均无法核对。
-- **STATE 无第 28 行**；round-28 只有本 test，`round-28/plan.md` 不存在。用户要求的 STATE 行 28 与 round-28 plan/test 未达成。
+- STATE 第 **28** 行已补，版本 0.32.1、最新 Release 0.32.1；`round-28/plan.md` 存在。HEAD `b1e7c70`，领先 tag `1ac1298` 仅 docs/STATE；`git status` 干净。
 
 ## 判定
 
-**FAIL**
+**PASS-WITH-UNVERIFIED**
 
-- 功能：#1/#2 PASS；#3 主路径 PASS，`未命名 2` 冲突与真实宿主 FSA 仍 UNVERIFIED。
-- 阻断：Release v0.32.1 尚不存在（mac/checksum 缺）；STATE 28 行与 round-28 plan 缺失。
-- 最严重：发布资产/校验和无法验收，其次是 STATE/round-28 文档缺口。
+- #1 首启空白、#2 新建/关闭 PASS；#3 工作区保存主路径 PASS（session 18/18、picker 0），`未命名 2` 冲突与真实 FSA 仍 UNVERIFIED。
+- 门禁 248/285,783、session 18/18、newfile 23/23、keyboard 49/49、Release 四资产/checksum、STATE/round-28 文档均通过。
+- 未验项不改变 0.32.1 可发布结论。
 
 ## UNVERIFIED
 
