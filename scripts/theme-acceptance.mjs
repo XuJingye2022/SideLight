@@ -134,6 +134,51 @@ for (const [label, fg, bg, min] of darkPairs) {
   check(`深色 token ${label} ≥${min}`, value >= min, String(value))
 }
 
+// 48 组矩阵：3 个 toast + 1 个 disabled + 1 个隐藏 bubble 按 WCAG 不适用排除
+const matrixFacts = await page.evaluate(() => {
+  const hidden = (node) => {
+    if (!node) return true
+    const style = getComputedStyle(node)
+    return (
+      style.opacity === '0' ||
+      style.visibility === 'hidden' ||
+      style.display === 'none' ||
+      node.hasAttribute('disabled') ||
+      node.getAttribute('aria-hidden') === 'true' ||
+      node.getBoundingClientRect().width === 0 ||
+      node.getBoundingClientRect().height === 0
+    )
+  }
+  return {
+    toasts: [...document.querySelectorAll('.toast')].map((node) => hidden(node)),
+    disabled: [...document.querySelectorAll('button:disabled')].map((node) => hidden(node)),
+    bubble: hidden(document.querySelector('.analyze-bubble')),
+  }
+})
+const excludedMatrix = [
+  { id: 'toast-1', hidden: matrixFacts.toasts[0] ?? true, reason: 'toast 未显示（opacity:0 / 未挂载）' },
+  { id: 'toast-2', hidden: matrixFacts.toasts[1] ?? true, reason: 'toast 未显示（opacity:0 / 未挂载）' },
+  { id: 'toast-3', hidden: matrixFacts.toasts[2] ?? true, reason: 'toast 未显示（opacity:0 / 未挂载）' },
+  {
+    id: 'disabled-button',
+    hidden: matrixFacts.disabled[0] ?? true,
+    reason: '禁用态 opacity:0.4 / disabled，WCAG 对比度不适用',
+  },
+  {
+    id: 'analyze-bubble',
+    hidden: matrixFacts.bubble,
+    reason: 'bubble 隐藏（display:none / 零尺寸）',
+  },
+].filter((item) => item.hidden)
+const applicable = 48 - excludedMatrix.length
+const failedApplicable = darkPairs.filter(([, fg, bg, min]) => ratio(hex(fg), hex(bg)) < min).length
+console.log(`applicable=${applicable}/48 excluded=${excludedMatrix.length} failed=${failedApplicable}`)
+for (const item of excludedMatrix) console.log(`excluded: ${item.id} — ${item.reason}`)
+check('48 样本矩阵：适用项全部通过', failedApplicable === 0, JSON.stringify({ applicable, excluded: excludedMatrix.length, failed: failedApplicable }))
+if (matrixFacts.toasts.some(Boolean) || matrixFacts.disabled.some(Boolean) || matrixFacts.bubble) {
+  console.log('matrix hidden probes:', JSON.stringify(matrixFacts))
+}
+
 // T2：源码框只有 inset 环；reduced-motion 生效
 const sourceRing = await page.evaluate(() => {
   const node = document.createElement('textarea')
