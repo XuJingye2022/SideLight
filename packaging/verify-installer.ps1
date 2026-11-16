@@ -17,7 +17,7 @@ function Start-NoShell([string]$file, [string]$arguments) {
 }
 
 $root = Split-Path -Parent $PSScriptRoot
-$version = '0.31.1'
+$version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
 $setup = Join-Path $root "release\Sidelight-$version-win-x64-setup.exe"
 $instdir = Join-Path $root '.tmp\install-verify'
 $uninstKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Sidelight'
@@ -141,7 +141,7 @@ if ($setupVersion -and $setupVersion.StartsWith('0.31.1')) { Pass "setup Version
 $cliOut = Join-Path $root '.tmp\cli-version.txt'
 $vp = Start-Process (Join-Path $instdir 'Sidelight.exe') -ArgumentList '--version' -NoNewWindow -RedirectStandardOutput $cliOut -PassThru -Wait
 $cliVersion = if (Test-Path $cliOut) { (Get-Content $cliOut -Raw).Trim() } else { '' }
-if ($cliVersion.Trim() -eq '0.31.1') { Pass 'Sidelight.exe --version = 0.31.1' } else { Fail "Sidelight.exe --version = $cliVersion" }
+if ($cliVersion.Trim() -eq $version) { Pass 'Sidelight.exe --version = 0.31.1' } else { Fail "Sidelight.exe --version = $cliVersion" }
 
 # 5) HKCU 卸载项与快捷方式：本沙箱写入不可观测，只能 UNVERIFIED
 $vals = $null

@@ -77,3 +77,19 @@ npm run roundtrip  # 只在改动编辑器或 markdown 序列化时跑
 ## 7. 交接
 
 收工改三处：README 的「现在能做什么」与「现在不能做什么」、CHANGELOG 当次条目、被推翻的 ADR；轮次结束由根代理更新 `docs/iteration/STATE.md`。做不到的事写清楚原因，别留给下一个人猜。
+
+## 8. 踩过的坑（改之前先看这里）
+
+- **PowerShell 脚本必须带 UTF-8 BOM**：`host/build.ps1`、`packaging/*.ps1` 含中文；Windows PowerShell 5.1 按 ANSI 读无 BOM 文件，会报 `TerminatorExpectedAtEndOfString` 之类假语法错误。用 `[IO.File]::WriteAllText(path, text, New-Object Text.UTF8Encoding($true))` 保存。
+- **版本号不要写死**：`host/build.ps1` 从 `package.json` 生成 `AssemblyVersion`；`packaging/*.ps1` 从 `package.json` 读版本。发版后核对 Release 资产文件名里的版本，v0.32.0 曾发出 0.31.1 的 Windows 包。
+- **WebView2 默认吞加速键**：宿主必须设 `core.Settings.AreBrowserAcceleratorKeysEnabled = false`，否则 `Ctrl+K/P/F` 到不了页面。改完跑 `host-smoke` 的「加速键」断言。
+- **WinForms 的 `System.Windows.Forms.ApplicationConfigurationSection` 会让宿主启动即报「配置系统未能初始化」**：不要往 `Sidelight.exe.config` 加这个节；高分屏只靠 `app.manifest` 的 `PerMonitorV2`。
+- **`/__annotations` 没有缓存时返回 200 空 v2 store，不要 404**：404 会在控制台留错误并让 `host-smoke` 的「0 错误」失败。
+- **`host-smoke` 做 FSA 前先关掉快速打开浮层**：`Ctrl+P` 测试后不按 Esc，遮罩会拦截「打开文件夹…」。
+- **CDP 9333 会被遗留 Edge 占用**：宿主会连到旧页面（旧文档、pages=3）。跑 `host-smoke` 前确认 9333 无监听，必要时杀掉占用进程。
+- **WebView2 数据目录**：优先 `%LOCALAPPDATA%\Sidelight\WebView2`，实际常见 `%LOCALAPPDATA%\Sidelight\EBWebView`；清数据要两个都看。遗留 `侦察-22.md` 这类假失败多来自旧数据。
+- **会话恢复不自动要权限**：IndexedDB 只存 FSA 句柄；`queryPermission` 为 `prompt` 时只显示「继续上次」，点击后再 `requestPermission`。宿主文档优先，但要尝试恢复工作区树。
+- **批注 v2 迁移先备份**：`.sidelight/annotations` 从数组升 `{v:2,annotations,notes}`，写前留 `.bak-*`；未定位条目不删文件，转 `unresolved`。
+- **重跑批注必须整窗替换**：`replaceInWindow` 去重/复用 id；只追加会让卡片翻倍、位置错乱。
+- **测试脚本选择器会过期**：DOM 改动后先改脚本再判产品失败；`data-safety` 的 `.editor`、`host-smoke` 的 `/__annotations` 404 都属此类。
+

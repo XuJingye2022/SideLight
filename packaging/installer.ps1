@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 New-Item -ItemType Directory -Force -Path (Join-Path $root 'release') | Out-Null
-$version = '0.31.1'
+$version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
 $payloadNames = @(
     'Sidelight.exe',
     'Microsoft.Web.WebView2.Core.dll',

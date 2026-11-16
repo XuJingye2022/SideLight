@@ -28,6 +28,17 @@ if (Test-Path $www) { Remove-Item $www -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $www | Out-Null
 
 $exe = Join-Path $bin 'Sidelight.exe'
+$version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
+$verDir = Join-Path $root '.tmp\host-version'
+New-Item -ItemType Directory -Force -Path $verDir | Out-Null
+$verFile = Join-Path $verDir 'AssemblyInfo.cs'
+$verLines = @(
+    'using System.Reflection;',
+    ('[assembly: AssemblyVersion("' + $version + '.0")]'),
+    ('[assembly: AssemblyFileVersion("' + $version + '.0")]'),
+    ('[assembly: AssemblyInformationalVersion("' + $version + '")]')
+)
+Set-Content -Path $verFile -Value $verLines -Encoding UTF8
 $iconPath = Join-Path $root 'packaging\sidelight.ico'
 $manifest = Join-Path $PSScriptRoot 'app.manifest'
 if (-not (Test-Path $iconPath)) { Write-Host "警告：缺 packaging\sidelight.ico，exe 不带图标"; $iconArg = @() } else { $iconArg = @("/win32icon:$iconPath") }
@@ -44,7 +55,7 @@ $cscArgs = @(
     '/r:System.Windows.Forms.dll',
     '/r:System.Drawing.dll',
     '/r:System.Web.Extensions.dll',
-    (Join-Path $PSScriptRoot 'AssemblyInfo.cs'),
+    $verFile,
     (Join-Path $PSScriptRoot 'Program.cs')
 )
 & $csc $cscArgs
