@@ -49,12 +49,12 @@
 
 ## 当前版本与体积
 
-- v0.30.3。`dist` 1,439,816 B；首屏 JS+CSS gzip **284,766 B**（余 234 B）；测试 16 文件 205 条。
-- 发布资产：Windows setup 818,642 B、Windows zip 902,798 B、macOS Universal zip 890,529 B；校验和见 Release `SHA256SUMS-0.30.3.txt`。内部预算 820,000，硬线 850,000 未动。
+- v0.31.1。`dist` 1,444,593 B；首屏 JS+CSS gzip **285,781 B**（临时上限 286,000，数据安全例外，余 219 B）；测试 16 文件 234 条。
+- 发布资产：Windows setup 821,058 B、Windows zip 905,153 B、macOS Universal zip 901,482 B；校验和见 Release `SHA256SUMS-0.31.1.txt`。内部预算 820,000，硬线 850,000 未动。
 - 往返：rich 5/7、source 7/7、首次保存仍拦截 1/7（04）；265 KiB 目标不可达（ADR-0012）。
-- 文件树：新建文件/文件夹、删除到 `.sidelight/trash/`、重命名、刷新、tablist/展开态/空文件夹提示；目录删除/移动/复制仍不做。
+- 文件树：新建文件/文件夹、删除到 `.sidelight/trash/`（脏文件正文+草稿+批注可撤销）、重命名、刷新、tablist/展开态/空文件夹提示；目录删除/移动/复制仍不做。
 - 可访问性：大纲页签树隐藏、深色 token/对比度（43 适用项全过）、统一焦点环、输入边界、reduced-motion、正文 aria-label、错误 toast alert；P2（骨架 role、批注卡 Enter、正文开头 Tab 回环）延后。
-- 性能：1 MB 载入 5.8–9.3 s → **1284 ms**；10 KB 冒烟 p95 5.0–7.2 ms（未稳定）；100 KB/1 MB 逐键 p95 未测；memo/B4/B5/2 MB 进度延后。
+- 性能：1 MB 单段落载入 1284 ms；真实多段 1 MB 载入约 54 s、100 KB 逐键 p95 约 160 ms（原生排版热点）——性能包线未达 1 MB 可用，README 已按实测标注。
 
 ## 轮次记录
 
@@ -80,6 +80,11 @@
 | 18 | 开源文档与仓库治理 | round-18/plan.md | PASS-WITH-UNVERIFIED：CONTRIBUTING/SECURITY/PRIVACY 草案、模板、release notes、CI 门 | 83b037b |
 | 19 | 收尾硬化 + 0.30.2 | round-19/plan.md | PASS-WITH-UNVERIFIED：草稿清理 61/61、性能数字更正、Release 说明；0.30.2 | ab7aaea |
 | 20 | 最终硬化 + 0.30.3 | round-20/plan.md | PASS-WITH-UNVERIFIED：onUpdate 拆分、1MB 载入 1284ms、draft 61/61、首屏 284,766、0.30.3 | b43b5c8 |
+| 21 | 深水区侦察 + C1/D1 P0 | round-21/plan.md | PASS-WITH-UNVERIFIED：脚注续行/混合尾、删除脏文件正文+草稿+批注可撤销、0.30.4 | 584d5e7 |
+| 22 | 六路第二批侦察 | round-22/plan.md | RECON：核心修复闭合；新发现 D2/D3、M1、F2/F4、I1/I4、1MB 54s | 39b8427 |
+| 23 | 数据与 Markdown 修复 | round-23/plan.md | PASS-WITH-UNVERIFIED：草稿恢复、大小门、垃圾字节、`\$`、脚注 4 空格、CRLF、0.31.0 | dbfc6f9 |
+| 24 | 体验三项 | round-24/plan.md | PASS-WITH-UNVERIFIED：窄窗自动开批注、查找入口、Tab 插空格、0.31.1 | e92d1a4 |
+| 25 | 平台与最终版 | round-25/plan.md | PASS-WITH-UNVERIFIED：host --version/置前、NSIS 版本/运行检测、macOS openFiles、0.31.1；卸载 exit 0 UNVERIFIED | e92d1a4 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
@@ -95,12 +100,12 @@
 ## 发布状态（2026-11-16）
 
 - 仓库：https://github.com/XuJingye2022/SideLight（public，MIT，版权人 XuJingye）。
-- 最新发布：https://github.com/XuJingye2022/SideLight/releases/tag/v0.30.3
-  - Windows：`Sidelight-0.30.3-win-x64-setup.exe` 818,642 B、`Sidelight-0.30.3-win-x64-portable.zip` 902,798 B。
-  - macOS：`Sidelight-0.30.3-macos-universal.zip` 890,529 B（arm64 + x86_64），ad-hoc，未公证；macOS 13+。
-  - `SHA256SUMS-0.30.3.txt`。
+- 最新发布：https://github.com/XuJingye2022/SideLight/releases/tag/v0.31.1
+  - Windows：`Sidelight-0.31.1-win-x64-setup.exe` 821,058 B、`Sidelight-0.31.1-win-x64-portable.zip` 905,153 B。
+  - macOS：`Sidelight-0.31.1-macos-universal.zip` 901,482 B（arm64 + x86_64），ad-hoc，未公证；macOS 13+。
+  - `SHA256SUMS-0.31.1.txt`。
 - 签名/公证：`release.yml` 已接可选分支；配齐 6 个 Apple secrets 后自动签名 + 公证 + staple；否则 ad-hoc 并在 Release body 标「未签名、未公证」。
-- 历史：v0.30.2 修复草稿清理与性能陈述；v0.30.1 修保存竞态；v0.30.0 可访问性；v0.29.0 首个 Universal；v0.28.1 最后 arm64-only。
+- 历史：v0.31.0 数据/Markdown 修复；v0.30.4 脚注/删除脏文件；v0.30.3 1MB 单段载入；v0.30.2 草稿清理；v0.30.1 保存竞态；v0.30.0 可访问性；v0.29.0 首个 Universal。
 - 发布自动化：`.github/workflows/release.yml`（tag `v*` 或手动 `tag` + `publish`）已多次实测；CI `gate`/`windows-host`/`macos-host` 全绿且已转必过；`install-verify` 仅手动。
 - 推送方式：`origin` 用 SSH over 443（`ssh://git@ssh.github.com:443/XuJingye2022/SideLight.git`），仓库里加了一把 write deploy key `sidelight-agent`（2026-11-16）；不用时可在 GitHub Settings → Deploy keys 删除。
 - CI Windows smoke 已忽略预期 404：`/__doc`、`/__draft`、`/favicon.ico`；其他 404 仍失败。
@@ -112,7 +117,7 @@
 3. 派 3 个新 finder（缺陷/体验/发布）只读侦察，报告写 `round-14/findings-*.md`；重点从上面待办池挑。
 4. 复用已有持久代理：`planner`、`critic`、`builder`、`builder2`、`tester`（用 send_message，别新建同名）。
 5. 按「侦察 → 计划 → 审计划 → 实施 → 验收」循环；根代理只在阶段之间分派、跑最终门禁、commit、更新本文件。
-6. 建议主题：round 17 性能与保存竞态；round 18 文档/贡献指南/隐私确认；round 19 1.0 RC；round 20 最终 QA 与交接。
+6. 第 21–25 轮已完成。后续若继续：优先真实 macOS/Intel/签名公证、100 KB–1 MB 性能包线、UX L1/F3、安装器运行中卸载、P2 可访问性；没有新的必过门禁项。
 
 ## 决策记录
 
