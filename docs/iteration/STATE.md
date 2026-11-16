@@ -49,11 +49,12 @@
 
 ## 当前版本与体积
 
-- v0.30.0。`dist` 1,438,132 B；首屏 JS+CSS gzip **284,210 B**（余 790 B）；测试 16 文件 205 条。
-- 发布资产：Windows setup 817,983 B、Windows zip 902,274 B、macOS Universal zip 890,004 B；校验和见 Release `SHA256SUMS-0.30.0.txt`。内部预算 820,000，硬线 850,000 未动。
+- v0.30.3。`dist` 1,439,816 B；首屏 JS+CSS gzip **284,766 B**（余 234 B）；测试 16 文件 205 条。
+- 发布资产：Windows setup 818,642 B、Windows zip 902,798 B、macOS Universal zip 890,529 B；校验和见 Release `SHA256SUMS-0.30.3.txt`。内部预算 820,000，硬线 850,000 未动。
 - 往返：rich 5/7、source 7/7、首次保存仍拦截 1/7（04）；265 KiB 目标不可达（ADR-0012）。
 - 文件树：新建文件/文件夹、删除到 `.sidelight/trash/`、重命名、刷新、tablist/展开态/空文件夹提示；目录删除/移动/复制仍不做。
 - 可访问性：大纲页签树隐藏、深色 token/对比度（43 适用项全过）、统一焦点环、输入边界、reduced-motion、正文 aria-label、错误 toast alert；P2（骨架 role、批注卡 Enter、正文开头 Tab 回环）延后。
+- 性能：1 MB 载入 5.8–9.3 s → **1284 ms**；10 KB 冒烟 p95 5.0–7.2 ms（未稳定）；100 KB/1 MB 逐键 p95 未测；memo/B4/B5/2 MB 进度延后。
 
 ## 轮次记录
 
@@ -75,6 +76,10 @@
 | 14 | 首次使用 + P3/P4 + 发布自动化 | round-14/plan.md | PASS-WITH-UNVERIFIED：新建不再覆盖旧文件、首屏 283,826、tablist/展开态、release.yml 自动发 0.28.1 | 6c32aec |
 | 15 | macOS Universal + 签名/公证流水线 | round-15/plan.md | PASS-WITH-UNVERIFIED：fat 双片、self-test 6 项、0.29.0 自动发、签名分支静态过 | c4119d8 |
 | 16 | 界面一致性与可访问性 | round-16/plan.md | PASS-WITH-UNVERIFIED：树隐藏 P0、深色/焦点/输入边界/reduced-motion、theme 27/27（43/48 适用）、0.30.0 | d10daa5 |
+| 17 | 保存竞态 + 大文件 + 性能 | round-17/plan.md | PASS-WITH-UNVERIFIED：B1/B3 修复、5.5 MiB 上限、1MB 载入 1284ms、逐键 p95 未测；0.30.1/0.30.3 | b799cf2 |
+| 18 | 开源文档与仓库治理 | round-18/plan.md | PASS-WITH-UNVERIFIED：CONTRIBUTING/SECURITY/PRIVACY 草案、模板、release notes、CI 门 | 83b037b |
+| 19 | 收尾硬化 + 0.30.2 | round-19/plan.md | PASS-WITH-UNVERIFIED：草稿清理 61/61、性能数字更正、Release 说明；0.30.2 | ab7aaea |
+| 20 | 最终硬化 + 0.30.3 | round-20/plan.md | 待最终验收：onUpdate 拆分、1MB 载入 1284ms、0.30.3 | b799cf2 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 
@@ -90,12 +95,12 @@
 ## 发布状态（2026-11-16）
 
 - 仓库：https://github.com/XuJingye2022/SideLight（public，MIT，版权人 XuJingye）。
-- 最新发布：https://github.com/XuJingye2022/SideLight/releases/tag/v0.30.0
-  - Windows：`Sidelight-0.30.0-win-x64-setup.exe` 817,983 B、`Sidelight-0.30.0-win-x64-portable.zip` 902,274 B。
-  - macOS：`Sidelight-0.30.0-macos-universal.zip` 890,004 B（arm64 + x86_64），ad-hoc，未公证；macOS 13+。
-  - `SHA256SUMS-0.30.0.txt`。
+- 最新发布：https://github.com/XuJingye2022/SideLight/releases/tag/v0.30.3
+  - Windows：`Sidelight-0.30.3-win-x64-setup.exe` 818,642 B、`Sidelight-0.30.3-win-x64-portable.zip` 902,798 B。
+  - macOS：`Sidelight-0.30.3-macos-universal.zip` 890,529 B（arm64 + x86_64），ad-hoc，未公证；macOS 13+。
+  - `SHA256SUMS-0.30.3.txt`。
 - 签名/公证：`release.yml` 已接可选分支；配齐 6 个 Apple secrets 后自动签名 + 公证 + staple；否则 ad-hoc 并在 Release body 标「未签名、未公证」。
-- 历史：v0.29.0 首个 Universal；v0.28.1 最后 arm64-only；v0.27.0 首次 Windows + macOS；v0.26.0 Windows-only。
+- 历史：v0.30.2 修复草稿清理与性能陈述；v0.30.1 修保存竞态；v0.30.0 可访问性；v0.29.0 首个 Universal；v0.28.1 最后 arm64-only。
 - 发布自动化：`.github/workflows/release.yml`（tag `v*` 或手动 `tag` + `publish`）已多次实测；CI `gate`/`windows-host`/`macos-host` 全绿且已转必过；`install-verify` 仅手动。
 - 推送方式：`origin` 用 SSH over 443（`ssh://git@ssh.github.com:443/XuJingye2022/SideLight.git`），仓库里加了一把 write deploy key `sidelight-agent`（2026-11-16）；不用时可在 GitHub Settings → Deploy keys 删除。
 - CI Windows smoke 已忽略预期 404：`/__doc`、`/__draft`、`/favicon.ico`；其他 404 仍失败。

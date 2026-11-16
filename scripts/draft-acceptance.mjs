@@ -167,7 +167,8 @@ await mkdirp(OUT)
   check('T1 编辑后 800ms 发 1 条 draft-save', saves.length === 1, String(saves.length))
   check('T1 draft-save.text 是 LF', typeof saves[0]?.text === 'string' && !saves[0].text.includes('\r'))
   await page.keyboard.type('de')
-  await page.waitForTimeout(1000)
+  // 派生防抖 300ms + 草稿防抖 800ms = 约 1.1s；留 200ms 余量
+  await page.waitForTimeout(1300)
   info = await state(page)
   check('T1 继续编辑只新增 1 条（防抖合并）', draftMessages(info.messages, 'draft-save').length === 2, String(draftMessages(info.messages, 'draft-save').length))
   await context.close()
@@ -205,7 +206,7 @@ await mkdirp(OUT)
 {
   const { context, page } = await openPage({ doc: docPayload(PLAIN) })
   await edit(page, '保存前的字')
-  await page.waitForTimeout(1000)
+  await page.waitForTimeout(1300)
   let info = await state(page)
   const draftSave = draftMessages(info.messages, 'draft-save')[0]
   await page.evaluate((id) => window.__replyHost({ v: 1, type: 'draft-save-result', id, ok: true }), draftSave.id)
@@ -235,7 +236,7 @@ await mkdirp(OUT)
 {
   const { context, page } = await openPage({ doc: docPayload(PLAIN) })
   await edit(page, '保存中继续输入')
-  await page.waitForTimeout(1000)
+  await page.waitForTimeout(1300)
   let info = await state(page)
   const draft = draftMessages(info.messages, 'draft-save')[0]
   await page.evaluate((id) => window.__replyHost({ v: 1, type: 'draft-save-result', id, ok: true }), draft.id)
