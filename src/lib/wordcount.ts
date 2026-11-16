@@ -76,3 +76,33 @@ export function countSentences(text: string): number {
     .split(/[。！？!?；;…]+|(?<=[.!?])\s+|\n+/)
     .filter((part) => part.trim().length > 0).length
 }
+
+/**
+ * 数正文段落用到的 ProseMirror 文档节点结构（只取这几个字段）。
+ * `App.tsx` 直接传 `editor.state.doc`；单测用假节点，不依赖 `@tiptap/pm`。
+ */
+export type BlockStatsNode = {
+  type: { name: string }
+  isTextblock: boolean
+  textContent: string
+  childCount: number
+  child(index: number): BlockStatsNode
+}
+
+/**
+ * 段数 = 正文文本块的个数。段落、列表项、引用里的段落各算 1；
+ * 标题与表格不计；代码块整块算 1（内部换行不拆）。容器递归下钻。
+ */
+export function countParagraphs(doc: BlockStatsNode): number {
+  const visit = (node: BlockStatsNode): number => {
+    const name = node.type.name
+    // 标题是章节名不是正文；表格按单元格排版，整块不算段落
+    if (name === 'heading' || name === 'table') return 0
+    if (node.isTextblock) return node.textContent.trim().length > 0 ? 1 : 0
+    let total = 0
+    for (let index = 0; index < node.childCount; index += 1) total += visit(node.child(index))
+    return total
+  }
+  return visit(doc)
+}
+

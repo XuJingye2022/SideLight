@@ -7,6 +7,8 @@ type Props = {
   text: string
   /** 当前选区文本；折叠选区传空串 */
   selection: string
+  /** 正文段落数（见 wordcount.countParagraphs）；undefined 表示回退到「空行分段」的旧口径 */
+  paragraphs?: number
   onClose: () => void
 }
 
@@ -52,7 +54,7 @@ const dividerStyle: CSSProperties = {
 }
 
 /** 状态栏字数明细面板：点状态栏字数打开，点面板外面或按 Esc 关闭 */
-export function StatsDetail({ text, selection, onClose }: Props) {
+export function StatsDetail({ text, selection, paragraphs, onClose }: Props) {
   const stats = countText(text)
   const panelRef = useRef<HTMLDivElement | null>(null)
 
@@ -82,7 +84,7 @@ export function StatsDetail({ text, selection, onClose }: Props) {
     ['合计', number(total), '与状态栏字数一致（中日韩字 + 拉丁词）'],
     ['字符', number(stats.chars), '不含空白'],
     ['句', number(countSentences(text)), '按句末标点与换行切分'],
-    ['段', number(stats.paragraphs), '空行分段的段数'],
+    ['段', number(paragraphs ?? stats.paragraphs), paragraphs === undefined ? '空行分段的段数' : '正文段落数：段落与列表项各算 1；标题、表格不计，代码块整块算 1'],
     ['阅读', `${number(stats.minutes)} 分钟`, '按 300 字/分钟估算'],
   ]
 
@@ -114,7 +116,7 @@ export function StatsDetail({ text, selection, onClose }: Props) {
           {selected ? `${number(selected.cjk + selected.words)} 字 / ${number(selected.chars)} 字符 / ${number(countSentences(selection))} 句` : '未选中文本'}
         </dd>
       </dl>
-      <p style={{ ...termStyle, margin: '8px 0 0', fontSize: '12px' }}>合计 = 中日韩字 + 拉丁词，与状态栏一致；字符数不含空白；阅读时间按 300 字/分钟估算。</p>
+      <p style={{ ...termStyle, margin: '8px 0 0', fontSize: '12px' }}>合计 = 中日韩字 + 拉丁词，与状态栏一致；字符数不含空白；阅读时间按 300 字/分钟估算。{paragraphs !== undefined && ' 段按正文文本块计：段落与列表项各算 1，标题与表格不计，代码块整块算 1。'}</p>
     </div>
   )
 }

@@ -2,7 +2,7 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–30 轮，未发版）
+## Unreleased（第 29–32 轮，未发版）
 
 数据安全 + 大纲折叠；计划里的 T2（状态栏字数点击明细）**未做**，留待下一轮。第 30 轮补上字数明细、修删除撤销丢正文，并给安装器版本与发版流水线加门。
 
@@ -32,6 +32,16 @@
 - 门禁与文档：`@tiptap/extension-strike` 显式声明为直接依赖（此前只是 `@tiptap/starter-kit` 的传递依赖，换安装布局就会构建失败，字节不变）；`settings` / `prompt` / `katexLazy` 三个测试文件挂进 `npm test`（**21 文件 272 条**）；README 删掉不存在的「示例工作区」入口、说明链接的直接依赖；便携包说明不再指向包里没有的 `README.md`，`.md` 关联改按已定的 opt-in 描述。
 - 首屏 gzip **284,761 B**（≤286,000，余 1,239 B；比第 30 轮 +232 B）。本轮不发版，实测命令与原始输出见 `docs/iteration/round-31/test.md`。
 - UNVERIFIED：真实目录句柄上的「删除 → 撤销 → 保存」与「改名非当前文档 → 保存」（假 FSA 无权限模型）；列表嵌套的存盘字节（e2e 只验源码文本与 DOM 重解析）；真实中文输入法下的 Tab 与链接点击。
+
+**第 32 轮（同一未发版区间）**
+
+- 修 Windows 上 `Ctrl+Shift+P` 预览快捷键无声失效：`App.tsx` 的按键条件里多了 `!event.ctrlKey`，只有 macOS 的 `Cmd+Shift+P` 能命中；快捷键一览与预览按钮 tooltip 一直在宣传这个键。`keyboard-acceptance` 补 3 条断言（进预览 / 不被 `Ctrl+P` 抢走 / `Esc` 回编辑），52/52。
+- 状态栏随选区显示「选区 N 字」：`SelectionState` 加 `words`（中日韩字 + 拉丁词，与字数明细的选区行同口径），选区折叠即不渲染；源码/预览态按 `viewMode === 'edit'` 归零，不显示旧选区。
+- 字数明细「段」改按正文文本块计（新增 `countParagraphs`）：段落与列表项各算 1，标题与表格不计，代码块整块算 1；编辑与源码两模式同口径（改前编辑模式恒为 1、源码模式数非空行），面板提示与脚注写明口径。`wordcount.test.ts` +4 条。
+- 构建期体积护栏 + Mermaid 决策：`vite.config.ts` 的 `chunkSizeWarningLimit` 从 1200 降到 950（主 chunk 894,163 B，留约 56 kB 缓冲），注释与 README 换成实测字节；新增 [ADR 0017](adr/0017-mermaid-lazy-loading.md)——Mermaid 首屏 0 B 的惰性方案可行，但安装包真实增量（主入口 + 48 个静态依赖 1,976,553 B raw）把包推过 850,000 B 硬线，**本轮不实现**，需产品负责人三选一。
+- 测试：`npm test` 21 个文件 **276** 条（272 + 句段 4）；首屏 gzip **285,052 B**（≤286,000，余 948 B）；`keyboard-acceptance` 52/52、`qa17` 7/7。
+- UNVERIFIED：Windows 宿主里实按 `Ctrl+Shift+P`（本机只浏览器实测）；macOS `Cmd+Shift+P`；全选 1 MB 时的选区计数耗时；源码模式解析失败后的回退路径（面板新旧口径一致性）；mermaid 真装进 `dist` 后重打的安装包字节；`qa16` / `qa10` 两条脚本已过期（见下条），本轮未修。
+- 已知测试脚本过期（非本轮引入，基线同样失败）：`scripts/qa16.mjs:81` 等 `.editor a`——链接插入早已改成行内浮层，脚本还在等 `window.prompt` 的返回；`scripts/qa10.mjs:24` 等第 3 个 `p`——首启已是空文档，脚本还按演示文档写。
 
 ## 0.32.1 — 2026-11-16
 

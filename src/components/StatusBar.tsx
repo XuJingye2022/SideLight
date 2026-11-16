@@ -16,6 +16,8 @@ type Props = {
   /** 字数明细面板是否打开（触发按钮的 aria-expanded） */
   statsOpen?: boolean
   onStatsClick?: () => void
+  /** 选区的字数（中日韩字 + 拉丁词）；0 或非编辑视图时不显示 */
+  selectionWords?: number
 }
 
 export function StatusBar({
@@ -31,6 +33,7 @@ export function StatusBar({
   autoSaveTone = 'ok',
   statsOpen = false,
   onStatsClick,
+  selectionWords = 0,
 }: Props) {
   return (
     <footer className="status-bar">
@@ -46,6 +49,11 @@ export function StatusBar({
         >
           {formatStats(stats)}
         </button>
+        {selectionWords > 0 && (
+          <span className="status-chip status-chip-quiet status-selection" title="选中文字的字数：中日韩字 + 拉丁词，与字数明细的选区行同口径">
+            选区 {selectionWords.toLocaleString('en-US')} 字
+          </span>
+        )}
         {hasFrontmatter && <span className="status-chip status-chip-quiet">元数据</span>}
         {hostFileName && (
           <span className="status-chip status-chip-quiet" title="Ctrl+S 保存到这个文件">

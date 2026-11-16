@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { countSentences, countText, formatStats } from './wordcount.ts'
+import { countParagraphs, countSentences, countText, formatStats, type BlockStatsNode } from './wordcount.ts'
 
 test('纯中文只数字，句号不算字', () => {
   const stats = countText('写作是把想法变成文字。')
@@ -82,4 +82,60 @@ test('句数：空串与全空白 0 句，只剩标点也不计', () => {
   assert.equal(countSentences(' \n\t\r\n '), 0)
   assert.equal(countSentences('……！？？'), 0)
 })
+
+/** 假节点工厂：只实现 countParagraphs 用到的字段，不引入 @tiptap/pm */
+const leaf = (name: string, text: string): BlockStatsNode => ({
+  type: { name },
+  isTextblock: true,
+  textContent: text,
+  childCount: 0,
+  child: () => {
+    throw new Error('叶子节点没有子节点')
+  },
+})
+const container = (name: string, children: BlockStatsNode[]): BlockStatsNode => ({
+  type: { name },
+  isTextblock: false,
+  textContent: '',
+  childCount: children.length,
+  child: (index) => children[index],
+})
+const docOf = (...children: BlockStatsNode[]) => container('doc', children)
+
+test('段：两段之间没有空行也算 2 段', () => {
+  assert.equal(countParagraphs(docOf(leaf('paragraph', '第一段。'), leaf('paragraph', '第二段。'))), 2)
+})
+
+test('段：4 个标题不计，5 段正文算 5，表格不计', () => {
+  const doc = docOf(
+    leaf('heading', '一'),
+    leaf('paragraph', '正文一。'),
+    leaf('heading', '二'),
+    leaf('paragraph', '正文二。'),
+    leaf('heading', '三'),
+    leaf('paragraph', '正文三。'),
+    leaf('heading', '四'),
+    leaf('paragraph', '正文四。'),
+    leaf('paragraph', '正文五。'),
+    container('table', [container('tableRow', [leaf('tableCell', '单元格')])]),
+  )
+  assert.equal(countParagraphs(doc), 5)
+})
+
+test('段：列表 3 项算 3 段（列表项里的段落递归计数）', () => {
+  const doc = docOf(
+    container('bulletList', [
+      container('listItem', [leaf('paragraph', '项目一')]),
+      container('listItem', [leaf('paragraph', '项目二')]),
+      container('listItem', [leaf('paragraph', '项目三')]),
+    ]),
+  )
+  assert.equal(countParagraphs(doc), 3)
+})
+
+test('段：两行代码块整块算 1 段，内部换行不拆；空段落不计', () => {
+  const doc = docOf(leaf('codeBlock', 'const a = 1\nconst b = 2'), leaf('paragraph', '   '))
+  assert.equal(countParagraphs(doc), 1)
+})
+
 

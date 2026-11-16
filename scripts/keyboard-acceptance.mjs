@@ -439,6 +439,32 @@ await page.waitForTimeout(900)
 check('Ctrl+Shift+1 切大纲', (await page.locator('.outline').count()) === 1, String(await page.locator('.outline').count()))
 await page.keyboard.press('Control+Shift+3')
 
+// 预览快捷键 Ctrl+Shift+P：状态栏出「预览」、正文不可编辑、不被 Ctrl+P 抢走
+const previewState = () =>
+  page.evaluate(() => ({
+    right: (document.querySelector('.status-right')?.textContent ?? '').trim(),
+    editables: Array.from(document.querySelectorAll('.ProseMirror')).map((n) => n.getAttribute('contenteditable')),
+    previewPanes: document.querySelectorAll('.preview-pane').length,
+    quickOpen: document.querySelectorAll('.quick-open').length,
+  }))
+await page.keyboard.press('Control+Shift+P')
+await page.waitForTimeout(400)
+const previewOn = await previewState()
+check(
+  'Ctrl+Shift+P 进预览：状态栏有「预览」且正文不可编辑',
+  previewOn.right.includes('预览') && previewOn.previewPanes === 1 && previewOn.editables.length > 0 && previewOn.editables.every((value) => value === 'false'),
+  JSON.stringify(previewOn),
+)
+check('Ctrl+Shift+P 没被 Ctrl+P 快速打开抢走', previewOn.quickOpen === 0, String(previewOn.quickOpen))
+await page.keyboard.press('Escape')
+await page.waitForTimeout(400)
+const previewOff = await previewState()
+check(
+  'Esc 回编辑：正文可编辑且状态栏不再有「预览」',
+  previewOff.previewPanes === 0 && previewOff.editables.length > 0 && previewOff.editables.every((value) => value === 'true') && !previewOff.right.includes('预览'),
+  JSON.stringify(previewOff),
+)
+
 // T3：正文名称、错误 toast 单一 live region、aria-hidden 内无焦点
 const editorName = await page.evaluate(() => document.querySelector('.tiptap')?.getAttribute('aria-label') ?? '')
 check('正文编辑器有 aria-label', editorName.length > 0, editorName)

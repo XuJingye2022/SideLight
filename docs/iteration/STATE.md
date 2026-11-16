@@ -49,8 +49,10 @@
 
 ## 当前版本与体积
 
-- v0.32.1（第 30、31 轮改动都在同一个未发版区间）。首屏 JS+CSS gzip **284,761 B**（临时上限 286,000，余 1,239 B；第 30 轮 284,529 → 第 31 轮 +232 B）；测试 **21 文件 272 条**（第 30 轮 18/260，第 31 轮挂进 settings/prompt/katexLazy 共 12 条）。
+- v0.32.1（第 30–32 轮改动都在同一个未发版区间）。首屏 JS+CSS gzip **285,052 B**（临时上限 286,000，余 948 B；第 30 轮 284,529 → 第 31 轮 +232 B → 第 32 轮 +291 B）；测试 **21 文件 276 条**（第 30 轮 18/260，第 31 轮挂进 settings/prompt/katexLazy 共 12 条，第 32 轮加句段 4 条）。
 - 第 31 轮修完两条 P0 数据丢失：删除当前文档后「撤销」、改名「非当前文档」都不再切走保存目标（`refreshTree` adopt 分支加不变量守卫 + 撤销改用 `refreshTreeRef`）；字数明细按中日韩字 / 拉丁词 / 合计分行并把焦点移进面板；点正文链接恢复就地编辑，列表内 Tab/Shift+Tab 缩进；`@tiptap/extension-strike` 改直接依赖。
+- 第 32 轮：Windows `Ctrl+Shift+P` 预览快捷键修复（条件里多余的 `!event.ctrlKey`）；状态栏随选区显示「选区 N 字」（预览/源码态归零）；字数明细「段」改按正文文本块计（编辑/源码同口径，新增 `countParagraphs`）；`chunkSizeWarningLimit` 1200→950，新增 ADR-0017（Mermaid 实测：主入口 + 48 个静态依赖 1,976,553 B raw，安装包预估 1,474,881 B 破 850,000 B 硬线 → 本轮不实现，待产品负责人三选一）。
+- 下一轮优先：① 工作区图片破图（Typora P1，需先找 ≥1.5 KB 省字节点或把 NodeView 抽成惰性，余量只 948 B）；② 修 `qa16`/`qa10` 两个过期脚本（`.editor` 类名、演示文档段落假设）；③ 表格列宽拖拽与「粘贴为纯文本」排队；④ 首屏余量 948 B，任何新功能前先配「省字节」任务。
 - 首启：空白 `未命名.md`，不再加载示例；文件菜单「关闭文档」；工作区无句柄文档 Ctrl+S 直接落 `未命名.md`。
 - 发布资产：Windows setup 824,209 B、Windows zip 910,360 B、macOS Universal 905,892 B；校验和见 `SHA256SUMS-0.32.1.txt`。
 - 重开恢复：IndexedDB 只存 FSA 句柄；宿主 `/__annotations` 读回；Ctrl+S 原地。批注 v2（overall/unresolved）；重跑整窗替换。
@@ -92,6 +94,7 @@
 | 29 | 数据安全 + 大纲折叠 | round-29/plan.md | PASS-WITH-UNVERIFIED：T1 草稿守卫 4/4、T3 大纲 12/12、首屏 285,838、测试 251、draft 57/57、keyboard 49/49；T2 未做、T1-B 被陈旧模块挡住 | cdcf83e |
 | 30 | 状态栏字数明细 + 删除撤销丢正文 + 安装器版本 | round-30/plan.md | PASS-WITH-UNVERIFIED：T1 删除后撤销不再丢正文、T2 字数明细面板、首屏 284,529、测试 18/260、keyboard 49/49；0.32.1 未发版 | 5b36b71 |
 | 31 | 撤销/改名保存目标 P0 + 字数明细口径 + 链接点击与列表 Tab | round-31/plan.md | PASS-WITH-UNVERIFIED：T1 21/21、T2 14/14、T3 18/18、keyboard 49/49、roundtrip 0、首屏 284,761、测试 21/272；未发版 | 64002a8 |
+| 32 | 预览快捷键 + 选区计数 + 段落口径 + 体积护栏与 Mermaid ADR | round-32/plan.md | PASS-WITH-UNVERIFIED：keyboard 52/52、T2 9/9、T3 7/7、qa17 7/7、首屏 285,052（余 948）、测试 21/276、tsc/build PASS；Mermaid 本轮不实现待产品负责人三选一；qa16/qa10 脚本过期（非本轮回归）；未发版 | 待补 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 

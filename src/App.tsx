@@ -77,7 +77,7 @@ import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline
 import { clampFontSize, DEFAULT_SETTINGS } from './lib/settings.ts'
 import { searchWeb } from './lib/search.ts'
 import { hasKey, loadSettings, saveSettings, type Settings } from './lib/settings.ts'
-import { countText, type TextStats } from './lib/wordcount.ts'
+import { countParagraphs, countText, type TextStats } from './lib/wordcount.ts'
 import {
   flattenFiles,
   parentDirectory,
@@ -201,6 +201,8 @@ function offsetForPosition(index: { positions: number[] }, position: number): nu
 
 type SelectionState = {
   chars: number
+  /** 选区的字数：中日韩字 + 拉丁词，与字数明细的选区行同口径 */
+  words: number
   from: number
   to: number
   source: 'selection' | 'paragraph'
@@ -345,7 +347,7 @@ export default function App() {
   const [unresolved, setUnresolved] = useState(0)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [selection, setSelection] = useState<SelectionState>({ chars: 0, from: 0, to: 0, source: 'paragraph' })
+  const [selection, setSelection] = useState<SelectionState>({ chars: 0, words: 0, from: 0, to: 0, source: 'paragraph' })
   const [tops, setTops] = useState<Record<string, number>>({})
   const [bubble, setBubble] = useState<{ top: number; left: number } | null>(null)
   const [tick, setTick] = useState(0)
@@ -483,7 +485,8 @@ export default function App() {
   const [draftShown, setDraftShown] = useState(initial.savedAt > 0)
   const [stats, setStats] = useState<TextStats>(() => countText(initial.text))
   // 字数明细面板：null = 关闭；打开时冻结当时的正文与选区文本
-  const [statsDetail, setStatsDetail] = useState<{ text: string; selection: string } | null>(null)
+  // paragraphs 可选：源码模式解析失败时为 undefined，面板回退到「空行分段」的旧口径
+  const [statsDetail, setStatsDetail] = useState<{ text: string; selection: string; paragraphs?: number } | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
   const chatAbortRef = useRef<AbortController | null>(null)
@@ -901,7 +904,16 @@ export default function App() {
     onSelectionUpdate: ({ editor: current }) => {
       const { from, to } = current.state.selection
       const context = buildContext(readBlocks(current), from, to)
-      setSelection({ chars: context.selection.length, from, to, source: context.source })
+      const selected = from === to ? '' : current.state.doc.textBetween(from, to, '\n')
+      // 只扫一遍：同一个字符串不能调两次 countText（全选 1 MB 时会白扫 1 MB）
+      const selectedStats = selected.length > 0 ? countText(selected) : null
+      setSelection({
+        chars: context.selection.length,
+        words: selectedStats ? selectedStats.cjk + selectedStats.words : 0,
+        from,
+        to,
+        source: context.source,
+      })
       setActiveOutline(activeOutlineId(extractOutline(current.state.doc), from))
       requestAnimationFrame(() => typewriterRef.current())
     },
@@ -955,7 +967,7 @@ export default function App() {
     setDirty(false)
     const { from, to } = editor.state.selection
     const context = buildContext(readBlocks(editor), from, to)
-    setSelection({ chars: context.selection.length, from, to, source: context.source })
+    setSelection({ chars: context.selection.length, words: 0, from, to, source: context.source })
     syncDocInfo(editor)
   }, [editor, initial.text, setMarkdown, syncDocInfo])
 
@@ -1031,7 +1043,7 @@ export default function App() {
       else setViewMode('edit')
       const { from, to } = editor.state.selection
       const context = buildContext(readBlocks(editor), from, to)
-      setSelection({ chars: context.selection.length, from, to, source: context.source })
+      setSelection({ chars: context.selection.length, words: 0, from, to, source: context.source })
     },
     [editor, enterSourceFor, setMarkdown, syncDocInfo],
   )
@@ -3610,7 +3622,7 @@ export default function App() {
         setTreeCollapsed((value) => !value)
         return
       }
-      if (mod && !event.altKey && event.shiftKey && !event.ctrlKey && key === 'p') {
+      if (mod && !event.altKey && event.shiftKey && key === 'p') {
         event.preventDefault()
         togglePreviewRef.current()
         return
@@ -3812,11 +3824,24 @@ export default function App() {
       // 再点一次触发按钮就关掉
       if (current !== null) return null
       if (!editor) return null
-      const text = sourceMode ? splitFrontmatter(sourceText).body : editor.state.doc.textContent
+      const body = sourceMode ? splitFrontmatter(sourceText).body : null
+      const text = body ?? editor.state.doc.textContent
       const { from, to } = editor.state.selection
       // 点状态栏会把焦点移出正文，但 ProseMirror 的选区保留
       const selection = from === to ? '' : editor.state.doc.textBetween(from, to, '\n')
-      return { text, selection }
+      // 段数按正文文本块算（与编辑模式同口径）；源码解析不了就传 undefined 让面板回退旧口径
+      const countInSource = (): number | undefined => {
+        const manager = editor.markdown ?? editor.storage.markdown?.manager
+        if (!manager) return undefined
+        try {
+          const node = editor.schema.nodeFromJSON(manager.parse(escapeHtmlForParse(protectMathPairs(body ?? ''))))
+          return countParagraphs(node)
+        } catch {
+          return undefined
+        }
+      }
+      const paragraphs = body === null ? countParagraphs(editor.state.doc) : countInSource()
+      return { text, selection, paragraphs }
     })
   }, [editor, sourceMode, sourceText])
 
@@ -4831,6 +4856,7 @@ export default function App() {
         stats={sourceMode ? countText(splitFrontmatter(sourceText).body) : stats}
         statsOpen={statsDetail !== null}
         onStatsClick={openStatsDetail}
+        selectionWords={viewMode === 'edit' ? selection.words : 0}
         mode={viewMode}
         focusMode={focusMode}
         typewriterMode={typewriterMode}
@@ -4870,6 +4896,7 @@ export default function App() {
           <StatsDetail
             text={statsDetail.text}
             selection={statsDetail.selection}
+            paragraphs={statsDetail.paragraphs}
             onClose={() => setStatsDetail(null)}
           />
         </Suspense>
