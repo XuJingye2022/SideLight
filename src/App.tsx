@@ -90,6 +90,9 @@ import { hasKey, loadSettings, saveSettings, type Settings } from './lib/setting
 import { createSmartTyping } from './lib/smartTyping.ts'
 import { countParagraphs, countText, type TextStats } from './lib/wordcount.ts'
 import {
+  dropHandle,
+  fileFromDrop,
+  fileFromHandle,
   flattenFiles,
   parentDirectory,
   pickFile,
@@ -97,6 +100,7 @@ import {
   readNode,
   refreshWorkspace,
   saveAsFile,
+  workspaceFromHandle,
   writeNode,
   type FileWriteTarget,
   type Workspace,
@@ -1887,6 +1891,9 @@ export default function App() {
     })
   }, [])
 
+  // 状态栏「缩放 N%」点一下回到 100（第 54 轮 B-113）
+  const resetPageZoom = useCallback(() => setPageZoom(100), [setPageZoom])
+
   // Ctrl + 滚轮：接管浏览器自己的整页缩放（那条会把布局一起缩，滚动条与固定层都乱）
   useEffect(() => {
     let lastAt = 0
@@ -2373,26 +2380,31 @@ export default function App() {
     [editor, enterSourceFor, setMarkdown, restoreAnnotationsFor, syncDocInfo, rememberDisk],
   )
 
-  // 切换文档前先拦住未保存的改动
+  // 切换文档前先拦住未保存的改动。
+  // 返回结局：loaded=已载入、confirm=弹了切换确认、same=就是当前这篇、stale=期间又换了别的文档。
+  // 拖入成功提示要等 loaded（loadIntoEditor 会 setNotice(null)，先提示会被它清掉）。
   const requestLoad = useCallback(
-    (text: string, name: string, file: WorkspaceFileNode | null) => {
-      void (async () => {
-        const epoch = ++loadEpochRef.current
-        // 宿主写回还在飞：先等它结束（或超时），别让旧回包改到新文档
-        await Promise.all([waitForHostSave(), waitForCommit()])
-        if (epoch !== loadEpochRef.current) return
-        if (dirty) {
-          // 选中的就是当前这篇（快速打开里回车、文件树上点自己）：没有切换可言，别弹「要保存吗」
-          const same = file?.handle && activeFile?.handle ? await file.handle.isSameEntry(activeFile.handle) : false
-          if (same) {
-            focusEditor()
-            return
-          }
-          setPendingSwitch({ text, name, file })
-          return
+    async (
+      text: string,
+      name: string,
+      file: WorkspaceFileNode | null,
+    ): Promise<'loaded' | 'confirm' | 'same' | 'stale'> => {
+      const epoch = ++loadEpochRef.current
+      // 宿主写回还在飞：先等它结束（或超时），别让旧回包改到新文档
+      await Promise.all([waitForHostSave(), waitForCommit()])
+      if (epoch !== loadEpochRef.current) return 'stale'
+      if (dirty) {
+        // 选中的就是当前这篇（快速打开里回车、文件树上点自己）：没有切换可言，别弹「要保存吗」
+        const same = file?.handle && activeFile?.handle ? await file.handle.isSameEntry(activeFile.handle) : false
+        if (same) {
+          focusEditor()
+          return 'same'
         }
-        loadIntoEditor(text, name, file)
-      })()
+        setPendingSwitch({ text, name, file })
+        return 'confirm'
+      }
+      loadIntoEditor(text, name, file)
+      return 'loaded'
     },
     [dirty, loadIntoEditor, waitForHostSave, activeFile],
   )
@@ -2420,7 +2432,10 @@ export default function App() {
   }, [])
 
   /** 超大文件被拒时说清正文仍是哪一篇：否则用户以为窗口里是刚点的大文件，Ctrl+S 会写错篇 */
-  const tooLargeNote = (name: string) => `「${name}」超过 5.5 MiB，仍在「${docNameRef.current}」`
+  const tooLargeNote = useCallback(
+    (name: string) => `「${name}」超过 5.5 MiB，仍在「${docNameRef.current}」`,
+    [],
+  )
 
   const openSingleFile = useCallback(async () => {
     try {
@@ -2439,7 +2454,7 @@ export default function App() {
     } catch (error) {
       setNotice({ text: messageOf(error), kind: 'error' })
     }
-  }, [requestLoad])
+  }, [requestLoad, tooLargeNote])
 
   const openWorkspaceFile = useCallback(
     async (file: WorkspaceFileNode) => {
@@ -2453,7 +2468,70 @@ export default function App() {
         })
       }
     },
-    [requestLoad],
+    [requestLoad, tooLargeNote],
+  )
+
+  /**
+   * 拖入的第一项（第 54 轮 B-003）：文件夹开工作区，`.md` 直接打开，图片等仍给旧提示。
+   * 句柄只用来决定保存落点；正文一律按 File 读，与「打开文件」同一道门槛。
+   */
+  const openDropped = useCallback(
+    async (file: File, pending: Promise<FileSystemHandle | null> | null) => {
+      // 用两个具体句柄组成的联合类型：`kind` 才能当判别式收窄（FileSystemHandle 本身收窄不了）
+      let handle: FileSystemFileHandle | FileSystemDirectoryHandle | null = null
+      try {
+        handle = (pending ? await pending : null) as FileSystemFileHandle | FileSystemDirectoryHandle | null
+      } catch {
+        // 句柄拿不到就退回 File：能读正文，保存走另存为
+        handle = null
+      }
+
+      if (handle?.kind === 'directory') {
+        try {
+          const next = await workspaceFromHandle(handle)
+          setWorkspace(next)
+          setSidebarTab('files')
+          setNotice(null)
+          if (next.rootHandle) {
+            void import('./lib/trash.ts').then(({ ensureTrashDir }) =>
+              ensureTrashDir(next.rootHandle!).then((result) => {
+                setTrashReason(result.dir ? null : (result.error ?? '回收站不可用。'))
+              }),
+            )
+          } else {
+            setTrashReason(null)
+          }
+          show(`已打开文件夹「${next.name}」`)
+        } catch (error) {
+          setNotice({ text: messageOf(error), kind: 'error' })
+        }
+        return
+      }
+
+      try {
+        const picked =
+          handle?.kind === 'file' ? await fileFromHandle(handle) : await fileFromDrop(file)
+        if ('notMarkdown' in picked) {
+          show('拖入的文件不会直接打开：请用「文件 → 打开文件」（Ctrl+Alt+O）')
+          return
+        }
+        if ('tooLarge' in picked) {
+          setNotice({ text: tooLargeNote(picked.name), kind: 'error' })
+          return
+        }
+        const outcome = await requestLoad(picked.text, picked.name, {
+          kind: 'file',
+          name: picked.name,
+          path: picked.name,
+          handle: picked.handle,
+        })
+        // 弹了「切换文档」确认就不提示「已打开」：那一句会盖在确认框后面，还会说谎
+        if (outcome === 'loaded') show(`已打开「${picked.name}」`)
+      } catch (error) {
+        setNotice({ text: messageOf(error), kind: 'error' })
+      }
+    },
+    [requestLoad, show, tooLargeNote],
   )
 
   /** 刷新文件树：adopt=按新路径重绑（新建/另存为/改名）；check=找不到就清成只能另存为 */
@@ -4027,10 +4105,15 @@ export default function App() {
       // 整页缩放（第 51 轮 B-001/B-011）：Ctrl+Shift+= / Ctrl+Shift+- / Ctrl+Shift+0。
       // 必须排在字号两条之前：Ctrl+Shift+= 的 key 是 '+'、Ctrl+Shift+- 的 key 是 '_'，
       // 后面的分支接不住，B-011 就是这个键位空洞。用 event.code 判物理键。
+      // 第 54 轮 B-113：键盘改档也要给提示，与 Ctrl+滚轮同一条文案（否则缩放只有看状态栏才知道）。
       if (mod && event.shiftKey && !event.altKey && (event.code === 'Equal' || event.code === 'Minus' || event.code === 'Digit0')) {
         event.preventDefault()
-        if (event.code === 'Digit0') setPageZoom(100)
-        else setPageZoom(pageZoomRef.current + (event.code === 'Equal' ? PAGE_ZOOM_STEP : -PAGE_ZOOM_STEP))
+        const next =
+          event.code === 'Digit0'
+            ? 100
+            : pageZoomRef.current + (event.code === 'Equal' ? PAGE_ZOOM_STEP : -PAGE_ZOOM_STEP)
+        setPageZoom(next)
+        show(`页面缩放 ${clampPageZoom(next)}%`)
         return
       }
       if (mod && (event.key === '=' || event.key === '+')) {
@@ -4076,8 +4159,9 @@ export default function App() {
     statsDetail,
   ])
 
-  // 拖入文件（第 43 轮）：不让窗口被导航走，也不静默失败。正文里拖入图片由 ProseMirror 的
-  // handleDrop 先接住并 preventDefault()，窗口这层必须让开，否则每次插图都会弹提示。
+  // 拖入文件（第 43 轮）：不让窗口被导航走，也不静默失败。第 54 轮起 `.md` 与文件夹直接打开。
+  // 正文里拖入图片由 ProseMirror 的 handleDrop 先接住并 preventDefault()，窗口这层必须让开，
+  // 否则每次插图都会弹提示。
   useEffect(() => {
     const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes('Files')
     const onDragOver = (event: DragEvent) => {
@@ -4087,7 +4171,11 @@ export default function App() {
       if (!event.dataTransfer?.files?.length) return
       if (event.defaultPrevented) return
       event.preventDefault()
-      show('拖入的文件不会直接打开：请用「文件 → 打开文件」（Ctrl+Alt+O）')
+      // 句柄必须在这个同步段里取：drop 事件一返回，DataTransferItem 就清空了
+      const items = Array.from(event.dataTransfer.items).filter((item) => item.kind === 'file')
+      const pending = items.length > 0 ? dropHandle(items[0]) : null
+      // 多文件只开首个（与「打开文件」单选一致）
+      void openDropped(event.dataTransfer.files[0], pending)
     }
     window.addEventListener('dragover', onDragOver)
     window.addEventListener('drop', onDrop)
@@ -4095,7 +4183,7 @@ export default function App() {
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
     }
-  }, [show])
+  }, [openDropped])
 
   // 导出菜单打开后焦点进第一项（键盘可以直接走）
   useEffect(() => {
@@ -5513,6 +5601,8 @@ export default function App() {
             ? `草稿 ${new Date(initial.savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
             : undefined
         }
+        pageZoom={settings.pageZoom}
+        onZoomReset={resetPageZoom}
       />
 
       {/* 面板必须是 footer 的兄弟节点：8 个脚本用 .status-bar 整栏文本抓字数 */}

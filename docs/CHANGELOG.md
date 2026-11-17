@@ -240,6 +240,13 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **296,055 B**（比第 51 轮 +579，内部 310,000 / 硬线 320,000，余 23,945）；`npm test` **34 个文件 442 条**全过；`roundtrip` PASS；`keyboard-acceptance` 51/52、`bigfile-acceptance` 2/3，两条 FAIL 均为旧脚本断言过期（第 51 轮 ttl 1.5 s 提示、5.5 MiB 文案早已改），非本轮回归，见 `docs/iteration/round-52/test.md`。
 - UNVERIFIED（本轮）：真实宿主窗口里的 F11 进出全屏与宿主 Ctrl+滚轮；真实 IME 下的表格块级标记与 F11；改后热点 profile 未另取样（top 3 沿用改前 `.tmp/r51-b1-prof.json`）。
 
+**第 54 轮（同一未发版区间）**
+
+- **拖入 `.md` / 文件夹直接打开**（B-003）：`drop` 的同步段取 `getAsFileSystemHandle()`；有文件句柄走 `fileFromHandle`（5.5 MiB 与 `.md` 门槛同「打开文件」），没有句柄走 `fileFromDrop`（正文可读，保存只能另存为），目录句柄走 `workspaceFromHandle` 并切到文件页签；图片等非 Markdown 仍只给旧提示。顺手修掉窗口 `drop` effect 依赖 `[show]` 造成的脏文本静默替换——脏文档拖入现在弹「切换文档」三选一，取消仍留在原篇。新增 `src/lib/workspace.test.ts`（7 条）。
+- **整页缩放不再横向溢出 + 比例可见**（B-014、B-113）：`.app` 的 `min-width` 改为 `calc(1120px / var(--page-zoom, 1))`，1440×900 下 100 / 130 / 150 / 180 / 200% 的 `documentElement.scrollWidth-clientWidth` 全为 **0**（改前 0/26/250/586/810）；状态栏在 ≠100% 时显示「缩放 N%」，点一下回 100%；`Ctrl+Shift+=` / `Ctrl+Shift+-` / `Ctrl+Shift+0` 也给「页面缩放 N%」提示（`Ctrl+=` 仍是正文字号）。
+- 门禁：`npm run verify` PASS，首屏 gzip **296,610 B**（比第 52 轮 +555，内部 310,000 / 硬线 320,000，余 23,390）；`npm test` **35 个文件 449 条**全过。
+- UNVERIFIED（本轮）：真实拖放带出的 FSA 句柄（拖真文件后 `Ctrl+S` 写回原文件、拖真文件夹开工作区树）与多文件只开首个；宿主 WebView2 窗口内的 130%–200% 整页缩放与 `Ctrl+滚轮`。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

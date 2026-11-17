@@ -109,6 +109,12 @@ async function readDirectory(handle: FileSystemDirectoryHandle, parentPath: stri
   return { kind: 'dir', name: handle.name, path, handle, children: [...dirs, ...files] }
 }
 
+/** 把一个目录句柄读成工作区：拖入文件夹与「打开文件夹」走同一条 */
+export async function workspaceFromHandle(handle: FileSystemDirectoryHandle): Promise<Workspace> {
+  const root = await readDirectory(handle, '')
+  return { name: handle.name, root, rootHandle: handle }
+}
+
 /**
  * 让用户挑一个文件夹，递归读出其中的 Markdown 文件。
  * 用户取消时返回 null；浏览器不支持 File System Access API 时抛错。
@@ -127,8 +133,7 @@ export async function pickWorkspace(): Promise<Workspace | null> {
     throw error
   }
 
-  const root = await readDirectory(handle, '')
-  return { name: handle.name, root, rootHandle: handle }
+  return workspaceFromHandle(handle)
 }
 
 /**
@@ -239,6 +244,47 @@ function pickFileWithInput(): Promise<PickedFile | null> {
 }
 
 export const MAX_DOC_BYTES = 5 * 1024 * 1024 + 512 * 1024
+
+/** 拖入的单个文件：能开（带正文）、太大、不是 Markdown */
+export type DroppedFile =
+  | { name: string; text: string; handle: FileSystemFileHandle | null }
+  | { tooLarge: true; size: number; name: string }
+  | { notMarkdown: true; name: string }
+
+/** 拖入读正文只需要这几个成员：真 File 满足它，单测的假对象也能传 */
+export type DropSource = { name: string; size: number; text: () => Promise<string> }
+
+/** 拖入的门槛与「打开文件」同一条：只收 .md/.markdown，超过上限就拒绝 */
+async function inspectDropped(file: DropSource, handle: FileSystemFileHandle | null): Promise<DroppedFile> {
+  if (!isMarkdown(file.name)) return { notMarkdown: true, name: file.name }
+  if (file.size > MAX_DOC_BYTES) return { tooLarge: true, size: file.size, name: file.name }
+  return { name: file.name, text: await file.text(), handle }
+}
+
+/** 有句柄的拖入：Ctrl+S 能写回原文件 */
+export async function fileFromHandle(handle: FileSystemFileHandle): Promise<DroppedFile> {
+  return inspectDropped(await handle.getFile(), handle)
+}
+
+/** 拿不到句柄的拖入（合成事件、非 Chromium）：正文能读，保存只能另存为 */
+export async function fileFromDrop(file: DropSource): Promise<DroppedFile> {
+  return inspectDropped(file, null)
+}
+
+/**
+ * 取拖入项的句柄。必须在 drop 事件的同步阶段调用：等一个 await 之后 items 就空了。
+ * 合成的 DataTransfer 上这个方法返回 undefined（不是 null），一律当「没有句柄」。
+ */
+export function dropHandle(item: DataTransferItem): Promise<FileSystemHandle | null> | null {
+  const read = (item as DataTransferItem & { getAsFileSystemHandle?: () => unknown }).getAsFileSystemHandle
+  if (typeof read !== 'function') return null
+  try {
+    const pending = read.call(item) as Promise<FileSystemHandle | null> | undefined
+    return pending && typeof pending.then === 'function' ? pending : null
+  } catch {
+    return null
+  }
+}
 
 /**
  * 读一个文件的正文。示例文件没有句柄，从内存表里取。

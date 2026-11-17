@@ -111,7 +111,8 @@ body,
 }
 
 /* 整页缩放（第 51 轮 B-001）：只缩最外层容器，--editor-size 与排版尺寸不受影响。
-   zoom 会把布局高度一起放大，所以高度按倍数缩回去，100vh 才真的是一屏。 */
+   zoom 会把布局高度一起放大，所以高度按倍数缩回去，100vh 才真的是一屏。
+   第 54 轮 B-014：`.app` 的最小宽度也要跟着除，否则放大会让页面比视口宽、横向溢出。 */
 #root {
   zoom: var(--page-zoom, 1);
   height: calc(100vh / var(--page-zoom, 1));
@@ -129,7 +130,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-width: 1120px;
+  /* 缩放后视口按倍数变小：1120 px 是最小可用宽，除以倍数才等于原来那一片布局 */
+  min-width: calc(1120px / var(--page-zoom, 1));
   overflow: hidden;
 }
 

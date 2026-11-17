@@ -18,6 +18,9 @@ type Props = {
   onStatsClick?: () => void
   /** 选区的字数（中日韩字 + 拉丁词）；0 或非编辑视图时不显示 */
   selectionWords?: number
+  /** 整页缩放百分比；100 时不显示 */
+  pageZoom?: number
+  onZoomReset?: () => void
 }
 
 export function StatusBar({
@@ -34,6 +37,8 @@ export function StatusBar({
   statsOpen = false,
   onStatsClick,
   selectionWords = 0,
+  pageZoom = 100,
+  onZoomReset,
 }: Props) {
   return (
     <footer className="status-bar">
@@ -78,6 +83,17 @@ export function StatusBar({
         {mode === 'preview' && <span className="status-chip">预览</span>}
         {focusMode && <span className="status-chip">专注</span>}
         {typewriterMode && <span className="status-chip">打字机</span>}
+        {pageZoom !== 100 && (
+          <button
+            type="button"
+            className="status-chip status-chip-quiet status-zoom"
+            title="整页缩放：Ctrl+Shift+= 放大、Ctrl+Shift+- 缩小、Ctrl+Shift+0 回到 100%（也可以 Ctrl+滚轮）"
+            aria-label={`整页缩放 ${pageZoom}%，点击回到 100%`}
+            onClick={onZoomReset}
+          >
+            缩放 {pageZoom}%
+          </button>
+        )}
       </span>
     </footer>
   )
