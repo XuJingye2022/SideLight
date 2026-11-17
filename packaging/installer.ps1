@@ -1,7 +1,7 @@
 ﻿param([switch]$AssocDryRun)
 
 # 打 per-user NSIS 安装包。只读现有 dist 与 host\bin；缺 NSIS 就下官方 3.11 zip 到 .tmp。
-# 版本号从 package.json 只读。硬报警线 2,000,000 B（超线打印载荷占比并 exit 1）；内部预算 1,800,000 B（超了只 Write-Warning，不拦发布）。
+# 版本号从 package.json 只读。硬报警线 50,000,000 B（超线打印载荷占比并 exit 1）；内部预算 45,000,000 B（超了只 Write-Warning，不拦发布）。
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -85,10 +85,10 @@ if ($actualFileVersion -ne $expectedFileVersion) {
     exit 1
 }
 Write-Host ("fileVersion={0}  {1}" -f $actualFileVersion, $out)
-# 内部预算 1,800,000 B（2026-11-17 放宽）：超了 Write-Warning，不拦发布
-Write-Host ("target=1800000 gap={0}" -f ((Get-Item $out).Length - 1800000))
-if ((Get-Item $out).Length -gt 1800000) {
-    Write-Warning ("安装包 {0} B 超过内部预算 1,800,000 B（越过 {1} B），仍在硬线 2,000,000 B 内" -f (Get-Item $out).Length, ((Get-Item $out).Length - 1800000))
+# 内部预算 45,000,000 B（2026-11-17 放宽）：超了 Write-Warning，不拦发布
+Write-Host ("target=45000000 gap={0}" -f ((Get-Item $out).Length - 45000000))
+if ((Get-Item $out).Length -gt 45000000) {
+    Write-Warning ("安装包 {0} B 超过内部预算 45,000,000 B（越过 {1} B），仍在硬线 50,000,000 B 内" -f (Get-Item $out).Length, ((Get-Item $out).Length - 45000000))
 }
 
 if ($AssocDryRun) {
@@ -112,10 +112,10 @@ $sha = (Get-FileHash $setup -Algorithm SHA256).Hash
 Write-Host ("version={0}" -f $version)
 Write-Host ("setup={0} B  {1}" -f $p, $setup)
 Write-Host ("sha256={0}" -f $sha)
-Write-Host ("hard=2000000 B  estimatedSize={0} KB" -f $estKb)
+Write-Host ("hard=50000000 B  estimatedSize={0} KB" -f $estKb)
 
-if ($p -gt 2000000) {
-    Write-Host '安装包超过硬报警线 2,000,000 B，下面是载荷占比（前 12 个）：'
+if ($p -gt 50000000) {
+    Write-Host '安装包超过硬报警线 50,000,000 B，下面是载荷占比（前 12 个）：'
     $rows = @()
     foreach ($f in $payloadNames) {
         $item = Get-Item (Join-Path $root "host\bin\$f")

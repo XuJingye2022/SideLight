@@ -42,16 +42,16 @@ if (-not (Test-Path $setup)) {
     exit 1
 }
 
-# 1b) 体积护栏：与 installer.ps1 同一条线（内部预算 1,800,000 B / 硬线 2,000,000 B）。
+# 1b) 体积护栏：与 installer.ps1 同一条线（内部预算 45,000,000 B / 硬线 50,000,000 B）。
 $setupBytes = (Get-Item $setup).Length
-Write-Host ("setup={0:N0} B  target=1800000 gap={1}" -f $setupBytes, ($setupBytes - 1800000))
-if ($setupBytes -gt 1800000) {
-    Write-Host ("WARN 安装包 {0} B 超过内部预算 1,800,000 B（越过 {1} B），仍在硬线 2,000,000 B 内" -f $setupBytes, ($setupBytes - 1800000))
+Write-Host ("setup={0:N0} B  target=45000000 gap={1}" -f $setupBytes, ($setupBytes - 45000000))
+if ($setupBytes -gt 45000000) {
+    Write-Host ("WARN 安装包 {0} B 超过内部预算 45,000,000 B（越过 {1} B），仍在硬线 50,000,000 B 内" -f $setupBytes, ($setupBytes - 45000000))
 }
-if ($setupBytes -gt 2000000) {
-    Fail ("安装包 {0} B 超过硬线 2,000,000 B" -f $setupBytes)
+if ($setupBytes -gt 50000000) {
+    Fail ("安装包 {0} B 超过硬线 50,000,000 B" -f $setupBytes)
 } else {
-    Pass ("体积在硬线 2,000,000 B 内（setup={0} B）" -f $setupBytes)
+    Pass ("体积在硬线 50,000,000 B 内（setup={0} B）" -f $setupBytes)
 }
 
 # 2) WebView2 运行时存在（本机前提；缺失时安装器应当 Abort）

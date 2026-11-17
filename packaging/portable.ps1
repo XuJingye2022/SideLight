@@ -12,8 +12,8 @@ $stage = Join-Path $stageRoot 'Sidelight'
 $release = Join-Path $root 'release'
 $version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
 $zip = Join-Path $release "Sidelight-$version-win-x64-portable.zip"
-# zip 门槛与安装包共用硬线 2,000,000 B（2026-11-17 放宽）；zip 不另设内部预算，见 packaging/README.md
-$threshold = 2000000
+# zip 门槛与安装包共用硬线 50,000,000 B（2026-11-17 放宽）；zip 不另设内部预算，见 packaging/README.md
+$threshold = 50000000
 
 $required = @(
     'Sidelight.exe',

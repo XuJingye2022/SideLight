@@ -6,25 +6,28 @@
 
 把 Sidelight 做成可发布的开源桌面 Markdown 编辑器，Windows 首发。验收维度：功能好用、安装简单、体积小巧、界面简洁美观、易于操作。
 
-## 循环（共 20 轮）
+## 循环（不设轮次上限）
+
+停止条件：5 路端到端侦察都报 0 条 BUG/改进建议，且 planner 也排不出任务，**连续两轮确认**后才停。
 
 每轮五个阶段，顺序固定：
 
-1. **侦察**：3 个 finder 并行（缺陷 / 体验 / 发布），只读。产出 `round-NN/findings-*.md`，每条问题带证据与文件:行号。同时指出代码优化机会：重复、死代码、性能热点、体积浪费。
-2. **计划**：planner 读三份发现 + 本文件 + `git log`，写 `round-NN/plan.md`，最多 5 个任务，每个任务写清文件、验收标准、门禁命令、风险。
+1. **侦察**：5 个 finder 并行（缺陷 / Typora 对照 / 安装启动 / 代码性能 / 界面可访问性），只读，全部做端到端实测。产出 `round-NN/findings-*.md`，每条问题带证据与文件:行号。
+2. **计划**：planner 读五份发现 + 本文件 + `git log`，写 `round-NN/plan.md`，最多 4 个任务，每个任务写清文件、验收标准、门禁命令、风险。
 3. **审计划**：critic 对照代码验证计划，写 `round-NN/plan-review.md`，结论 PASS 或 REVISE + 编号漏洞。REVISE 时 planner 修改，最多 2 次。
-4. **实施**：builder 与 builder2 按互不重叠的文件范围执行。每完成一个任务跑该任务的门禁。产出 `round-NN/impl.md`。
-5. **验收**：tester 独立复验（不看实施报告、自己跑），写 `round-NN/test.md`。结论三选一：**PASS** / **PASS-WITH-UNVERIFIED** / **FAIL**。UNVERIFIED 必须写清哪一条、为什么测不了、下一轮怎么补，不因此回滚整轮。门禁破、验收项造假、引入回归才判 FAIL；FAIL 时 builder 修复后复验，最多 2 次，仍 FAIL 则整轮回滚（`git reset --hard` 到轮前 commit）。
+4. **实施**：1 个 executor 按计划实现。每完成一个任务跑该任务的门禁。产出 `round-NN/impl.md`。
+5. **验收**：tester 独立复验（不看实施报告、自己跑），写 `round-NN/test.md`。结论三选一：**PASS** / **PASS-WITH-UNVERIFIED** / **FAIL**。UNVERIFIED 必须写清哪一条、为什么测不了、下一轮怎么补，不因此回滚整轮。门禁破、验收项造假、引入回归才判 FAIL；FAIL 时 executor 修复后复验，最多 2 次，仍 FAIL 则整轮回滚（`git reset --hard` 到轮前 commit）。PASS 后 tester 更新文档并 commit。
 
-根代理只在阶段之间做事：分派、读报告、跑最终门禁、commit、更新本文件。根代理不写产品代码。
+根代理只在批次之间做事：分派、读报告、跑最终门禁、更新本文件、决定下一批。根代理不写产品代码。
 
 ## 门禁
 
 - `npm run build`（类型检查 + 打包）
-- `npm test`（以 `package.json` 为准，当前 21 个文件 272 条）
+- `npm run verify`（build + 首屏 gzip 字节门；改过 `src/` 就要跑）
+- `npm test`（以 `package.json` 为准，当前 24 个文件 311 条）
 - 改编辑器或 Markdown 序列化时加跑 `npm run roundtrip`
-- 界面变化必须截图，图落 `shots/`，实施报告里引用
-- 每轮结束根代理跑 `npm run build` + `npm test`，通过才 commit：`round-NN: <一句话>`
+- 界面变化必须截图到 `shots/round-NN/`，实施报告里引用
+- 每轮 PASS 后 tester 串行跑门禁并 commit：`round-NN: <一句话>`；根代理每批复核一次
 
 ## 环境事实（2026-11-15 核实）
 
@@ -49,14 +52,14 @@
 
 ## 当前版本与体积
 
-- v0.32.1（第 30–38 轮改动都在同一个未发版区间）。首屏 JS+CSS gzip **289,430 B**（预算内部上限 310,000 / 硬线 320,000，距硬线余 30,570 B；第 30 轮 284,529 → 31 轮 +232 → 32 轮 +291 → 33 轮 +839 → 34 轮 +46 → 35 轮 +119 → 36 轮 +2,200 → 37 轮 +155 → 38 轮 +1,019）；安装包预算内部 1,800,000 / 硬线 2,000,000（第 36 轮 dry-run 1,299,777 B；`.tmp/iteration/common.md:5` 的政策线 50,000,000 / 45,000,000 尚未落进仓库脚本，见第 38 轮 plan §0.1）；测试 **24 文件 311 条**（30 轮 18/260 → 31 轮 21/272 → 32 轮 21/276 → 33 轮 22/285 → 34 轮 22/287 → 35 轮 22/295 → 36 轮 23/301 → 37 轮 23/301 → 38 轮 24/311）。首屏/测试数字为第 38 轮 `npm run build` + `node scripts/measure-first-screen.mjs` 与 `npm test` 实测（主 chunk `index-Vy1SBkVu.js` 901,482 B raw / 281,803 B gzip；`total raw=936,669 gzip=289,430 files=3 max=320,000`）。
+- v0.32.1（第 30–38 轮改动都在同一个未发版区间）。首屏 JS+CSS gzip **289,430 B**（预算内部上限 310,000 / 硬线 320,000，距硬线余 30,570 B；第 30 轮 284,529 → 31 轮 +232 → 32 轮 +291 → 33 轮 +839 → 34 轮 +46 → 35 轮 +119 → 36 轮 +2,200 → 37 轮 +155 → 38 轮 +1,019）；安装包预算内部 **45,000,000 B** / 硬线 **50,000,000 B**（2026-11-17 第二次放宽；第 36 轮 dry-run 1,299,777 B，远在预算内）；测试 **24 文件 311 条**（30 轮 18/260 → 31 轮 21/272 → 32 轮 21/276 → 33 轮 22/285 → 34 轮 22/287 → 35 轮 22/295 → 36 轮 23/301 → 37 轮 23/301 → 38 轮 24/311）。首屏/测试数字为第 38 轮 `npm run build` + `node scripts/measure-first-screen.mjs` 与 `npm test` 实测（主 chunk `index-Vy1SBkVu.js` 901,482 B raw / 281,803 B gzip；`total raw=936,669 gzip=289,430 files=3 max=320,000`）。
 - 第 33 轮：智能标点与自动配对（设置可关，`src/lib/smartTyping.ts`）；`packaging/verify-installer.ps1` 与 release 流水线版本号变量化；首屏 285,891 B。
 - 第 34 轮：**脚注定义丢失拦截（P0，自动保存也拦）**、查找/快速打开焦点回正文、同一篇不弹切换框、新增 `npm run verify` 首屏门；首屏 285,937 B（余 63 B）。
 - 第 35 轮：**体积护栏换挡**（首屏内部 310,000 / 硬线 320,000，安装包内部 1,800,000 / 硬线 2,000,000，measure/installer/portable/verify-installer/CI 静态跟随）、**AI 提示词拆分**（格式与安全规则内置 `ANALYSIS_SYSTEM_PROMPT`，设置只改 `userPrompt`，旧 `analysisPrompt` 指纹迁移）、**Esc 后焦点回正文**（预览/源码/快速打开）＋查找框开着时一个 Esc 只关查找；首屏 286,056 B、测试 22/295。
 - 第 36 轮（未发版，v0.32.1 不变）：**Mermaid 惰性渲染**（`src/lib/mermaidLazy.ts` + `mermaidLoader.ts` + `mermaidPreview.ts` + `src/mermaid-dist.d.ts`；ADR-0017 落地，`mermaid` 精确锁 11.12.0）。首屏 **288,256 B**（+2,200 B，`files=3`，`dist/index.html` mermaid 0 命中）、首渲染才下载 `mermaidLoader` 27.51 kB gzip + 图类型 chunk；安装包 `-AssocDryRun` **1,299,777 B**（正式包预估 1,297,630，内部线 1,800,000 / 硬线 2,000,000 内）。另修两条 P1：**「全部替换」不再清空页边批注**（`replaceEvery` 删掉 `setAnnotations([])`，映射交给既有监听器）、**进源码即聚焦源码框 + `Ctrl+/` 退出回正文**（`focusSourceEditor`）。收尾：`release.yml` 重发路径 `done || true`、README/typora-gap/AGENTS 计数与体积同步（22 项有 / 17 项缺）。测试 **23 文件 301 条**。
 - 第 37 轮（未发版，v0.32.1 不变）：**表格列宽拖拽**（`ReusableTable.configure({ resizable: true })`，`columnResizing` 本在静态依赖里，JS 增量 0 B；CSS 加 handle 竖线、`resize-cursor` 与单元格 `position: relative`）＋**源码框 caret 按正文位置落位**（`focusSourceEditor(ratio?)`，先 `setSelectionRange` 再 `focus`；关查找条那条路径不传 ratio）。**`docs/typora-gap.md` 全表复核**：7 条已实现却写「无」的移入、删重复行内 HTML 行、拆字号/视图缩放、主题、表格行列补列宽、新增工作区相对图片行，计数 22/17 → **28/12**（README/AGENTS 同步）。`measure-first-screen.mjs` 加「距硬线 <5% 打 WARN」（T4，零字节）。首屏 **288,411 B**（+155 B，只多 CSS；`files=3`、无 mermaid/lazy/katex）。**T2（Mermaid 嵌套围栏 + SVG id 按实例唯一）按计划 §3 单代理降级顺延第 38 轮**，代码与 ADR-0017 均未动。测试 **23 文件 301 条**。
 - 第 38 轮（未发版，v0.32.1 不变）：**工作区相对路径图片能显示**（P1，第 32/33/34 轮连续记录、`typora-gap.md` 一直写「修复要宿主 `/__asset` 路由」被推翻）：新增 `src/lib/assetResolve.ts`（模块级缓存 + 在飞去重 + 代际 + 订阅，纯函数可 Node 单测）与 `src/lib/assetImage.ts`（`ResolvingImage` NodeView，只换 DOM 的 `src` 为 blob URL）；正文节点与 `.md` 字节仍是 `assets/…`（保存后逐字节等于种子、0 处 `blob:`）。**预览面板在源码态载入后永久破图**同时修掉（源码模式无 NodeView，`PreviewPane` 改为自订阅 + 自发起解析，`useSyncExternalStore` 快照 = 资产版本号）；单文件打开/宿主文档按前缀校验返回 null，不显示别处的图。**智能标点不再改写含 `|` 的行**（`lineBefore` 第 4 参，命中 `return null` 让 HR 输入规则照常收到输入）。**Mermaid 嵌套围栏**：`listMermaidBlocks` 由 `doc.forEach` 改 `doc.descendants`，列表项/引用块里的围栏也渲染（b 半 SVG id 按实例唯一仍未做）。`docs/typora-gap.md` 计数 28/12 → **29/11**（README/AGENTS 同步）。首屏 **289,430 B**（+1,019 B；`files=3`、无 mermaid/lazy/katex，距硬线余 30,570 B）。测试 **24 文件 311 条**（新增 `assetResolve.test.ts` 5 条 + 智能标点 3 条 + mermaid 2 条）。
-- 下一轮优先：① **Mermaid b 半（相同代码的 SVG id 按实例唯一）**，规格按第 37 轮 `plan.md` §T2 原文（`<style>` 里的 `#id` 也要作用域，用 computed style 兜底，不许靠截图判过）；② 表格 `colwidth` 导出清理（`TableCell`/`TableHeader` 的 `colwidth` 加 `renderHTML: () => null`，**保留** `colspan`/`rowspan`，补导出断言）；③ 宿主侧 `/__asset`（WebView2 单文件打开时的相对路径图片，本轮浏览器层已修，宿主仍显示不了）；④ 「安装包预算线口径冲突」（`common.md:5` 的 50,000,000 / 45,000,000 与仓库脚本 1,800,000 / 2,000,000 不一致，要人拍）；⑤ findings-ship S3（README 下载节补 WebView2 与 SmartScreen 两道坎）、S4（下载页 9 轮未发版提示）；⑥ `scripts/qa15.mjs` 因提示词拆分失效的 4 行；⑦ `scripts/data-safety-acceptance.mjs` 的 `.editor` 陈旧选择器（引用式链接文档载入即源码，脚本第 148 行 30 s 超时）；⑧ HTML 导出/预览面板的图形渲染与主题切换重绘。排序仍是 稳定性 > 核心功能 > 体积优化 > 节省 Token > 速度。
+- 下一轮优先：① **Mermaid b 半（相同代码的 SVG id 按实例唯一）**，规格按第 37 轮 `plan.md` §T2 原文（`<style>` 里的 `#id` 也要作用域，用 computed style 兜底，不许靠截图判过）；② 表格 `colwidth` 导出清理（`TableCell`/`TableHeader` 的 `colwidth` 加 `renderHTML: () => null`，**保留** `colspan`/`rowspan`，补导出断言）；③ 宿主侧 `/__asset`（WebView2 单文件打开时的相对路径图片，本轮浏览器层已修，宿主仍显示不了）；④ 真实打包一次安装包与便携 zip，按新线 45,000,000 / 50,000,000 记录实测字节；⑤ findings-ship S3（README 下载节补 WebView2 与 SmartScreen 两道坎）、S4（下载页 9 轮未发版提示）；⑥ `scripts/qa15.mjs` 因提示词拆分失效的 4 行；⑦ `scripts/data-safety-acceptance.mjs` 的 `.editor` 陈旧选择器（引用式链接文档载入即源码，脚本第 148 行 30 s 超时）；⑧ HTML 导出/预览面板的图形渲染与主题切换重绘。排序仍是 稳定性 > 核心功能 > 体积优化 > 节省 Token > 速度。
 - 首启：空白 `未命名.md`，不再加载示例；文件菜单「关闭文档」；工作区无句柄文档 Ctrl+S 直接落 `未命名.md`。
 - 发布资产：Windows setup 824,209 B、Windows zip 910,360 B、macOS Universal 905,892 B；校验和见 `SHA256SUMS-0.32.1.txt`。
 - 重开恢复：IndexedDB 只存 FSA 句柄；宿主 `/__annotations` 读回；Ctrl+S 原地。批注 v2（overall/unresolved）；重跑整窗替换。
@@ -137,7 +140,7 @@
 3. CDP 用 9222–9226（每个端口独立 profile；9227 不可用）。每轮 E2E 前跑 `node .tmp/reset.mjs <端口>`：它会关旧页面、清 localStorage/IndexedDB。旧页面会执行 HMR 没应用的 App.tsx 中间版本，见 AGENTS §8。
 4. 用 DSH `workflow` 调度五角色：3–5 个只读 finder 并行 → planner → critic（REVISE 回 planner，最多 2 次）→ executor → tester；FAIL 返修最多 2 次，仍 FAIL 回滚。不再复用持久代理或 send_message。
 5. 根代理只在批次之间做事：读报告与 `git log`、串行跑 `npm run build`/`npm test`/`measure`、更新本文件、决定下一批。产品代码由子代理写。
-6. 第 34 轮完成（PASS-WITH-UNVERIFIED，未发版）。后续优先：① AI 提示词拆分（格式内置 system / 用户只改 user prompt，旧值迁移不丢）；② 体积预算更新（安装包内部 1,800,000 B / 硬线 2,000,000 B；首屏内部 310,000 B / 硬线 320,000 B）并同步 measure/verify/CI/README/AGENTS/ADR-0012/0017；③ Mermaid 懒加载实现（功能优先、同功能最小体积）；④ 工作区图片破图、qa16/qa10 过期脚本、表格列宽拖拽排队；⑤ 真实 macOS/Intel/签名公证、1 MB 性能包线。排序：稳定性 > 核心功能 > 体积优化 > 节省 Token > 速度。
+6. 第 38 轮完成（PASS-WITH-UNVERIFIED，未发版，HEAD `ee288ae`）。取消轮次上限：5 路端到端侦察都报 0 条且 planner 无可做任务，连续两轮才停。后续优先：① Mermaid SVG id 按实例唯一；② 表格 colwidth 导出清理；③ 宿主 `/__asset`；④ 真实打包一次安装包与便携 zip，按新线 45,000,000 / 50,000,000 记录实测；⑤ findings-ship S3/S4、`qa15`、`data-safety` 陈旧选择器；⑥ HTML 导出/预览图形渲染；⑦ 真实 macOS/Intel/签名公证、1 MB 性能包线。排序：稳定性 > 核心功能 > 体积优化 > 节省 Token > 速度。
 
 ## 决策记录
 
@@ -167,3 +170,4 @@
 - 2026-11-17 产品负责人：Mermaid 采用完整实现，允许放宽安装包线；但同功能必须取最小体积，首屏 0 B。安装包内部预算 1,800,000 B / 硬线 2,000,000 B；首屏内部 310,000 B / 硬线 320,000 B。首次真实打包后按实测 + 5% 复核。
 - 2026-11-17 第 35 轮：体积护栏换挡（首屏内部 310,000 / 硬线 320,000；安装包内部 1,800,000 / 硬线 2,000,000；ADR-0012/0017 同步，ADR-0017 结论改「接受，第 36 轮实现」）；AI 提示词拆分（格式与安全规则进内置 `ANALYSIS_SYSTEM_PROMPT`、设置只编辑 `userPrompt`、`promptVersion` 3 与 v2 指纹迁移、追问用 `DISCUSS_SYSTEM_PROMPT`）；Esc 后焦点回正文（预览/源码/快速打开）＋ `FindBar` Esc `stopPropagation` 使一个按键只关查找。测试 22/295；首屏 286,056 B；未发版。
 - 2026-11-17 产品负责人：优先级固定为 **稳定性 > 核心功能 > 体积优化 > 节省 Token > 工作速度**；不要为省几 KB 砍能提升体验的功能。
+- 2026-11-17 产品负责人：安装包硬线改为 **50,000,000 B**（内部 **45,000,000 B**）；取消轮次上限；每轮 5 个端到端审查代理；停止条件为 5 路全部 0 条且 planner 无可做任务，连续两轮。已同步 packaging/*.ps1、packaging/README.md、README、ADR-0017 与本文件。首屏预算不变（310,000 / 320,000）。
