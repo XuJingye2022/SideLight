@@ -52,21 +52,6 @@ export async function loadSession(): Promise<LastSession | null> {
   }
 }
 
-export async function clearSession(): Promise<void> {
-  try {
-    const db = await openDb()
-    await new Promise<void>((resolve) => {
-      const tx = db.transaction(STORE, 'readwrite')
-      tx.objectStore(STORE).delete(KEY)
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => resolve()
-    })
-    db.close()
-  } catch {
-    // 清不掉不影响启动
-  }
-}
-
 /** queryPermission 不存在时按 granted（宿主/旧实现没有这个 API） */
 export async function permissionOf(handle: FileSystemHandle): Promise<SessionPermission> {
   const query = (handle as FileSystemHandle & {

@@ -36,6 +36,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['Ctrl+B / Ctrl+I', '粗体 / 斜体'],
       ['Ctrl+Shift+X', '删除线'],
       ['Ctrl+E', '行内代码'],
+      ['Ctrl+Shift+V', '粘贴为纯文本（浏览器原生键）'],
     ],
   },
   {
@@ -50,7 +51,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
 
 /**
  * 快捷键一览：顶栏「?」、设置里的入口、以及非输入区的 `?` 都开这里。
- * 清单只写真实绑定的键位，不写浏览器保留的组合。
+ * 清单只写真实可用的键位；浏览器原生键必须在标签里标注来源。
  */
 export function ShortcutsDialog({ open, onClose }: Props) {
   const dialogRef = useRef<HTMLDivElement | null>(null)

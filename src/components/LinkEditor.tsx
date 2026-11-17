@@ -68,6 +68,8 @@ export function LinkEditor({
             }
             if (event.key === 'Escape') {
               event.preventDefault()
+              // 只取消弹层，不冒泡到 window 退出源码 / 预览（第 43 轮）
+              event.stopPropagation()
               onCancel()
             }
           }}
@@ -99,6 +101,8 @@ export function LinkEditor({
             }
             if (event.key === 'Escape') {
               event.preventDefault()
+              // 只取消弹层，不冒泡到 window 退出源码 / 预览（第 43 轮）
+              event.stopPropagation()
               onCancel()
             }
           }}

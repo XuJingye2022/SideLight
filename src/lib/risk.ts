@@ -319,6 +319,9 @@ export function countReferenceDefinitions(text: string): number {
 export function classify(before: string, after: string): Loss[] {
   const beforeText = before.replace(/\r\n?/g, '\n')
   const afterText = after.replace(/\r\n?/g, '\n')
+  // 精确相等快路径（第 43 轮）：归一化后逐字节相同 ⇒ 六个损失族与空行判定都不可能命中。
+  // 省掉 diffLines 的数空行开销（1 MB / 2,050 行约 77 ms）。正对照见 risk.test.ts 最后一条。
+  if (beforeText === afterText) return []
   const fenced = fenceMap(beforeText)
   const losses: Loss[] = [
     ...referenceLosses(fenced, afterText),

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import katex from '../lib/katexLazy.ts'
-import { isKatexReady, subscribe } from '../lib/katexLazy.ts'
+import { ensureKatex, isKatexReady, subscribe } from '../lib/katexLazy.ts'
 import { getAssetVersion, getResolvedAsset, isRelativeAsset, resolveAsset, subscribeResolved } from '../lib/assetResolve.ts'
 import { renderFootnotes, renderFrontmatter } from '../lib/export.ts'
 
@@ -49,6 +49,13 @@ export function PreviewPane({ bodyHtml, frontmatter, footnotes }: Props) {
       if (isRelativeAsset(src) && !getResolvedAsset(src)) void resolveAsset(src)
     }
   }, [bodyHtml, assetVersion])
+
+  // 防御性修复（第 43 轮）：renderToString 的契约是「未就绪返回空串，调用方先 await ensureKatex()」，
+  // 预览是唯一没履约的调用方。改前正常路径由 App 的 setMarkdown 预取覆盖，这里是兜底锁。
+  useEffect(() => {
+    if (!hasMath || ready) return
+    void ensureKatex().catch(() => undefined)
+  }, [hasMath, ready])
 
   const html = useMemo(() => {
     if (hasMath && !ready) return ''

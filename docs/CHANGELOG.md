@@ -2,7 +2,7 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–40 轮，未发版）
+## Unreleased（第 29–43 轮，未发版）
 
 数据安全 + 大纲折叠；计划里的 T2（状态栏字数点击明细）**未做**，留待下一轮。第 30 轮补上字数明细、修删除撤销丢正文，并给安装器版本与发版流水线加门。
 
@@ -139,6 +139,25 @@
 - 保存唯一出口补单测：新增 `src/lib/serializeDocument.test.ts`（10 条，假源 `{ getMarkdown }`，不引入 tiptap），覆盖尾部换行/CRLF 结尾、frontmatter 与注释脚注拼接、三条 repair 与原文实体守卫、表格块复用、连续空段落收口。
 - 门禁：`npx tsc --noEmit` exit 0；`npm test` **29 个文件 372 条**全过（新增 `serializeDocument.test.ts` 10 条，`package.json` 的 `scripts.test` 末尾追加）；`npm run roundtrip` rich 5/7、source 7/7；`fidelity-acceptance` 19/19、`keyboard-acceptance` 52/52；`npm run verify` 首屏 gzip **291,766 B**（比第 41 轮 +449 B，内部 310,000 / 硬线 320,000，余 28,234 B，PASS）。
 - UNVERIFIED（本轮）：真实中文输入法组合输入期间按 `Esc` 不夺焦、不丢拼音候选（CDP 造不出真 IME）；预览/源码锁定的组合在真机上的观感；`docs/iteration/round-42/impl.md` 记了 3 处与计划的偏差（`keyboard-acceptance` 改到全部改动后跑一次、T3 验收 2(c) 挪到 (b) 之前、`repairHtml` 实测优于 0.6 ms 门槛）。
+
+**第 43 轮（同一未发版区间）**
+
+- **预览（只读）真正只读：编辑命令一律无效**（P1，数据安全，续第 42 轮同一契约）。第 42 轮只锁了查找替换，同一契约下 `Ctrl+K`/`Ctrl+M`、工具条格式按钮、插入菜单与表格条仍会改正文并触发自动保存（改前实测：预览里点 H1 后 `h1` 1→2、`dirty:true`，2.6 s 后字节被写脏）。统一改成「`viewMode !== 'edit'` 就挡」：`run()` 加守卫（工具条格式 / 插入命令 / 表格条的唯一出口）、window `keydown` 的 `Ctrl+K` 与 `Ctrl+M`/`Ctrl+Shift+M` 先 `preventDefault()` 再给一条「先按 Ctrl+/ 或 Ctrl+Shift+P 回编辑」提示、`Ctrl+1–6`/`Ctrl+0` 静默早退、6 个格式按钮与「插入 ▾」加 `disabled`、表格条只在编辑视图渲染、`openMathAtCursorRef` / `openLinkAtCursorRef` 各自第一行加守卫、`switchView` 离开编辑时收起插入菜单（图片 / 公式 / 链接三项不走 `run()`）。`FindBar` 的替换、专注 / 打字机、表格条现在同一套只读口径。**可见变化**：预览与源码里 `Ctrl+K`、`Ctrl+M`、工具条格式 / 插入命令、表格条一律不可用（源码里点格式按钮不再改隐藏文档）。
+- **预览按 `katexLazy` 的契约自行 `ensureKatex`**（防御性修复，不是「修好了公式卡死」）。`renderToString` 的契约是「未就绪返回空串、调用方先 await `ensureKatex()`」，预览是唯一没履约的调用方；`PreviewPane` 新增一条 `useEffect`（`hasMath && !ready` 时发起加载）。**口径**：正常路径由 `setMarkdown` 的预取覆盖，验收断言 9 **改前也是绿的**（`.tmp/e2e-r43-impl-t1.before.log`：`katex:2`、`pendingNote:0`）；真正卡死的是「在预览里按 `Ctrl+M` 插空公式」，该入口已被上一条守卫堵住。本条只锁契约，不得当作修复证据。
+- **拖入 `.md` 不再静默失败、也不再导航**（P1）。改前 `dragover.defaultPrevented=true`（ProseMirror 挡了）但 `drop.defaultPrevented=false`，文档无变化、无提示。新增 window 级 drag 守卫：`dragover` 只在 `types` 含 `Files` 时 `preventDefault()`；`drop` 判 `event.defaultPrevented` 后让开（图片拖入由 ProseMirror 的 `handleDrop` 先接住），否则挡下并提示「拖入的文件不会直接打开：请用「文件 → 打开文件」（Ctrl+Alt+O）」。E2E：编辑区内与编辑区外都 `dropPrevented:true` + 提示、正文与 `location.href` 不变、`dirty:false`；下层已 `preventDefault` 的 drop 不弹提示。宿主 `OnNavigationStarting` 的导航取消本轮不做。
+- **公式 / 链接弹层 `Esc` 只取消弹层**（P2，与第 35 轮 `FindBar` 同族）：`MathInlineEditor` 与 `LinkEditor`（两个输入框）的 `Escape` 分支补 `event.stopPropagation()`，一次按键不再既关弹层又退出源码 / 预览。E2E：弹层开着 → `Ctrl+Shift+P` 进预览 → 一次 `Esc`，`.link-editor` 0 且 `viewMode` 仍是 `preview`（改前是 `edit`）；编辑态 `Esc` 仍取消弹层（正对照）。
+- **两个精确快路径 + 死符号清理**（P2，性能 / 内部质量）：
+  - `classify` 归一化 CRLF 后加**精确等价短路**（`if (beforeText === afterText) return []`）：六个损失族与空行判定全部要求前后不同，相等时不可能有损失；省掉 `diffLines` 数空行（1 MB / 2,050 行实测 76.8 ms）。`risk.test.ts` 新增 5 条（表格+标题 / 脚注 / 公式+注释 / CRLF 归一 / 正对照，`npm test` 372 → 377 条）。**这 5 条改前也是绿的**（`risk.test.ts:14-17` 已有同型断言），只锁语义；快路径落地的正向证据是 `git grep -n "if (beforeText === afterText) return" -- src/lib/risk.ts` = 1。
+  - `applySource` 把 `syncDocInfo(editor)` 移进 `if (!skipReparse)` 块：源码往返且正文一字未变时不再重算大纲 / 字数 / 当前章节（1 MB 约 24 ms）；`setDirty` 留在块外。E2E 正对照（改源码 → 回编辑）：大纲含新标题、`.stats-trigger` 11 字 → 12 字、`dirty:true`；跳过支（100 KB）：`sl-parse-done` 5 → 5、正文不变、`dirty:false`。**这一条改前也绿**（改前无条件跑），锁的是「条件写反」。
+  - 删死符号：`App.tsx` 的 `serializeBody`（0 调用）与悬空注释、`session.ts` 的 `clearSession`（0 引用）、`App.tsx` 的 `serializeDocumentBody` import；`src/lib/serializeDocument.ts` 的 `serializeDocumentBody` **保留**（`scripts/fidelity-acceptance.mjs` 三条活引用，改后 `git grep` 仍 4 命中）。
+  - 首屏口径注记：`scripts/measure-first-screen.mjs` 头注释与 `README.md` 写清尺子只数 `dist/index.html` 的静态引用，不含启动后立刻动态 import 的 `MarginRail-*.js`（gzip 2,327 B），实际首载 ≈ total + 2,327 B；不动 `--max/--target` 阈值。
+- **发布文档与发现性**（P2）：
+  - `README.md` 下载节新增 Windows 首次安装块：**先看 Microsoft WebView2 运行时**（Windows 11 自带；没有时安装器中止安装，给下载链接）、SmartScreen「更多信息 → 仍要运行」、默认安装路径与「开始菜单 / 卸载见 `packaging/README.md`（尚未人工验）」、Windows 可用的校验命令 `Get-FileHash` / `certutil`、便携包；macOS 校验行改成「校验（macOS）」。
+  - `README.md` 查找替换句后加粘贴说明（`Ctrl+V` 保留格式、`Ctrl+Shift+V` 纯文本，浏览器原生键、桌面宿主未验证）；「现在不能做什么」的键盘边界补第四条（预览 / 源码里工具条格式、插入命令与表格条都不可用）。
+  - 计数一次改齐：`README.md` 差距 **29/11 → 31/10**、`docs/typora-gap.md` 三处标题 `已经有的（30）→（31）`、`缺的（11）→（10）`、`编辑与格式（3）→（2）`、`AGENTS.md` 末句 `30 项有、11 项缺 → 31 项有、10 项缺`；`typora-gap.md` 搬一行「粘贴为纯文本」（标「浏览器原生键」）、列宽补「只在本次会话内」、视图缩放区分整页 / 正文字号、拖入行补第 43 轮现状。
+  - `ShortcutsDialog` 加 `Ctrl+Shift+V` 行（标签写明「浏览器原生键」），文件头注释从「不写浏览器保留的组合」改成「浏览器原生键必须标注来源」。
+- 门禁：`npx tsc --noEmit` exit 0；`npm test` **29 个文件 377 条**全过（`risk.test.ts` +5）；`npm run roundtrip` rich 5/7、source 7/7；`npm run verify` 首屏 gzip **292,046 B**（比第 42 轮 +280 B，内部 310,000 / 硬线 320,000，余 27,954 B，PASS）。
+- UNVERIFIED（本轮）：真实拖入图片（合成的 `DataTransfer` 走不进 ProseMirror 的 `handleDrop`，只能验证「下层已 `preventDefault` 就不弹提示」）、宿主 WebView2 里的拖入与导航、`Ctrl+Shift+V` 在桌面宿主里的行为、真实中文输入法下弹层 `Esc`、首屏刻度外的 `MarginRail` 增量（按静态读数 ≈2,327 B 计）。
 
 ## 0.32.1 — 2026-11-16
 

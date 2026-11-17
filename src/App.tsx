@@ -71,7 +71,7 @@ import { MermaidPreview } from './lib/mermaidPreview.ts'
 import { findAll, type Match } from './lib/find.ts'
 import { extractFootnotes, joinFootnotes, repairFootnoteRefs } from './lib/footnotes.ts'
 import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontmatter.ts'
-import { serializeDocument, serializeDocumentBody } from './lib/serializeDocument.ts'
+import { serializeDocument } from './lib/serializeDocument.ts'
 import { repairHtml, escapeHtmlForParse } from './lib/html.ts'
 import { splitTableCellBreaks } from './lib/tableCellBreaks.ts'
 import { protectMathPairs, repairMath } from './lib/math.ts'
@@ -175,17 +175,10 @@ function fileToDataUrl(file: File): Promise<string> {
   })
 }
 
-/** 编辑器读不全的语法，用来提示用户走源码模式 */
-
 /** 失败原因：优先用错误自带的 message，没有就给一句通用的 */
 function reasonOf(error: unknown): string {
   if (error instanceof Error && error.message) return error.message
   return '原因未知'
-}
-
-/** 编辑器正文 → 与保存一致的 Markdown（只出正文；frontmatter / 脚注由调用方拼） */
-function serializeBody(current: Editor, original?: string | null): string {
-  return serializeDocumentBody(current, original)
 }
 
 /** 文档位置 → 文本下标（buildTextIndex 的 text 与文档位置不是同一坐标系） */
@@ -3699,11 +3692,19 @@ export default function App() {
       }
       if (mod && !event.altKey && !event.shiftKey && key === 'k') {
         event.preventDefault()
+        if (viewMode !== 'edit') {
+          show('这个视图不能插入公式或链接：先按 Ctrl+/ 或 Ctrl+Shift+P 回编辑')
+          return
+        }
         openLinkAtCursorRef.current()
         return
       }
       if (mod && !event.altKey && key === 'm') {
         event.preventDefault()
+        if (viewMode !== 'edit') {
+          show('这个视图不能插入公式或链接：先按 Ctrl+/ 或 Ctrl+Shift+P 回编辑')
+          return
+        }
         openMathAtCursorRef.current(event.shiftKey)
         return
       }
@@ -3714,11 +3715,13 @@ export default function App() {
       }
       if (mod && !event.altKey && !event.shiftKey && /^[1-6]$/.test(key)) {
         event.preventDefault()
+        if (viewMode !== 'edit') return
         editor?.chain().focus().setHeading({ level: Number(key) as 1 | 2 | 3 | 4 | 5 | 6 }).run()
         return
       }
       if (mod && !event.altKey && !event.shiftKey && key === '0') {
         event.preventDefault()
+        if (viewMode !== 'edit') return
         editor?.chain().focus().setParagraph().run()
         return
       }
@@ -3781,12 +3784,35 @@ export default function App() {
     setFontSize,
     sourceMode,
     previewMode,
+    viewMode,
+    show,
     railOpen,
     newDocument,
     openSingleFile,
     openFolder,
     statsDetail,
   ])
+
+  // 拖入文件（第 43 轮）：不让窗口被导航走，也不静默失败。正文里拖入图片由 ProseMirror 的
+  // handleDrop 先接住并 preventDefault()，窗口这层必须让开，否则每次插图都会弹提示。
+  useEffect(() => {
+    const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes('Files')
+    const onDragOver = (event: DragEvent) => {
+      if (hasFiles(event)) event.preventDefault()
+    }
+    const onDrop = (event: DragEvent) => {
+      if (!event.dataTransfer?.files?.length) return
+      if (event.defaultPrevented) return
+      event.preventDefault()
+      show('拖入的文件不会直接打开：请用「文件 → 打开文件」（Ctrl+Alt+O）')
+    }
+    window.addEventListener('dragover', onDragOver)
+    window.addEventListener('drop', onDrop)
+    return () => {
+      window.removeEventListener('dragover', onDragOver)
+      window.removeEventListener('drop', onDrop)
+    }
+  }, [show])
 
   // 导出菜单打开后焦点进第一项（键盘可以直接走）
   useEffect(() => {
@@ -3819,13 +3845,14 @@ export default function App() {
 
   /* ---------- 视图 ---------- */
 
+  // 预览与源码都是只读副本：编辑命令一律从这里挡住（第 43 轮，与「专注 / 打字机」同一条口径）
   const run = useCallback(
     (command: (chain: ChainedCommands) => ChainedCommands) => {
-      if (!editor) return
+      if (!editor || viewMode !== 'edit') return
       command(editor.chain().focus()).run()
       setMenuOpen(false)
     },
-    [editor],
+    [editor, viewMode],
   )
 
   // 工具栏按下态（第 42 轮）：重渲染由 selectionUpdate 的 tick 带，不需要新订阅
@@ -3861,8 +3888,10 @@ export default function App() {
           return hit ? [{ ...item, from: hit.from, to: hit.to }] : []
         }),
       )
+      // 正文真的换了才重算大纲 / 字数 / 当前章节：跳过支里正文一字未变，重算是白算
+      // （1 MB 文档约 24 ms）。setDirty 必须留在块外，脏按保存基线算。
+      syncDocInfo(editor)
     }
-    syncDocInfo(editor)
     // 离开源码：脏按保存基线算，不能只看「源码里改没改」
     if (baselineRef.current !== null) setDirty(normalizedSource !== baselineRef.current)
   }, [editor, sourceText, setMarkdown, syncDocInfo, serializeBodyNow])
@@ -3891,6 +3920,8 @@ export default function App() {
         // 源码与预览都会替换掉编辑器视图，专注与打字机在这里没有意义
         setFocusMode(false)
         setTypewriterMode(false)
+        // 菜单开着时切视图：残留的菜单项不走 run()（图片 / 公式 / 链接三项），统一收起
+        setMenuOpen(false)
       }
       setViewMode(next)
       // 两个方向都要聚焦，否则键盘用户进源码打的字全丢（第 36 轮）。
@@ -4121,7 +4152,8 @@ export default function App() {
   // 点链接进入编辑：选中整段链接文字，弹出文字/地址框
   useEffect(() => {
     openLinkAtCursorRef.current = () => {
-      if (!editor) return
+      // 只读视图不开弹层：预览 / 源码里没有可编辑的正文（手滑调用也挡住，第 43 轮）
+      if (!editor || viewMode !== 'edit') return
       const { from, to, empty } = editor.state.selection
       if (editor.isActive('link')) {
         editor.chain().extendMarkRange('link').run()
@@ -4147,7 +4179,7 @@ export default function App() {
         anchor: new DOMRect(coords.left, coords.top, coords.right - coords.left, coords.bottom - coords.top),
       })
     }
-  }, [editor])
+  }, [editor, viewMode])
 
   // 点正文里的链接：把选区扩到整个链接，再弹出同一个文字/地址浮层
   useEffect(() => {
@@ -4223,6 +4255,8 @@ export default function App() {
   useEffect(() => {
     if (!editor) return
     openMathAtCursorRef.current = (block) => {
+      // 只读视图不插入公式（插入空公式会把预览整块换成加载态，第 43 轮）
+      if (viewMode !== 'edit') return
       const { from } = editor.state.selection
       const node = editor.state.doc.nodeAt(from)
       if (node && node.type.name.toLowerCase().includes('math')) {
@@ -4248,7 +4282,7 @@ export default function App() {
         }
       }
     }
-  }, [editor])
+  }, [editor, viewMode])
 
   // 跟着输入刷新预览；光标离开草稿就把源码还原成公式
   useEffect(() => {
@@ -4609,6 +4643,7 @@ export default function App() {
           <button
             type="button"
             className={`menu-trigger${menuOpen ? ' is-open' : ''}`}
+            disabled={viewMode !== 'edit'}
             onClick={() => setMenuOpen((value) => !value)}
             onPointerDown={() => void ensureKatex().catch(() => undefined)}
           >
@@ -4676,6 +4711,7 @@ export default function App() {
             type="button"
             className={heading1On ? 'is-on' : undefined}
             aria-pressed={heading1On}
+            disabled={viewMode !== 'edit'}
             onClick={() => run((chain) => chain.toggleHeading({ level: 1 }))}
           >
             H1
@@ -4684,6 +4720,7 @@ export default function App() {
             type="button"
             className={heading2On ? 'is-on' : undefined}
             aria-pressed={heading2On}
+            disabled={viewMode !== 'edit'}
             onClick={() => run((chain) => chain.toggleHeading({ level: 2 }))}
           >
             H2
@@ -4692,18 +4729,19 @@ export default function App() {
             type="button"
             className={boldOn ? 'is-on' : undefined}
             aria-pressed={boldOn}
+            disabled={viewMode !== 'edit'}
             onClick={() => run((chain) => chain.toggleBold())}
             title="粗体"
           >
             B
           </button>
-          <button type="button" className={`italic${italicOn ? ' is-on' : ''}`} aria-pressed={italicOn} onClick={() => run((chain) => chain.toggleItalic())} title="斜体">
+          <button type="button" className={`italic${italicOn ? ' is-on' : ''}`} aria-pressed={italicOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleItalic())} title="斜体">
             I
           </button>
-          <button type="button" className={`strike${strikeOn ? ' is-on' : ''}`} aria-pressed={strikeOn} onClick={() => run((chain) => chain.toggleStrike())} title="删除线">
+          <button type="button" className={`strike${strikeOn ? ' is-on' : ''}`} aria-pressed={strikeOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleStrike())} title="删除线">
             S
           </button>
-          <button type="button" className={`mono${codeOn ? ' is-on' : ''}`} aria-pressed={codeOn} onClick={() => run((chain) => chain.toggleCode())} title="行内代码">
+          <button type="button" className={`mono${codeOn ? ' is-on' : ''}`} aria-pressed={codeOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleCode())} title="行内代码">
             {'</>'}
           </button>
         </div>
@@ -4798,7 +4836,7 @@ export default function App() {
         </Suspense>
       )}
 
-      {editor?.isActive('table') && (
+      {viewMode === 'edit' && editor?.isActive('table') && (
         <div className="table-bar">
           <span className="table-bar-label">表格</span>
           <button type="button" title="在当前行上方插入行" onClick={() => run((chain) => chain.addRowBefore())}>

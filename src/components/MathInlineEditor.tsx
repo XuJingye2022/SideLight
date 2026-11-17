@@ -55,6 +55,8 @@ export function MathInlineEditor({ anchor, latex, display, onChange, onCommit, o
     }
     if (event.key === 'Escape') {
       event.preventDefault()
+      // 只取消弹层：同一个 Esc 不能再冒泡到 window 去退出源码 / 预览（第 43 轮，与 FindBar 同族）
+      event.stopPropagation()
       committedRef.current = true
       onCancel()
     }
