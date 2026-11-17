@@ -1833,13 +1833,16 @@ export default function App() {
   }, [goToMatch, matchIndex, matches.length])
 
   const replaceCurrent = useCallback(() => {
+    // 预览是只读视图：查找条已锁，调用点也可能绕过它，这里兜底（第 42 轮）
+    if (previewMode) return
     if (!editor || matches.length === 0) return
     const match = matches[matchIndex]
     // 批注位置由事务映射自动跟随；也不抢焦点，避免打断连续查找
     editor.commands.insertContentAt({ from: match.from, to: match.to }, replacement)
-  }, [editor, matches, matchIndex, replacement])
+  }, [editor, matches, matchIndex, replacement, previewMode])
 
   const replaceEvery = useCallback(() => {
+    if (previewMode) return
     if (!editor || matches.length === 0) return
     let transaction = editor.state.tr
     for (let index = matches.length - 1; index >= 0; index -= 1) {
@@ -1851,7 +1854,7 @@ export default function App() {
     }
     editor.view.dispatch(transaction)
     editor.commands.focus()
-  }, [editor, matches, replacement])
+  }, [editor, matches, replacement, previewMode])
 
   /* ---------- 滚动与页边定位 ---------- */
 
@@ -2787,8 +2790,12 @@ export default function App() {
     [activeFile, docName, finishSaved, saveBlob, saveIntoWorkspace],
   )
 
-  const currentMarkdown = useCallback(() => {
-    if (sourceMode) return sourceText
+  /**
+   * 只看正文、不看视图的序列化。
+   * 退出源码时要用它做判据：`currentMarkdown()` 在源码模式里直接返回 `sourceText`，
+   * 拿它比「源码没改」会恒真，源码里的编辑就被静默丢掉了（第 42 轮）。
+   */
+  const serializeBodyNow = useCallback(() => {
     if (!editor) return ''
     const original = rawTextRef.current ?? originalText
     return serializeDocument(editor, {
@@ -2796,7 +2803,12 @@ export default function App() {
       footnotes: footnotesRef.current,
       original,
     })
-  }, [editor, sourceMode, sourceText, originalText])
+  }, [editor, originalText])
+
+  const currentMarkdown = useCallback(
+    () => (sourceMode ? sourceText : serializeBodyNow()),
+    [sourceMode, sourceText, serializeBodyNow],
+  )
 
   // onUpdate 里拿不到这个 useCallback（声明在后面），用 ref 转一手
   useEffect(() => {
@@ -3613,6 +3625,20 @@ export default function App() {
           focusEditor()
           return
         }
+        // 正文里 Tab 是缩进（第 24 轮）：Esc 是键盘用户按文档顺序的正向出口（WCAG 2.1.2）
+        // 组合输入中按 Esc 是取消拼音候选的常规动作：不能抢焦点、不能丢正在组合的字
+        if (event.isComposing || event.keyCode === 229) return
+        const activeElement = document.activeElement
+        if (activeElement instanceof HTMLElement && activeElement.closest('.ProseMirror')) {
+          // 正向：正文之后第一个可聚焦控件 = 状态栏字数入口（只打开只读面板，无副作用）
+          // 不优先页边批注卡片：卡片按钮是「采纳 / 忽略 / 联网核对」，Esc 后误按 Enter 会改正文或发请求
+          const next = document.querySelector<HTMLElement>('.status-bar .stats-trigger')
+          if (next) {
+            event.preventDefault()
+            next.focus()
+            return
+          }
+        }
         return
       }
 
@@ -3802,6 +3828,14 @@ export default function App() {
     [editor],
   )
 
+  // 工具栏按下态（第 42 轮）：重渲染由 selectionUpdate 的 tick 带，不需要新订阅
+  const heading1On = Boolean(editor?.isActive('heading', { level: 1 }))
+  const heading2On = Boolean(editor?.isActive('heading', { level: 2 }))
+  const boldOn = Boolean(editor?.isActive('bold'))
+  const italicOn = Boolean(editor?.isActive('italic'))
+  const strikeOn = Boolean(editor?.isActive('strike'))
+  const codeOn = Boolean(editor?.isActive('code'))
+
   /** 把源码框里的内容写回编辑器：退出源码、切到预览、按 Esc 都走这一条路 */
   const applySource = useCallback(() => {
     if (!editor) return
@@ -3811,19 +3845,27 @@ export default function App() {
     frontmatterRef.current = split.frontmatter
     setFootnotes(footnoteSplit.footnotes)
     footnotesRef.current = footnoteSplit.footnotes
-    setMarkdown(footnoteSplit.body)
-    // 源码往返不清空批注：按引文在当前正文里重新定位，找不到的才丢
-    const index = buildTextIndex(editor.state.doc)
-    setAnnotations((previous) =>
-      previous.flatMap((item) => {
-        const hit = findRange(index, item.quote, 0)
-        return hit ? [{ ...item, from: hit.from, to: hit.to }] : []
-      }),
-    )
+    const normalizedSource = sourceText.replace(/\r\n/g, '\n')
+    // 源码框没动过，且正文现在序列化出来就是这段文本 → 不必整篇 parse（1 MB/4k 段曾要 5.5 s）
+    // 不能用 currentMarkdown()：它在源码模式里返回 sourceText，判据恒真，源码编辑会被静默丢掉
+    const skipReparse =
+      sourceText === sourceBaselineRef.current &&
+      normalizedSource === serializeBodyNow().replace(/\r\n/g, '\n')
+    if (!skipReparse) {
+      setMarkdown(footnoteSplit.body)
+      // 源码往返不清空批注：按引文在当前正文里重新定位，找不到的才丢
+      const index = buildTextIndex(editor.state.doc)
+      setAnnotations((previous) =>
+        previous.flatMap((item) => {
+          const hit = findRange(index, item.quote, 0)
+          return hit ? [{ ...item, from: hit.from, to: hit.to }] : []
+        }),
+      )
+    }
     syncDocInfo(editor)
     // 离开源码：脏按保存基线算，不能只看「源码里改没改」
-    if (baselineRef.current !== null) setDirty(sourceText.replace(/\r\n/g, '\n') !== baselineRef.current)
-  }, [editor, sourceText, setMarkdown, syncDocInfo])
+    if (baselineRef.current !== null) setDirty(normalizedSource !== baselineRef.current)
+  }, [editor, sourceText, setMarkdown, syncDocInfo, serializeBodyNow])
 
   /**
    * 三种视图统一在这里切：离开源码时先把源码写回正文，
@@ -4630,22 +4672,38 @@ export default function App() {
         </div>
 
         <div className="toolbar-group">
-          <button type="button" onClick={() => run((chain) => chain.toggleHeading({ level: 1 }))}>
+          <button
+            type="button"
+            className={heading1On ? 'is-on' : undefined}
+            aria-pressed={heading1On}
+            onClick={() => run((chain) => chain.toggleHeading({ level: 1 }))}
+          >
             H1
           </button>
-          <button type="button" onClick={() => run((chain) => chain.toggleHeading({ level: 2 }))}>
+          <button
+            type="button"
+            className={heading2On ? 'is-on' : undefined}
+            aria-pressed={heading2On}
+            onClick={() => run((chain) => chain.toggleHeading({ level: 2 }))}
+          >
             H2
           </button>
-          <button type="button" onClick={() => run((chain) => chain.toggleBold())} title="粗体">
+          <button
+            type="button"
+            className={boldOn ? 'is-on' : undefined}
+            aria-pressed={boldOn}
+            onClick={() => run((chain) => chain.toggleBold())}
+            title="粗体"
+          >
             B
           </button>
-          <button type="button" className="italic" onClick={() => run((chain) => chain.toggleItalic())} title="斜体">
+          <button type="button" className={`italic${italicOn ? ' is-on' : ''}`} aria-pressed={italicOn} onClick={() => run((chain) => chain.toggleItalic())} title="斜体">
             I
           </button>
-          <button type="button" className="strike" onClick={() => run((chain) => chain.toggleStrike())} title="删除线">
+          <button type="button" className={`strike${strikeOn ? ' is-on' : ''}`} aria-pressed={strikeOn} onClick={() => run((chain) => chain.toggleStrike())} title="删除线">
             S
           </button>
-          <button type="button" className="mono" onClick={() => run((chain) => chain.toggleCode())} title="行内代码">
+          <button type="button" className={`mono${codeOn ? ' is-on' : ''}`} aria-pressed={codeOn} onClick={() => run((chain) => chain.toggleCode())} title="行内代码">
             {'</>'}
           </button>
         </div>
@@ -4720,7 +4778,9 @@ export default function App() {
             unavailableReason={
               sourceMode
                 ? '源码模式下不支持查找定位与替换：切回富文本（Ctrl+/）再查'
-                : undefined
+                : previewMode
+                  ? '预览是只读视图，不支持查找与替换：切回编辑（Ctrl+Shift+P）再查'
+                  : undefined
             }
             onClose={() => {
               setFindOpen(false)
@@ -4741,25 +4801,26 @@ export default function App() {
       {editor?.isActive('table') && (
         <div className="table-bar">
           <span className="table-bar-label">表格</span>
-          <button type="button" onClick={() => run((chain) => chain.addRowBefore())}>
+          <button type="button" title="在当前行上方插入行" onClick={() => run((chain) => chain.addRowBefore())}>
             上插入
           </button>
-          <button type="button" onClick={() => run((chain) => chain.addRowAfter())}>
+          <button type="button" title="在当前行下方插入行" onClick={() => run((chain) => chain.addRowAfter())}>
             下插入
           </button>
-          <button type="button" onClick={() => run((chain) => chain.addColumnBefore())}>
+          <button type="button" title="在当前列左侧插入列" onClick={() => run((chain) => chain.addColumnBefore())}>
             左插入
           </button>
-          <button type="button" onClick={() => run((chain) => chain.addColumnAfter())}>
+          <button type="button" title="在当前列右侧插入列" onClick={() => run((chain) => chain.addColumnAfter())}>
             右插入
           </button>
-          <button type="button" onClick={() => run((chain) => chain.deleteRow())}>
+          <span className="table-bar-sep" aria-hidden="true" />
+          <button type="button" className="is-danger" title="删除当前行" onClick={() => run((chain) => chain.deleteRow())}>
             删行
           </button>
-          <button type="button" onClick={() => run((chain) => chain.deleteColumn())}>
+          <button type="button" className="is-danger" title="删除当前列" onClick={() => run((chain) => chain.deleteColumn())}>
             删列
           </button>
-          <button type="button" onClick={() => run((chain) => chain.deleteTable())}>
+          <button type="button" className="is-danger" title="删除整张表格" onClick={() => run((chain) => chain.deleteTable())}>
             删表
           </button>
         </div>

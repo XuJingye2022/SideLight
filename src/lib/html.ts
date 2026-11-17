@@ -19,6 +19,8 @@ const ENTITY_AHEAD = /^(?:#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/
  */
 export function repairHtml(markdown: string, original?: string | null): string {
   const source = typeof original === 'string' ? original : null
+  // 两条正则的必要条件就是这三类实体之一：都没有就不可能有命中，直接走快路径（第 42 轮守卫）
+  if (!markdown.includes('&lt;') && !markdown.includes('&amp;') && !markdown.includes('&gt;')) return markdown
   return mapOutsideCode(markdown, (segment, start) => {
     const restored = segment.replace(ESCAPED_TAG, (whole: string, inner: string) => {
       if (inner.startsWith('!')) {

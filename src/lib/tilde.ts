@@ -34,5 +34,7 @@ export function disableSingleTildeStrike(manager: Pick<MarkdownManager, 'instanc
 
 /** 把「不在围栏、行内代码、公式里」的 \~ 还成 ~（序列化器会把正文里的 ~ 转义） */
 export function repairTildes(markdown: string): string {
+  // 序列化器只把正文里真的 `~` 写成 `\~`：没有这个两字节就不可能有命中（第 42 轮守卫）
+  if (!markdown.includes('\\~')) return markdown
   return mapOutsideCode(markdown, (segment) => segment.replace(/\\~/g, '~'), true)
 }

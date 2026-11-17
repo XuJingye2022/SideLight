@@ -127,6 +127,19 @@
 - 门禁：`npx tsc --noEmit` exit 0；`npm test` **28 个文件 362 条**全过（新增 `risk.test.ts` 3 条、`html.test.ts` 改写 1 条 + 新增 16 条口径、`find.test.ts` +3 条、`package.json` 的 `scripts.test` 追加一条）；`npm run roundtrip` rich 5/7、source 7/7；`.tmp/build-r41` + measure 首屏 gzip **291,317 B**（比第 40 轮 +594 B，`files=3`，内部 310,000 / 硬线 320,000，余 28,683 B，PASS）。
 - UNVERIFIED（本轮）：宿主 `close-request` 下的自动保存拦截（浏览器态没有 host，补测口径写进 `docs/iteration/round-41/impl.md`）；4 空格缩进代码块里的 `<` 仍会被转义（`mapOutsideCode` 只认围栏与行内代码，改前改后字节相同，不算回归）；「缩进 ≥4 的 ``` + 后面跟裸 HTML 行」这种混写文档会丢标签（改前保留实体文本，改后 `<div>` 被当 HTML 块，见 impl.md 已知限制）；多行/含 `&` 的注释与同一篇里既写实体又写裸 `&` 的混写文档；`scripts/data-safety-acceptance.mjs` 因 `.editor` 过期选择器在 148 行崩溃（AGENTS §8 已知的脚本问题，不是本轮回归，该套件记 UNVERIFIED）。独立验收证据见 `docs/iteration/round-41/test.md`（tester 自跑三个 E2E 脚本与全部门禁）。
 
+**第 42 轮（同一未发版区间）**
+
+- **修数据安全缺口：预览（只读）里能改正文并落盘**（P1）。预览下 `Ctrl+F` 后「替换 / 全部替换」可用，点下去正文立刻改、`dirty` 变 true，退出预览按 `Ctrl+S` 就写盘，旁边没有任何说明。现在 `FindBar` 的 `unavailableReason` 增第三态（预览），四个动作按钮置灰并显示说明；`replaceCurrent` / `replaceEvery` 各自第一行加 `if (previewMode) return` 兜底（`src/App.tsx`）。**可见代价**：预览里查找条整体锁住，命中计数不再显示、上一处/下一处不可用，与源码模式同一语义（只锁替换需要给 `FindBar` 加第三态并重写第 39 轮断言，排在下一轮）。
+- **键盘正向离开正文**（P1，WCAG 2.1.2 键盘陷阱）：正文里按 `Esc` 把焦点移到正文之后的状态栏字数入口（`.status-bar .stats-trigger`，只打开只读面板、无副作用），Tab 不再被正文吞掉；不选页边批注卡片，因为卡片按钮是「采纳 / 忽略 / 联网核对」，误按 Enter 会改正文或发请求。新分支加 `event.isComposing || keyCode === 229` 守卫（组合输入期间不夺焦），并只加在这个分支，不改查找/设置/源码/预览既有的 Esc 行为。正文里 `Tab` 仍是插入两个空格（第 24 轮）。
+- 工具栏 6 个格式按钮（H1/H2/B/I/S/行内代码）加 `aria-pressed` 与按下态 `.is-on`，复用既有 `.toolbar button.is-on` 样式（零新增 CSS）；I/S/`</>` 用组合类名保住原有的斜体 / 删除线 / 等宽打字样式。
+- 表格工具条：7 个按钮补 `title`，删除三项加 `.is-danger` 用危险色，插入组与删除组之间加分隔线（`src/App.tsx`、`src/styles.css`）。
+- 正文按键盘进入时不再套整列 2px 焦点框：`.doc-body:focus-visible { outline: none }` + `.doc-scroll:has(.doc-body:focus-visible) { box-shadow: inset 0 2px 0 0 var(--accent) }`，指示器钉在滚动容器上，长文滚到中段仍可见。
+- **退出源码不再无条件整篇重解析**（P1 性能）：`applySource` 先判「源码框没动过 且 正文现在序列化出来就是这段」再决定是否 `setMarkdown`。判据必须用新抽出的 `serializeBodyNow()`——`currentMarkdown()` 在源码模式里返回 `sourceText`，拿它比会恒真、源码编辑被静默丢掉。`sl-parse-done` 物证：不改源码进出一次计数不变，改一个字再退出 +1。实测 `sourceToggle.outMs`：100 KB/1,024 段 **242 → 88 ms**、1 MB/1,024 段 **1,323 → 333 ms**、1 MB/4,096 段 **5,537 → 477 ms**（`sl-parse-done` 不再增加；剩余时间主要是 4k 段 DOM 重建）。
+- 三个全文扫描型 repair 加精确守卫（都是必要条件，不是启发式）：`repairTildes` 查 `\~`、`repairCalloutMarkers` 查 `\[!`、`repairHtml` 查 `&lt;`/`&amp;`/`&gt;`。1 MB 实测每键：`repairTildes` 2.8 → 0 ms、`repairCalloutMarkers` 0.9 → 0 ms、`repairHtml` 1.6 → **0.6 ms**（独立验收实测两次都是 0.6；计划门槛 ≤0.6，三次 `includes` 各 0.2 ms 是必跑成本）、`serializeDocument` 合计 8.5 → **3.2–4.8 ms**（实施与验收两次实测）。
+- 保存唯一出口补单测：新增 `src/lib/serializeDocument.test.ts`（10 条，假源 `{ getMarkdown }`，不引入 tiptap），覆盖尾部换行/CRLF 结尾、frontmatter 与注释脚注拼接、三条 repair 与原文实体守卫、表格块复用、连续空段落收口。
+- 门禁：`npx tsc --noEmit` exit 0；`npm test` **29 个文件 372 条**全过（新增 `serializeDocument.test.ts` 10 条，`package.json` 的 `scripts.test` 末尾追加）；`npm run roundtrip` rich 5/7、source 7/7；`fidelity-acceptance` 19/19、`keyboard-acceptance` 52/52；`npm run verify` 首屏 gzip **291,766 B**（比第 41 轮 +449 B，内部 310,000 / 硬线 320,000，余 28,234 B，PASS）。
+- UNVERIFIED（本轮）：真实中文输入法组合输入期间按 `Esc` 不夺焦、不丢拼音候选（CDP 造不出真 IME）；预览/源码锁定的组合在真机上的观感；`docs/iteration/round-42/impl.md` 记了 3 处与计划的偏差（`keyboard-acceptance` 改到全部改动后跑一次、T3 验收 2(c) 挪到 (b) 之前、`repairHtml` 实测优于 0.6 ms 门槛）。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

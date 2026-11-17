@@ -250,6 +250,15 @@ button:disabled {
   overflow-y: auto;
 }
 
+/* 正文按键盘进入时不再套整列 2px 框；指示器钉在滚动容器顶边，长文滚到中段也可见（第 42 轮） */
+.doc-body:focus-visible {
+  outline: none;
+}
+
+.doc-scroll:has(.doc-body:focus-visible) {
+  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+
 .doc-layout {
   display: grid;
   grid-template-columns: minmax(0, 36rem) 260px;
@@ -1907,6 +1916,22 @@ button:disabled {
 
 .table-bar button:hover {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* 破坏性与安全操作分色：删除三项用危险色（第 42 轮） */
+.table-bar button.is-danger {
+  color: var(--danger);
+}
+
+.table-bar button.is-danger:hover {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+}
+
+.table-bar-sep {
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: color-mix(in srgb, var(--accent) 30%, var(--line));
 }
 
 /* ---------- 打印 ---------- */
