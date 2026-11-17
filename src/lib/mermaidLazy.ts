@@ -75,10 +75,21 @@ function configure(module: MermaidModule): void {
   appliedTheme = theme
   initialized = true
   try {
-    module.initialize({ startOnLoad: false, securityLevel: 'strict', theme })
+    // suppressErrorRendering：语法错误时不让库把「Syntax error」错误图塞进 body（第 47 轮 T3）
+    module.initialize({ startOnLoad: false, securityLevel: 'strict', theme, suppressErrorRendering: true })
   } catch (error) {
     lastError = error
   }
+}
+
+/** mermaid 渲染时会临时创建 `#d<id>` 容器；错误路径它删不干净，这里补一刀（依赖注入，Node 里不碰 document） */
+export function removeMermaidContainer(
+  id: string,
+  doc: { getElementById: (elementId: string) => { remove?: () => void } | null } | null = typeof document === 'undefined'
+    ? null
+    : document,
+): void {
+  doc?.getElementById(`d${id}`)?.remove?.()
 }
 
 /** 惰性加载 Mermaid 并初始化；并发调用共用同一个 promise。主题变了要重新 initialize */
@@ -123,7 +134,14 @@ export async function renderDiagram(code: string): Promise<{ svg: string } | { e
     const hit = svgCache.get(key)
     if (hit !== undefined) return { svg: hit }
     renderSeq += 1
-    const result = await mermaid.render(`mermaid-preview-${renderSeq}`, code)
+    const renderId = `mermaid-preview-${renderSeq}`
+    let result: { svg: string }
+    try {
+      result = await mermaid.render(renderId, code)
+    } finally {
+      // 成功时库自己已删；失败时它会把错误图留在 body 下，切文档也不消失
+      removeMermaidContainer(renderId)
+    }
     const svg = result && typeof result.svg === 'string' ? result.svg : ''
     if (!svg) return { error: fallbackHint() }
     svgCache.set(key, svg)

@@ -645,6 +645,41 @@ button:disabled {
   padding: 0;
 }
 
+/* 行内 HTML 白名单（第 47 轮）：kbd 键帽、mark 底色、sub/sup 上下标。上下不出行框，改字号不改行高 */
+.doc-body kbd {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: 4px;
+  background: var(--paper-raised);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.doc-body mark {
+  background: color-mix(in srgb, var(--accent-wash) 78%, var(--paper));
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+.doc-body sub,
+.doc-body sup {
+  font-size: 0.75em;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+
+.doc-body sup {
+  top: -0.5em;
+}
+
+.doc-body sub {
+  bottom: -0.25em;
+}
+
 /* Mermaid 预览：挂在代码块下面的装饰 widget（第 36 轮，不进序列化） */
 .mermaid-preview {
   margin: -6px 0 18px;

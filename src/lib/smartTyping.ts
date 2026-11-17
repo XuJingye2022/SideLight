@@ -21,18 +21,44 @@ const HALF = ',;:?!'
 const FULL = '，；：？！'
 /** 中文标点的判据：汉字、日文假名、韩文谚文 */
 const CJK = /[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]/
+/** 会触发替换或配对的键：只有这些键才取「光标前整行」来判反引号与表格行 */
+const LINE_AWARE_INPUT = new Set(['"', "'", '(', ')', '[', ']', '{', '}', '-', '.', ',', ';', ':', '?', '!', '`'])
+
+export function needsLineContext(inserted: string): boolean {
+  return LINE_AWARE_INPUT.has(inserted)
+}
+
+/**
+ * 光标前的这一行是不是正处在「反引号行内代码」里：数未转义的落单反引号，奇数即在代码里。
+ * 反引号写法下 code mark 要等收尾反引号才建立，输入过程中的已配对守卫看不到它（第 47 轮 T2）。
+ */
+export function hasUnclosedBacktick(line: string): boolean {
+  let count = 0
+  for (let index = 0; index < line.length; index += 1) {
+    if (line[index] === '\\') {
+      index += 1
+      continue
+    }
+    if (line[index] === '`') count += 1
+  }
+  return count % 2 === 1
+}
+
 
 /**
  * 唯一的判定入口：不碰 view，不碰选区。
  * `before` / `after` 是光标前 / 后最多 4 个字符（不跨节点）。
- * `lineBefore` 是光标所在文本块里光标之前的全文，只在按 `-` 时传：
- * 这一行里有 `|` 就可能是手打的表格分隔行，不许把 `--` 换成 `—`。
+ * `lineBefore` 是光标所在文本块里光标之前的全文，只在会触发规则的键上传（见 needsLineContext）：
+ * 这一行里有 `|` 就可能是手打的表格分隔行，不许把 `--` 换成 `—`；
+ * 这一行里有落单的反引号就是在写行内代码，一个字符都不改。
  * 命中返回结果，不命中返回 `null`（不是 `false`，不是 `undefined`）。
  *
  * 边界：`skip` 只对光标（空选区）成立——函数签名里看不到选区，
  * 「有选区时不得吞掉这次输入」由插件在 dispatch 前判。
  */
 export function smartInput(before: string, inserted: string, after: string, lineBefore = ''): SmartResult | null {
+  // 正在用反引号写行内代码：引号、括号、破折号、省略号、半角标点一个都不许改（第 47 轮 T2）
+  if (hasUnclosedBacktick(lineBefore)) return null
   const last = before.slice(-1)
   const next = after.slice(0, 1)
   const atStart = last === '' || /\s/.test(last) || OPENERS.includes(last)
@@ -104,8 +130,10 @@ export function createSmartTyping(options: { isEnabled: () => boolean }): Extens
               const offset = $from.parentOffset
               const before = parent.textBetween(Math.max(0, offset - 4), offset, null, '\ufffc')
               const after = parent.textBetween(offset, Math.min(parent.content.size, offset + 4), null, '\ufffc')
-              // 整行文本只在按 - 时取：其余键用不到，别让每个键都拼一次段落
-              const lineBefore = inserted === '-' ? parent.textBetween(0, offset, null, '\ufffc') : ''
+              // 整行文本只在会触发规则的键上取：其余键用不到，别让每个键都拼一次段落
+              const lineBefore = needsLineContext(inserted)
+                ? parent.textBetween(0, offset, null, '\ufffc')
+                : ''
               const result = smartInput(before, inserted, after, lineBefore)
               // 不命中时返回 false：否则会截断后面的 prop，输入规则收不到这次输入
               if (!result) return false

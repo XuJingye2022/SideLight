@@ -13,6 +13,7 @@ import {
   isMermaidLanguage,
   listMermaidBlocks,
   mermaidHash,
+  removeMermaidContainer,
   renderDiagram,
   resolveMermaidTheme,
 } from './mermaidLazy.ts'
@@ -188,3 +189,27 @@ test('mermaid 主题：没设置 data-theme 时跟随系统（深色）', () => 
 test('mermaid 主题：system + 系统浅色 → default', () => {
   assert.equal(resolveMermaidTheme('system', false), 'default')
 })
+
+/* ---------- 第 47 轮 T3：错误图不留在 body 下 ---------- */
+
+test('mermaid：initialize 带 suppressErrorRendering', async () => {
+  const fake = fakeMermaid()
+  __setLoaderForTest(async () => fake.module)
+  await renderDiagram('graph TD; A-->B')
+  assert.equal(fake.inits[0].suppressErrorRendering, true)
+})
+
+test('mermaid：清理只认自己那个容器，找不到时不抛', async () => {
+  const removed: string[] = []
+  const doc = {
+    getElementById(elementId: string) {
+      if (elementId !== 'dmermaid-preview-1') return null
+      return { remove: () => removed.push(elementId) }
+    },
+  }
+  removeMermaidContainer('mermaid-preview-1', doc)
+  removeMermaidContainer('mermaid-preview-2', doc)
+  removeMermaidContainer('mermaid-preview-1', null)
+  assert.deepEqual(removed, ['dmermaid-preview-1'])
+})
+

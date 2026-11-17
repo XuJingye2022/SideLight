@@ -44,10 +44,10 @@ test('识别文档里是否有 HTML', () => {
   assert.equal(hasHtml('比较 a < b。'), false)
 })
 
-test('解析前把标签的尖括号转成实体', () => {
+test('成对白名单标签还原，其余仍转义', () => {
   assert.equal(
     escapeHtmlForParse('按 <kbd>Ctrl</kbd> + Enter 触发。'),
-    '按 &lt;kbd>Ctrl&lt;/kbd> + Enter 触发。',
+    '按 <kbd>Ctrl</kbd> + Enter 触发。',
   )
 })
 
@@ -133,5 +133,5 @@ test('原文里有某个标签时，被用户改过属性的那一条仍然还�
 test('解析前不转义围栏与行内代码里的标签', () => {
   assert.equal(escapeHtmlForParse('```\n<div>x</div>\n```\n'), '```\n<div>x</div>\n```\n')
   assert.equal(escapeHtmlForParse('用 `<kbd>` 表示按键。'), '用 `<kbd>` 表示按键。')
-  assert.equal(escapeHtmlForParse('按 <kbd>Ctrl</kbd> 触发。'), '按 &lt;kbd>Ctrl&lt;/kbd> 触发。')
+  assert.equal(escapeHtmlForParse('按 <kbd>Ctrl</kbd> 触发。'), '按 <kbd>Ctrl</kbd> 触发。')
 })

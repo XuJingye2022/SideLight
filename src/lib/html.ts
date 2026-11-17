@@ -1,4 +1,5 @@
 import { mapOutsideCode } from './codeScan.ts'
+import { escapeInlineHtml } from './inlineHtmlTags.ts'
 
 const ESCAPED_TAG = /&lt;(\/?[a-zA-Z!][^&\n]*?)&gt;/g
 /** 序列化器对非代码文本做的三条转义（`@tiptap/core` 的 encodeHtmlEntities） */
@@ -62,7 +63,8 @@ export function hasHtml(text: string): boolean {
  * 浏览器里的解析器会把 <kbd> 当成真元素，schema 不认识就整段丢掉；
  * 转成实体后它只是普通文字，能原样留在正文里，保存时再由 repairHtml 还原。
  * 代码围栏、行内代码里的 `<` 不转义（第 41 轮）：那里本来就该是字面代码，转义会让保存永久漂移。
+ * 白名单里的真成对标签（kbd/mark/sub/sup）例外：留着真标签，让解析器建成真样式（第 47 轮）。
  */
 export function escapeHtmlForParse(text: string): string {
-  return mapOutsideCode(text, (segment) => segment.replace(/<(?=[a-zA-Z/!])/g, '&lt;'))
+  return mapOutsideCode(text, escapeInlineHtml)
 }

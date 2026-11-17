@@ -73,6 +73,7 @@ import { extractFootnotes, joinFootnotes, repairFootnoteRefs } from './lib/footn
 import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontmatter.ts'
 import { serializeDocument } from './lib/serializeDocument.ts'
 import { repairHtml, escapeHtmlForParse } from './lib/html.ts'
+import { inlineMarks } from './lib/inlineHtmlTags.ts'
 import { splitTableCellBreaks } from './lib/tableCellBreaks.ts'
 import { TaskListInput } from './lib/taskListInput.ts'
 import { protectMathPairs, repairMath } from './lib/math.ts'
@@ -801,6 +802,9 @@ export default function App() {
       // 无序列表里建，单打 `[ ] ` 保持字面。
       TaskItem.extend({ addInputRules: () => [] }).configure({ nested: true }),
       TaskListInput,
+      // 行内 HTML 白名单（第 47 轮）：kbd/mark/sub/sup 四种真成对标签在编辑视图与预览里成为真样式，
+      // 保存仍写回原标签；其余标签照旧走实体与 repairHtml 的保真路径
+      ...inlineMarks,
       Markdown.configure({ indentation: { style: 'space', size: 2 } }),
       AnnotationDecorations,
       MermaidPreview,

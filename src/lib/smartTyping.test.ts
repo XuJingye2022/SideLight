@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { smartInput } from './smartTyping.ts'
+import { hasUnclosedBacktick, needsLineContext, smartInput } from './smartTyping.ts'
 
 test('引号方向：句首 / 空格 / 左括号后是开引号，CJK 后是闭引号', () => {
   assert.deepEqual(smartInput('', '"', ''), { kind: 'insert', text: '“”', caret: 1 })
@@ -88,3 +88,36 @@ test('第三根 dash 不连吞（不因为新规则误命中）', () => {
   assert.equal(smartInput('—', '-', '', '---'), null)
   assert.equal(smartInput('—', '-', '', ''), null)
 })
+
+/* ---------- 第 47 轮 T2：反引号行内代码里的字符一个都不改 ---------- */
+
+test('hasUnclosedBacktick 数落单反引号，跳过转义', () => {
+  assert.equal(hasUnclosedBacktick(''), false)
+  assert.equal(hasUnclosedBacktick('参数 `'), true)
+  assert.equal(hasUnclosedBacktick('`a` 后'), false)
+  assert.equal(hasUnclosedBacktick('`a` 与 `'), true)
+  // \` 是转义，不算开代码
+  assert.equal(hasUnclosedBacktick('\\`a'), false)
+})
+
+test('反引号代码里破折号与省略号不替换', () => {
+  assert.equal(smartInput('参数 `--', '-', '', '参数 `--'), null)
+  assert.equal(smartInput('`a..', '.', '', '`a..'), null)
+})
+
+test('反引号代码里的引号、括号、半角标点也不替换', () => {
+  assert.equal(smartInput('`grep ', '"', '', '`grep "'), null)
+  assert.equal(smartInput('`x', '(', '', '`x'), null)
+  assert.equal(smartInput('中文`', '?', '', '中文`'), null)
+  // 闭合之后恢复替换
+  assert.deepEqual(smartInput('`a` b-', '-', '', '`a` b-'), { kind: 'replace', from: -1, to: 0, text: '—' })
+})
+
+test('会触发规则的键才取整行（性能守卫）', () => {
+  assert.equal(needsLineContext('-'), true)
+  assert.equal(needsLineContext('.'), true)
+  assert.equal(needsLineContext('"'), true)
+  assert.equal(needsLineContext('a'), false)
+  assert.equal(needsLineContext('中'), false)
+})
+
