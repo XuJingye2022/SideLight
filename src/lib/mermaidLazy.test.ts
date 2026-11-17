@@ -14,6 +14,7 @@ import {
   listMermaidBlocks,
   mermaidHash,
   renderDiagram,
+  resolveMermaidTheme,
 } from './mermaidLazy.ts'
 
 const schema = getSchema([StarterKit])
@@ -75,6 +76,9 @@ test('mermaid：只加载一次，同一份代码只渲染一次', async () => {
   await renderDiagram('graph TD; A-->B')
   assert.equal(__getLoadCount(), 1)
   assert.equal(fake.calls.length, 2)
+  // 第 46 轮 R1：ensureMermaid() 的早退分支现在每次都会过 configure()，
+  // 靠 appliedTheme 守卫保证同主题不重复 initialize（Node 下主题恒 default）
+  assert.equal(fake.inits.length, 1)
 })
 
 test('mermaid：同一份代码并发渲染只调一次 loader', async () => {
@@ -165,4 +169,22 @@ test('mermaid：引用块里的围栏也收集，pos 单调递增', () => {
   assert.ok(blocks[1].pos > blocks[0].pos)
   // 顶层行为不变
   assert.equal(blocks[1].code, 'graph TD;\n  S-->T')
+})
+
+/* ---------- 第 46 轮 T3：主题解析（纯函数，不碰 document/matchMedia） ---------- */
+
+test('mermaid 主题：data-theme=dark → dark', () => {
+  assert.equal(resolveMermaidTheme('dark', false), 'dark')
+})
+
+test('mermaid 主题：data-theme=light 时系统深色也按浅色', () => {
+  assert.equal(resolveMermaidTheme('light', true), 'default')
+})
+
+test('mermaid 主题：没设置 data-theme 时跟随系统（深色）', () => {
+  assert.equal(resolveMermaidTheme(null, true), 'dark')
+})
+
+test('mermaid 主题：system + 系统浅色 → default', () => {
+  assert.equal(resolveMermaidTheme('system', false), 'default')
 })

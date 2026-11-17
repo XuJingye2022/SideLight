@@ -13,6 +13,8 @@ type Props = {
   docNotes?: DocNote[]
   /** 没配 API Key，批注是本地模拟生成的 */
   simulated: boolean
+  /** 卡片区需要为「整体评价」面板让出的高度（栏内 px）；0 表示不需要 spacer */
+  railSpace: number
   /** 窄窗抽屉的关闭按钮；宽窗不传就不显示 */
   onClose?: () => void
   goal: string
@@ -56,6 +58,7 @@ export function MarginRail({
   onDismiss,
   registerRef,
   railRef,
+  railSpace,
 }: Props) {
   const pending = annotations.filter((annotation) => annotation.status === 'pending')
   const [openThread, setOpenThread] = useState<string | null>(null)
@@ -239,6 +242,10 @@ export function MarginRail({
           )}
         </article>
       ))}
+      {/* 给钉在视口底的「整体评价」面板让位：卡片是绝对定位，不占流，不让位就会被面板压住 */}
+      {pending.length > 0 && railSpace > 0 && (
+        <div className="rail-cards-space" style={{ height: `${railSpace}px` }} aria-hidden="true" />
+      )}
       {(overall.length > 0 || unresolvedNotes.length > 0) && (
         <section className="rail-overall" aria-label="整体评价">
           <button

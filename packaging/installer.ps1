@@ -25,6 +25,15 @@ if (-not (Test-Path (Join-Path $root 'dist\index.html'))) {
     exit 1
 }
 
+# 版本门（第 46 轮 ship S3）：setup 的 FileVersion 是自证的（由 package.json 带入），
+# 这里断言真正的 payload 与 package.json 同版本，挡住 stale host\bin。
+$payloadVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $root 'host\bin\Sidelight.exe')).FileVersion
+if ($payloadVersion -ne "$version.0") {
+    Write-Host ("host\bin\Sidelight.exe 的 FileVersion 是 {0}，package.json 是 {1}。先重跑 host\build.ps1" -f $payloadVersion, $version)
+    exit 1
+}
+Write-Host ("payload fileVersion={0}" -f $payloadVersion)
+
 $nsisDir = Join-Path $root '.tmp\nsis'
 $makensis = Join-Path $nsisDir 'nsis-3.11\makensis.exe'
 if (-not (Test-Path $makensis)) {

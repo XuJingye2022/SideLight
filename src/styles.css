@@ -804,6 +804,8 @@ button:disabled {
   bottom: 0;
   z-index: 3;
   margin-top: 12px;
+  /* 滚动中面板仍可能盖住一瞬：让那一下的点击穿到下层卡片，别把点击吃掉（几何排布仍是主修法） */
+  pointer-events: none;
   background: color-mix(in srgb, var(--paper) 94%, transparent);
   border-top: 1px solid var(--line);
   border-radius: 8px 8px 0 0;
@@ -822,6 +824,7 @@ button:disabled {
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .rail-overall-count {
@@ -844,6 +847,7 @@ button:disabled {
   max-height: 40vh;
   overflow-y: auto;
   padding: 0 10px 10px;
+  pointer-events: auto;
 }
 
 .rail-overall-note {
@@ -2528,6 +2532,15 @@ button:disabled {
   .app.rail-open .margin-rail .note {
     position: static;
     margin-top: 10px;
+  }
+
+  /* 抽屉里卡片本来就在流内，不需要 spacer；面板也是真 footer，不再钉在视口底 */
+  .rail-cards-space {
+    display: none;
+  }
+
+  .app.rail-open .rail-overall {
+    position: static;
   }
 
   .app.rail-open .margin-rail .note::before {

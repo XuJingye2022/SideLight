@@ -39,8 +39,9 @@ powershell -ExecutionPolicy Bypass -File packaging\installer.ps1      # 下载 N
 powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 ```
 
-- `installer.ps1` 只读 `dist/` 与 `host/bin/`，版本号从 `package.json` 只读；打印实测字节、`target=45000000 gap=`（内部预算，超了 `Write-Warning`，不 exit）、硬报警线 50,000,000 B 与 SHA256。`verify-installer.ps1` 带同一条线：超内部预算只打印 WARN，超硬线记 `Fail`。
-- `verify-installer.ps1` 静默安装 → 断言目录、HKCU 卸载项 7 值、开始菜单快捷方式 → 静默卸载 → 断言清理干净且 `%LOCALAPPDATA%\Sidelight` 仍在。
+- `installer.ps1` 只读 `dist/` 与 `host/bin/`，版本号从 `package.json` 只读；打包含 payload 版本断言——`host\bin\Sidelight.exe` 的 FileVersion 必须等于 `package.json` 的版本，否则 exit 1（挡住 stale `host\bin`）；打印实测字节、`target=45000000 gap=`（内部预算，超了 `Write-Warning`，不 exit）、硬报警线 50,000,000 B 与 SHA256。`verify-installer.ps1` 带同一条线：超内部预算只打印 WARN，超硬线记 `Fail`。
+- `verify-installer.ps1` 开头会打印 setup 的大小/mtime/FileVersion 与 `host\bin` 的 payload 对比，不同批次就记 UNVERIFIED（不 FAIL）；可用 `-Setup <路径>` 验当轮新包（相对路径按仓库根解析），`-PreflightOnly` 只跑到「包与载荷是否同批」就退出，不安装、不写 HKCU。
+- `verify-installer.ps1` 静默安装 → 断言目录、HKCU 卸载项 7 值、开始菜单快捷方式 → 静默卸载 → 断言清理干净且 `%LOCALAPPDATA%\Sidelight` 仍在。`%LOCALAPPDATA%` 不可写时 marker 写不进只记 UNVERIFIED，不硬退出（第 46 轮）。
 - 两条都要求先有 `host/bin`（`host\build.ps1`）与 `dist`。
 
 ## 本沙箱（代理环境）的三个限制
@@ -54,4 +55,4 @@ powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 - 未签名：首次运行会被 SmartScreen 拦一次。
 - 不写 HKLM，不需要管理员。
 - `.md` 关联只做 opt-in 的「打开方式」候选：默认不勾、`/S` 不写、不碰 `UserChoice`/`FileExts`/`.md` 默认程序；卸载用 `/ifempty` 保留别人的候选。`FileExts` 的 MRU 若用户手动选过一次可能残留，属已知限制。
-- 体积预算：安装包内部预算 45,000,000 B（超了只报警），硬线 50,000,000 B（超了先打印载荷占比，不抬线）；具体字节每版都不同，**以 Release 页的 `SHA256SUMS-<版本>.txt` 为准**（第 45 轮本机 `installer.ps1 -AssocDryRun` 重建、未发布 setup **1,304,634 B**，含 Mermaid 惰性 chunk，首屏不受影响）。便携 zip 门槛 50,000,000 B（`packaging/portable.ps1` 的 `$threshold`），**与安装包共用硬线、不另设内部预算**：zip 含宿主与图标等固定载荷，字节与安装包不同源，单设内部线没有实测依据。
+- 体积预算：安装包内部预算 45,000,000 B（超了只报警），硬线 50,000,000 B（超了先打印载荷占比，不抬线）；具体字节每版都不同，**以 Release 页的 `SHA256SUMS-<版本>.txt` 为准**。便携 zip 门槛 50,000,000 B（`packaging/portable.ps1` 的 `$threshold`），**与安装包共用硬线、不另设内部预算**：zip 含宿主与图标等固定载荷，字节与安装包不同源，单设内部线没有实测依据。

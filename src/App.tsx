@@ -382,6 +382,8 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [selection, setSelection] = useState<SelectionState>({ chars: 0, words: 0, from: 0, to: 0, source: 'paragraph' })
   const [tops, setTops] = useState<Record<string, number>>({})
+  /** 卡片区需要为「整体评价」面板让出的高度（栏内 px）：面板 sticky 时才不会压住最后一张卡 */
+  const [railSpace, setRailSpace] = useState(0)
   const [bubble, setBubble] = useState<{ top: number; left: number } | null>(null)
   const [tick, setTick] = useState(0)
   const [dirty, setDirty] = useState(false)
@@ -1955,7 +1957,17 @@ export default function App() {
 
     const railRect = rail.getBoundingClientRect()
     const docSize = editor.state.doc.content.size
-    let floor = Number.NEGATIVE_INFINITY
+    // 栏内流内内容的底边（相对栏顶）：卡片是绝对定位，页边栏自己的 head / 我的理解 / 模拟提示
+    // 不参与 tops 计算，第一张卡会直接压在提示上（第 46 轮 T2）。从这里起算，并给面板让出高度。
+    let flowBottom = 0
+    for (const child of Array.from(rail.children)) {
+      if (child.classList.contains('note')) continue
+      if (child.classList.contains('rail-overall')) continue
+      if (child.classList.contains('rail-cards-space')) continue
+      const bottom = child.getBoundingClientRect().bottom - railRect.top
+      if (bottom > flowBottom) flowBottom = bottom
+    }
+    let floor = flowBottom
     const next: Record<string, number> = {}
 
     for (const annotation of annotations.filter((item) => item.status === 'pending')) {
@@ -1971,6 +1983,10 @@ export default function App() {
       next[annotation.id] = Math.round(top)
       floor = top + height
     }
+
+    // 最后一张卡的底 − 流内内容底 = 面板要占的高度（React 对相同值会 bail out）
+    const pendingCount = annotations.filter((item) => item.status === 'pending').length
+    setRailSpace(pendingCount > 0 ? Math.max(0, Math.round(floor - flowBottom)) : 0)
 
     setTops((previous) => (JSON.stringify(previous) === JSON.stringify(next) ? previous : next))
 
@@ -5065,6 +5081,7 @@ export default function App() {
               <MarginRail
                 annotations={annotations}
                 tops={tops}
+                railSpace={railSpace}
                 activeId={activeId}
                 analyzing={analyzing}
                 unresolved={unresolved}

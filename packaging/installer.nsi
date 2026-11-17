@@ -193,7 +193,30 @@ SectionEnd
 Section "Uninstall"
   Call un.CheckRunning
   Delete "$SMPROGRAMS\Sidelight.lnk"
-  RMDir /r "$INSTDIR"
+  ; Uninstall removes only the files this installer wrote. A recursive RMDir here
+  ; wiped the whole install directory, including unrelated files when the user
+  ; pointed the directory page at an existing folder.
+  Delete "$INSTDIR\Sidelight.exe"
+  Delete "$INSTDIR\Microsoft.Web.WebView2.Core.dll"
+  Delete "$INSTDIR\Microsoft.Web.WebView2.WinForms.dll"
+  Delete "$INSTDIR\WebView2Loader.dll"
+  Delete "$INSTDIR\Sidelight.exe.config"
+  Delete "$INSTDIR\sidelight.ico"
+  Delete "$INSTDIR\README.txt"
+  Delete "$INSTDIR\LICENSE"
+  Delete "$INSTDIR\assoc-plan.txt"
+  Delete "$INSTDIR\host.log*"
+  ; www and webview2-data are entirely ours: www is rewritten on every install,
+  ; webview2-data is the WebView2 profile the host creates (host/Program.cs).
+  RMDir /r "$INSTDIR\www"
+  RMDir /r "$INSTDIR\webview2-data"
+  ; Host state dir: %LOCALAPPDATA% -> baseDir\state -> %TEMP% (host/Program.cs).
+  ; Only recent.json* is ours. Never recurse here: the directory page can point
+  ; at an existing folder that has its own state\ with the user's files.
+  Delete "$INSTDIR\state\recent.json*"
+  RMDir "$INSTDIR\state"
+  Delete "$INSTDIR\uninstall.exe"
+  RMDir "$INSTDIR"
   DeleteRegKey HKCU "${UNINST_KEY}"
   ; Association cleanup: only our value/progid; /ifempty keeps other apps' candidates (e.g. VSCode.md).
   DeleteRegValue HKCU "Software\Classes\.md\OpenWithProgids" "Sidelight.md"

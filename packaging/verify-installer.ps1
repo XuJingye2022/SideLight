@@ -3,6 +3,8 @@
 #   1) 默认 %TEMP% 对子进程不可写，NSIS 会以 exit 2 失败；脚本强制 TEMP/TMP 指向工作区 .tmp。
 #   2) HKCU 写入被环境吞掉、不可观测；注册项与快捷方式只报 UNVERIFIED，不报 FAIL。
 # 安装目录用 /D 指到工作区 .tmp\install-verify，避免写 %LOCALAPPDATA%\Programs（沙箱可能拒写）。
+param([string]$Setup = '', [switch]$PreflightOnly)
+
 $ErrorActionPreference = 'Stop'
 
 # 从本会话启动 exe 时绕过 ShellExecute：某些环境会给未签名 exe 弹「打开文件 - 安全警告」，
@@ -18,7 +20,12 @@ function Start-NoShell([string]$file, [string]$arguments) {
 
 $root = Split-Path -Parent $PSScriptRoot
 $version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
-$setup = Join-Path $root "release\Sidelight-$version-win-x64-setup.exe"
+if ($Setup) {
+    # 相对路径按仓库根解析，不吃进程 CWD（installer.ps1/portable.ps1 同样以 $root 为基准）
+    $setup = if ([IO.Path]::IsPathRooted($Setup)) { $Setup } else { Join-Path $root $Setup }
+} else {
+    $setup = Join-Path $root "release\Sidelight-$version-win-x64-setup.exe"
+}
 $instdir = Join-Path $root '.tmp\install-verify'
 $uninstKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Sidelight'
 $hklmKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Sidelight'
@@ -40,6 +47,28 @@ New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
 if (-not (Test-Path $setup)) {
     Write-Host "缺少安装包：$setup（先跑 packaging\installer.ps1）"
     exit 1
+}
+
+# 1c) 批次门（第 46 轮 ship S2）：release/ 里的包可能是旧批次。
+# 打印 mtime/大小/FileVersion，与 host\bin 的 payload 对不上就 UNVERIFIED（不算 FAIL：本机 release/ 就是旧包）。
+$payloadExe = Join-Path $root 'host\bin\Sidelight.exe'
+$setupInfo = Get-Item $setup
+$setupFileVersion = $setupInfo.VersionInfo.FileVersion
+Write-Host ("setup={0:N0} B  mtime={1:yyyy-MM-dd HH:mm:ss}  FileVersion={2}" -f $setupInfo.Length, $setupInfo.LastWriteTime, $setupFileVersion)
+if (Test-Path $payloadExe) {
+    $payloadInfo = Get-Item $payloadExe
+    Write-Host ("payload mtime={0:yyyy-MM-dd HH:mm:ss}  FileVersion={1}" -f $payloadInfo.LastWriteTime, $payloadInfo.VersionInfo.FileVersion)
+    if ($setupFileVersion -ne $payloadInfo.VersionInfo.FileVersion) {
+        Unverified ("setup 的 FileVersion 是 {0}，payload 是 {1}：装的是别的批次的包" -f $setupFileVersion, $payloadInfo.VersionInfo.FileVersion)
+    } elseif ($payloadInfo.LastWriteTime -gt $setupInfo.LastWriteTime) {
+        Unverified ("release/ 里的安装包比 host\bin 旧（setup {0:yyyy-MM-dd HH:mm} < payload {1:yyyy-MM-dd HH:mm}）" -f $setupInfo.LastWriteTime, $payloadInfo.LastWriteTime)
+    }
+} else {
+    Unverified "host\bin\Sidelight.exe 不存在：无法判断安装包是否与载荷同批"
+}
+if ($PreflightOnly) {
+    Write-Host ("summary: preflight（{0} UNVERIFIED）" -f $script:unverified)
+    exit 0
 }
 
 # 1b) 体积护栏：与 installer.ps1 同一条线（内部预算 45,000,000 B / 硬线 50,000,000 B）。
@@ -73,8 +102,16 @@ if (($pv -and $pv.Length -gt 0) -or $loaderFound) {
 }
 
 $hklmBefore = Test-Path $hklmKey
-New-Item -ItemType Directory -Force -Path $userData | Out-Null
-Set-Content -Path $marker -Value 'keep-me' -Encoding UTF8
+# 受限环境里 %LOCALAPPDATA% 可能不可写（沙箱实测 Access denied）：写不了 marker 就记 UNVERIFIED，
+# 不要抛错退出（第 46 轮 ship S5）。
+$markerWritten = $false
+try {
+    New-Item -ItemType Directory -Force -Path $userData | Out-Null
+    Set-Content -Path $marker -Value 'keep-me' -Encoding UTF8
+    $markerWritten = $true
+} catch {
+    Unverified ("用户数据 marker 写不进 {0}（受限环境）：{1}" -f $userData, $_.Exception.Message)
+}
 
 # 3) 静默安装到工作区（/D 必须是最后一个参数，且不加引号）
 Get-Process Sidelight -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -194,7 +231,11 @@ if ($shortcutAfterInstall) {
 
 # 7) 用户数据保留 + 不写 HKLM
 $userDataKept = (Test-Path $userData) -and (Test-Path $marker)
-if ($userDataKept) { Pass "用户数据保留（$userData）" } else { Fail "卸载删掉了用户数据目录：$userData" }
+if ($markerWritten) {
+    if ($userDataKept) { Pass "用户数据保留（$userData）" } else { Fail "卸载删掉了用户数据目录：$userData" }
+} else {
+    Unverified '用户数据保留：marker 未写成，跳过（受限环境）'
+}
 if (-not $hklmBefore -and -not $hklmAfterInstall) { Pass '不写 HKLM 卸载项' } else { Fail "HKLM 卸载项：before=$hklmBefore afterInstall=$hklmAfterInstall" }
 
 # 8) T4: 关联 opt-in 的静态断言 + dry-run 包静默安装

@@ -32,6 +32,14 @@ if (-not (Test-Path (Join-Path $dist 'index.html'))) {
     Write-Host "缺少 $dist\index.html（前端产物）。"
     exit 1
 }
+
+# 版本门（第 46 轮 ship S3）：zip 里的 payload 必须与 package.json 同版本，挡住 stale host\bin。
+$payloadVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $bin 'Sidelight.exe')).FileVersion
+if ($payloadVersion -ne "$version.0") {
+    Write-Host ("host\bin\Sidelight.exe 的 FileVersion 是 {0}，package.json 是 {1}。先重跑 host\build.ps1" -f $payloadVersion, $version)
+    exit 1
+}
+Write-Host ("payload fileVersion={0}" -f $payloadVersion)
 if (-not (Test-Path (Join-Path $PSScriptRoot 'sidelight.ico'))) {
     Write-Host '缺少 packaging\sidelight.ico。先跑：csc /out:.tmp\mkico.exe packaging\mkico.cs; .tmp\mkico.exe packaging'
     exit 1
