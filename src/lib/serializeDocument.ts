@@ -3,7 +3,7 @@ import { collapseBlankParagraphs } from './blankParagraphs.ts'
 import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './frontmatter.ts'
 import { repairHtml } from './html.ts'
 import { repairMath } from './math.ts'
-import { repairCalloutMarkers } from './escapes.ts'
+import { repairCalloutMarkers, repairTocMarkers } from './escapes.ts'
 import { repairTildes } from './tilde.ts'
 import { reuseTables } from './tableReuse.ts'
 
@@ -43,6 +43,17 @@ export function serializeDocumentBody(editor: MarkdownSource, original?: string 
 }
 
 /**
+ * 序列化后的统一修复链：footnote/tilde/math/html/callout/TOC 一条链。
+ * App 的 300 ms 草稿链（App.tsx）与 `serializeDocument` 都调它——两处各写一遍时
+ * 草稿会漏修某一项（第 58 轮 A2：TOC 修复只进保存链，drafts 仍写 `\[TOC\]`）。
+ */
+export function applyRepairs(markdown: string, original?: string | null): string {
+  const source = original ?? null
+  const repaired = repairCalloutMarkers(repairHtml(repairMath(repairTildes(repairFootnoteRefs(markdown))), source))
+  return repairTocMarkers(repaired, source)
+}
+
+/**
  * App 与报告脚本共用的唯一序列化出口。
  * 顺序：编辑器 Markdown → 既有 repair 链 → 表格整块复用 → 拼脚注 → 拼 frontmatter。
  * 边界：只保证表格行内字节；表格前后的空行仍由文档级 `\n\n` 决定。
@@ -51,9 +62,7 @@ export function serializeDocument(editor: MarkdownSource, options: SerializeOpti
   const frontmatter = options.frontmatter ?? ''
   const footnotes = options.footnotes ?? ''
   const raw = editor.getMarkdown()
-  const repaired = repairCalloutMarkers(
-    repairHtml(repairMath(repairTildes(repairFootnoteRefs(raw))), options.original ?? null),
-  )
+  const repaired = applyRepairs(raw, options.original ?? null)
   const reused = reuseTables(options.original ?? null, repaired)
   const body = joinFootnotes(collapseBlankParagraphs(reused), footnotes)
   const leading =

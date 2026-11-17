@@ -270,6 +270,13 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **297,823 B**（比第 56 轮 +104，内部 310,000 / 硬线 320,000，余 12,177）；`npm test` **37 个文件 473 条**全过；`host/build.ps1` PASS，`--version` **0.32.1**；`theme-acceptance` 27/27（对比度矩阵 43/48 适用项全过）。
 - UNVERIFIED（本轮）：宿主 WebView2 窗口内的成品显示（本机会话 `CreateCoreWebView2ControllerAsync` 报 `0x8000FFFF`，见 `host/bin/host.log`），所以「单文件文档里相对图真的画出来」只有端点与纯函数证据；`/__asset` 的 HEAD 分支与 `Host` 头不匹配的 403 分支未单独测。
 
+**第 58 轮（同一未发版区间）**
+
+- **智能标点不再改写链接目标与行内 HTML 标签里的引号**（B-123）：`src/lib/smartTyping.ts` 新增 `inLinkDestOrHtmlTag()`（锚定 `\]\([^)\n]*$` 与 `<\/?[A-Za-z][^>\n]*$`），在反引号守卫之后整键放行；关闭括号的「越过」留在守卫之前，`[乙](https://example.com "标题")` 收尾的 `)` 不会多打。改前同一串逐字符输入得 `src=”assets/a.png” width=”300”`。`smartTyping.test.ts` +6 条，含反向「甲 < 乙，我说"」仍配弯引号、`don't`、行内代码、表格行不连累。手打的 `[乙](…)` 方括号仍会被序列化器转义（只丢语义不丢字符），另记 B-124。
+- **`[TOC]` 目录 MVP**（B-106 部分）：新增 `src/lib/toc.ts`（标记判据、条目复用大纲口径）与 `src/lib/tocRender.ts`（文档装饰 `Decoration.widget(side:-1)` 挂 `<nav class="sl-toc">`，条目按钮点击走侧栏大纲同一个 `jumpTo`；key 带标题签名，两处 `[TOC]` 不撞键；无目录时逐键不全篇扫描）。`escapes.ts` 加 `repairTocMarkers()`：`\[TOC\]` 按行还原成 `[TOC]`，原文含转义写法时整篇不还原，围栏 / 行内代码 / 引用行 / 公式段不动，CRLF 行尾保留。`serializeDocument.ts` 抽出 `applyRepairs()`，保存链与 300 ms 草稿链共用（草稿不再漏修某一族）。`npm test` 37 → 39 个文件。emoji 未做，B-106 留在开放项。
+- 门禁：`npm run verify` PASS，首屏 gzip **298,647 B**（比第 57 轮 +824，内部 310,000 / 硬线 320,000，余 21,353）；`npm test` **39 个文件 495 条**全过；`npm run roundtrip` 富文本 6/8、源码 8/8（报告与 HEAD 逐字节相同）；`keyboard-acceptance` 51/52，唯一 FAIL 是 B-209 已记的过期断言。
+- UNVERIFIED（本轮）：真实中文 IME 逐键下的引号守卫；真实磁盘 / 宿主写回（E2E 用打桩 VFS 与 localStorage 草稿）；WebView2 窗体里的目录 widget。已知限制：`[TOC]` 源段落不隐藏，目录只在编辑视图渲染。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

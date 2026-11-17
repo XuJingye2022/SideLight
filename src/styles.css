@@ -798,6 +798,55 @@ button:disabled {
   color: var(--danger);
 }
 
+/* 目录 widget（第 58 轮 B-106）：挂在 `[TOC]` 段落前的文档装饰，不进序列化。
+   只用既有的 paper-raised / line / accent 系列 token，三套主题自动跟随。 */
+.sl-toc {
+  margin: 4px 0 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-raised);
+}
+
+.sl-toc-item {
+  display: block;
+  width: 100%;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  font-size: 0.86em;
+  line-height: 1.5;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sl-toc-item[data-level='2'] {
+  padding-left: 1.5em;
+}
+
+.sl-toc-item[data-level='3'] {
+  padding-left: 2.6em;
+}
+
+.sl-toc-item[data-level='4'],
+.sl-toc-item[data-level='5'],
+.sl-toc-item[data-level='6'] {
+  padding-left: 3.6em;
+}
+
+.sl-toc-item:hover {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+.sl-toc-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .doc-body hr {
   border: 0;
   border-top: 1px solid var(--line);

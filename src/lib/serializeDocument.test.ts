@@ -66,3 +66,14 @@ test('⑨ reuseTables：原文里没改动的表格块按字节复用（单元�
 test('⑩ collapseBlankParagraphs：连续空段落里的 &nbsp; 行被收掉', () => {
   assert.equal(serializeDocument(source('段一\n\n&nbsp;\n\n段二\n')), '段一\n\n段二\n')
 })
+
+test('⑪ repairTocMarkers 生效：[TOC] 段落的转义方括号在保存链里还原（第 58 轮 A2）', () => {
+  // 编辑器把 `[TOC]` 段落序列化成 `\[TOC\]`；原文是 `[TOC]` 时整篇不能漏修
+  assert.equal(serializeDocument(source('\\[TOC\\]\n\n# 一\n'), { original: '[TOC]\n\n# 一\n' }), '[TOC]\n\n# 一\n')
+})
+
+test('⑫ 原文就是转义的 \\[TOC\\]：打开→保存逐字节不变', () => {
+  const original = '# 一\n\n正文\n\n\\[TOC\\]\n'
+  assert.equal(serializeDocument(source('# 一\n\n正文\n\n\\[TOC\\]'), { original }), original)
+})
+

@@ -68,22 +68,22 @@ import { diskSnapshot, reusableDiskText, type DiskSnapshot } from './lib/saveDis
 import { inTableAncestry, typingBlockMarkerInCell } from './lib/tableScope.ts'
 import { DISCUSS_SYSTEM_PROMPT } from './lib/prompt.ts'
 import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDefinitions, lossLabels, type Loss } from './lib/risk.ts'
-import { repairCalloutMarkers } from './lib/escapes.ts'
 import { ensureKatex } from './lib/katexLazy.ts'
 import { MermaidPreview } from './lib/mermaidPreview.ts'
+import { createToc } from './lib/tocRender.ts'
 import { findAll, type Match } from './lib/find.ts'
 import { applyReplacements, type ReplaceRange } from './lib/replaceRanges.ts'
-import { extractFootnotes, joinFootnotes, repairFootnoteRefs } from './lib/footnotes.ts'
+import { extractFootnotes, joinFootnotes } from './lib/footnotes.ts'
 import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontmatter.ts'
-import { serializeDocument } from './lib/serializeDocument.ts'
-import { repairHtml, escapeHtmlForParse } from './lib/html.ts'
+import { applyRepairs, serializeDocument } from './lib/serializeDocument.ts'
+import { escapeHtmlForParse } from './lib/html.ts'
 import { inlineMarks } from './lib/inlineHtmlTags.ts'
 import { inlineSyntaxMarks } from './lib/inlineSyntax.ts'
 import { splitTableCellBreaks } from './lib/tableCellBreaks.ts'
 import { tableTokenizer, taskListTokenizer, type BlockTokenizer } from './lib/markdownFastPath.ts'
 import { TaskListInput } from './lib/taskListInput.ts'
-import { protectMathPairs, repairMath } from './lib/math.ts'
-import { disableSingleTildeStrike, repairTildes } from './lib/tilde.ts'
+import { protectMathPairs } from './lib/math.ts'
+import { disableSingleTildeStrike } from './lib/tilde.ts'
 import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline.ts'
 import { clampFontSize, clampPageZoom, DEFAULT_SETTINGS, PAGE_ZOOM_STEP } from './lib/settings.ts'
 import { searchWeb } from './lib/search.ts'
@@ -555,6 +555,8 @@ export default function App() {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const cardRefs = useRef(new Map<string, HTMLElement>())
   const analyzeRef = useRef<() => void>(() => {})
+  /** 目录条目的跳转入口（第 58 轮 B-106）：jumpTo 声明在 useEditor 之后，用 ref 转一手 */
+  const jumpToRef = useRef<(item: OutlineItem) => void>(() => {})
   const typewriterRef = useRef<() => void>(() => {})
   const sourceBaselineRef = useRef('')
   /** 载入后直接进源码（原文件）：未编辑时不能被富文本序列化基线判成 dirty */
@@ -805,6 +807,13 @@ export default function App() {
   }, [settings.smartPunctuation])
   const smartTypingExtension = useMemo(() => createSmartTyping({ isEnabled: () => smartPunctRef.current }), [])
 
+  // 目录 `[TOC]`（第 58 轮 B-106）：widget 只挂渲染，不改正文；原文只有转义写法时不挂。
+  // rawTextRef 是「文件原文」，打开时由载入链写入、保存成功后更新，转义判定用它。
+  const tocExtension = useMemo(
+    () => createToc({ onJump: (item) => jumpToRef.current(item), original: () => rawTextRef.current }),
+    [],
+  )
+
   // 快捷行内语法（第 55 轮 B-101）同理：三个 mark 常驻 schema，开关只改解析，不重建编辑器。
   // 已经打开的文档不重排；下一次解析（打开/拖入文档）才按当前开关决定认不认 `==a==`。
   const inlineSyntaxRef = useRef(settings.inlineSyntax)
@@ -861,6 +870,7 @@ export default function App() {
       Markdown.configure({ indentation: { style: 'space', size: 2 } }),
       AnnotationDecorations,
       MermaidPreview,
+      tocExtension,
       shortcutExtension,
       smartTypingExtension,
       MathInputRules.configure({
@@ -999,9 +1009,8 @@ export default function App() {
           }
         }
         const original = rawTextRef.current
-        const body = repairCalloutMarkers(
-          repairHtml(repairMath(repairTildes(repairFootnoteRefs(current.getMarkdown()))), original),
-        )
+        // 与保存链共用同一条修复链（第 58 轮 A2）：收进 applyRepairs，草稿不再漏修某一族
+        const body = applyRepairs(current.getMarkdown(), original)
         const draft = joinFrontmatter(
           frontmatterRef.current,
           joinFootnotes(body, footnotesRef.current),
@@ -4381,6 +4390,11 @@ export default function App() {
     },
     [editor],
   )
+
+  // 目录 widget 里的按钮要能调到 jumpTo（扩展在编辑器之前创建）
+  useEffect(() => {
+    jumpToRef.current = jumpTo
+  }, [jumpTo])
 
   const openStatsDetail = useCallback(() => {
     setStatsDetail((current) => {

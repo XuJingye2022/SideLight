@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { hasUnclosedBacktick, needsLineContext, smartInput } from './smartTyping.ts'
+import { hasUnclosedBacktick, inLinkDestOrHtmlTag, needsLineContext, smartInput } from './smartTyping.ts'
 
 test('引号方向：句首 / 空格 / 左括号后是开引号，CJK 后是闭引号', () => {
   assert.deepEqual(smartInput('', '"', ''), { kind: 'insert', text: '“”', caret: 1 })
@@ -138,4 +138,50 @@ test('空段落与空格隔开时 -- 仍是一个 —（第 47 轮口径 + 分�
   // 表格行守卫仍在前
   assert.equal(smartInput('| 中文-', '-', '', '| 中文-'), null)
 })
+
+/* ---------- 第 58 轮 B-123：链接目标与行内 HTML 标签里的引号不转换 ---------- */
+
+test('inLinkDestOrHtmlTag 只认没收尾的链接目标与标签', () => {
+  assert.equal(inLinkDestOrHtmlTag('[乙](https://example.com '), true)
+  assert.equal(inLinkDestOrHtmlTag('<img src='), true)
+  assert.equal(inLinkDestOrHtmlTag('<img src="assets/a.png" width='), true)
+  // 收尾（`)` / `>`）之后恢复智能标点
+  assert.equal(inLinkDestOrHtmlTag('[乙](https://example.com "标题")'), false)
+  assert.equal(inLinkDestOrHtmlTag('<img src="a.png">'), false)
+  // 正文里的比较句：`<` 后面不是字母就不算标签
+  assert.equal(inLinkDestOrHtmlTag('甲 < 乙，我说'), false)
+})
+
+test('链接目标里的直引号不被改成弯引号', () => {
+  assert.equal(smartInput('](https://example.com ', '"', '', '[乙](https://example.com '), null)
+  assert.equal(smartInput('(https://example.com "标题', '"', '', '[乙](https://example.com "标题'), null)
+  assert.equal(smartInput('[乙](https://example.com "标题', '"', '', '[乙](https://example.com "标题'), null)
+})
+
+test('行内 HTML 标签属性里的直引号不被改成弯引号', () => {
+  assert.equal(smartInput('<img src=', '"', '', '<img src='), null)
+  assert.equal(smartInput('<img src="assets/a.png" width=', '"', '', '<img src="assets/a.png" width='), null)
+  assert.equal(smartInput('<img src="assets/a.png" width="300', '"', '', '<img src="assets/a.png" width="300'), null)
+})
+
+test('反向：正文里的 < 比较句仍配智能引号', () => {
+  assert.deepEqual(smartInput('甲 < 乙，我说', '"', '', '甲 < 乙，我说'), { kind: 'insert', text: '”', caret: 1 })
+  assert.deepEqual(smartInput('甲 < 乙，我说 ', '"', '', '甲 < 乙，我说 '), { kind: 'insert', text: '“”', caret: 1 })
+})
+
+test('链接目标里打关闭括号仍越过自动补的 )，不会多打一个', () => {
+  assert.deepEqual(
+    smartInput('](https://example.com "标题"', ')', ')', '[乙](https://example.com "标题"'),
+    { kind: 'skip' },
+  )
+  // 后面没有配对括号时照常插入
+  assert.equal(smartInput('](https://example.com "标题"', ')', '', '[乙](https://example.com "标题"'), null)
+})
+
+test('守卫不连累链接/标签之外：撇号、行内代码、表格行', () => {
+  assert.equal(smartInput('don', "'", ''), null)
+  assert.equal(smartInput('`grep "', '"', '', '`grep "'), null)
+  assert.equal(smartInput('| --', '-', ' ', '| --'), null)
+})
+
 

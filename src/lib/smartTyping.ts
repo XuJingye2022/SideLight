@@ -44,6 +44,17 @@ export function hasUnclosedBacktick(line: string): boolean {
   return count % 2 === 1
 }
 
+/**
+ * 光标前这一行是不是落在链接目标 `](…)` 里，或落在行内 HTML 标签 `<tag …` 里（第 58 轮 B-123）。
+ * 锚定在行尾：两种写法都还没收尾（没收 `)`、没收 `>`）才算「正在写」；
+ * `甲 < 乙` 这类中间有空格、`<` 后面不是字母的比较句不算标签。
+ */
+const LINK_DEST_OR_TAG = /(?:\]\([^)\n]*|<\/?[A-Za-z][^>\n]*)$/
+
+export function inLinkDestOrHtmlTag(line: string): boolean {
+  return LINK_DEST_OR_TAG.test(line)
+}
+
 
 /**
  * 唯一的判定入口：不碰 view，不碰选区。
@@ -62,6 +73,14 @@ export function smartInput(before: string, inserted: string, after: string, line
   const last = before.slice(-1)
   const next = after.slice(0, 1)
   const atStart = last === '' || /\s/.test(last) || OPENERS.includes(last)
+
+  // 链接目标 / 行内 HTML 标签里：引号与括号一个都不许改（第 58 轮 B-123）
+  // 关闭括号的「越过」要留在守卫之前：`(` 已经自动补过一个 `)`，这里不越过就会多打一个
+  if (inLinkDestOrHtmlTag(lineBefore)) {
+    const pairIndex = PAIRS.indexOf(inserted)
+    if (pairIndex % 2 === 1 && next === inserted) return { kind: 'skip' }
+    return null
+  }
 
   // 引号：先定开 / 闭，再决定配对、越过还是只换字
   if (inserted === '"' || inserted === "'") {
