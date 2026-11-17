@@ -168,6 +168,17 @@
 - 门禁：`npx tsc --noEmit` exit 0；`npm test` **29 个文件 380 条**全过（377 + 导出 1 + 模拟分析 2）；`npm run roundtrip` rich 5/7、source 7/7；`npm run verify` 首屏 gzip **292,681 B**（比第 43 轮 +635 B，内部 310,000 / 硬线 320,000，余 27,319 B，PASS）；`keyboard-acceptance` **52/52**（tester 独立复跑，跑完已还原 `shots/round-05/`）。
 - UNVERIFIED（本轮）：真实中文输入法下的 `[` / `]`（E2E 是 ASCII 注入）；真机「打印到 PDF」的产物（本机无打印机、宿主窗口起不来，只到 `emulateMedia({media:'print'})` 的计算样式层）；导出 HTML 在浏览器里打印的实测（只有按位置切片的单测）；`packaging/README.txt` 的那行改动本轮没有包可验。
 
+**第 45 轮（同一未发版区间）**
+
+- **刷新 / 重开恢复出来的文档，只切视图不再被误判成「有未保存改动」**（P1，数据安全）。改前用户一个字都没改，按一次 `Ctrl+/` 看源码，状态就变成脏：点另一篇弹「切换文档」三选一，按 `Ctrl+S` 会把恢复出来的正文另存成 `未命名.md`，用户以为改动已写回原文件。根因是恢复路径没留下「原文」——保存基线由整串原文生成（带尾换行），而源码模式兜底的 `serializeBodyNow()` 拿不到 `original`，两者只差一个 `\n`。现在 `useState` 恢复器多带一个 `raw`（整串，含 frontmatter 与脚注定义），首次载入 effect 与 `loadIntoEditor` 同口径写 `setOriginalText` / `rawTextRef` / 基线。E2E I1–I6 全过（14 条断言）：恢复后 `Ctrl+/` 恒 `dirty:false`、源码框与 `localStorage` 逐字节相同、切另一篇不弹框、真改一个字仍变脏（正对照）；**I5 走恢复分支**并断言源码框前 3 行是 `---` / `title: 丙` / `---`、末尾是 `丙的正文。\n`，用来守「误把 body 当 raw」（误用时 frontmatter 会整体消失）。**修的是「误判脏」，不是保存落点**：恢复态没有文件句柄时 `Ctrl+S` 仍走「在工作区根建 `未命名.md`」，这是第 28 轮的既定行为，本轮不动。
+- **页边批注三处可见性**（P1 + P2×2，用户可见）。
+  - 窄窗（≤1119px）抽屉遮罩从 `button` 改成 `div` + `role="presentation"`：原来它是 `<button>`，`button:hover:not(:disabled)`（特异度 0,2,1）压过 `.rail-backdrop` 的 `rgba(18,20,22,0.32)`，指针必然停在满屏遮罩上 → 整页正文被染成 `--accent-wash` 实色（预览态更直接是整屏空白，截图 3,835 B 纯色 → 修后 42,744 B）。改后计算背景 `rgba(18, 20, 22, 0.32)`、`elementFromPoint` 命中 `DIV.rail-backdrop`、`.doc-column` 字数前后相等、深色主题同值；键盘出口不变（抽屉「关闭批注」+ `Esc`）。
+  - 预览 / 源码视图不再渲染「批注」开关（那两个视图本来就不渲染页边栏，开关带 `aria-controls="margin-rail"` 却指向不存在的节点）；切到非编辑视图时把抽屉状态收掉，避免只剩遮罩没有面板。
+  - 修订卡的「→」回到行内流：`.note-diff` 由 `display:flex; flex-wrap:wrap` 改回 `display:block`，`.diff-arrow` 补 `margin: 0 4px`（JSX 三个 span 之间没有空白，这 4 px 是必需的）。箭头落在旧文末行或与新文同行都合格，断言用「主判据 + 反箭头独行守卫」两条同时成立；1440 与 1024 抽屉两处都过。
+- **安装器三处**（P1 + P2×2，安装 / 体积）。`packaging/installer.nsi`：① `SetOutPath "$INSTDIR\www"` 之前加 `RMDir /r "$INSTDIR\www"`——原来每次升级都把上一版的整份 `www` 留在原地，每升一次 +3.85 MB；实测放一个旧 hashed chunk 后重装，改前 `staleChunkStillThere=True`、`www` 98 文件 / 3,853,094 B，改后 `False`、97 文件 / 3,848,092 B（等于 `dist`）。② 主节加 `SectionIn RO`，组件页里这一项灰选、不可取消（原来取消唯一必装节后安装器照常报成功、磁盘上什么都没有）。③ 加 `MUI_ICON` / `MUI_UNICON` / `Icon` 指向 `packaging\sidelight.ico`（与宿主 exe 同一份）：提取 32×32 图标算哈希，改后 `new == host`、`new != old`。
+- 门禁：`npx tsc --noEmit` exit 0；`npm test` **29 个文件 380 条**全过（本轮不加单测，条数不变）；`npm run roundtrip` rich 5/7、source 7/7；`npm run verify` 首屏 gzip **292,707 B**（比第 44 轮 +26 B，内部 310,000 / 硬线 320,000，余 27,293 B，PASS；主 chunk 910,048 B raw / 284,889 B gzip）；`installer.ps1 -AssocDryRun` 实测 setup **1,304,634 B**（固定 `dist` 下连编两次同值；只写 `.tmp`，`release/` 三份文件 SHA256 开工前后逐字节相同）。
+- UNVERIFIED（本轮）：`setOriginalText(raw)` 的**保存字节**效果无断言覆盖（恢复态无句柄，保存落点是 `.tmp` 的固有路径；源码框、`dirty`、`localStorage` 三样读数都不经过这个 state）——只与 `loadIntoEditor` 对齐口径，不承诺字节变化；组件页「取消勾选主节 → 装出空目录」的 UI 复现（向导点击不可脚本化，只有 NSIS 语义 + `SectionIn RO` 静态计数）；setup.exe 图标的真机观感（只到 32×32 提取哈希）；`typora-gap.md` / `typora-features.md` 3 处过期（按计划排下轮，本轮未改）。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

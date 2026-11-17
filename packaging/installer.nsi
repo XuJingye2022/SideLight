@@ -21,6 +21,12 @@ Unicode true
   !define OUTFILE "..\release\Sidelight-${APPVERSION}-win-x64-setup.exe"
 !endif
 
+; Installer + uninstaller icon: the same .ico the host exe embeds (host\build.ps1 /win32icon).
+; Paths resolve from this script's directory, like "..\packaging\sidelight.ico" below.
+!define MUI_ICON "..\packaging\sidelight.ico"
+!define MUI_UNICON "..\packaging\sidelight.ico"
+Icon "..\packaging\sidelight.ico"
+
 Name "${APPNAME}"
 OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\Programs\Sidelight"
@@ -92,6 +98,7 @@ done:
 FunctionEnd
 
 Section "Sidelight" SEC_MAIN
+  SectionIn RO
   Call CheckRunning
   ; WebView2 runtime check: EdgeUpdate pv (32-bit view, then 64-bit, then HKCU), or the loader exe.
   SetRegView 32
@@ -127,6 +134,8 @@ do_copy:
   File "..\packaging\sidelight.ico"
   File "..\packaging\README.txt"
   File "..\LICENSE"
+  ; Upgrades: drop the previous web bundle first, or old hashed chunks pile up (+3.85 MB/upgrade).
+  RMDir /r "$INSTDIR\www"
   SetOutPath "$INSTDIR\www"
   File /r "..\dist\*"
   SetOutPath "$INSTDIR"

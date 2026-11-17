@@ -1030,10 +1030,7 @@ button:disabled {
 }
 
 .note-diff {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px;
+  display: block; /* 原来是 flex + wrap：箭头会被挤成独立一行（第 45 轮 ui F5） */
   margin: 6px 0 4px;
   font-family: var(--font-read);
   font-size: 12.5px;
@@ -1048,6 +1045,7 @@ button:disabled {
 
 .diff-arrow {
   color: var(--ink-faint);
+  margin: 0 4px;
 }
 
 .diff-new {

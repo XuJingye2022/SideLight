@@ -458,6 +458,8 @@ export default function App() {
   const [initial] = useState(() => {
     const fallback = {
       text: '',
+      // 整串原文（含 frontmatter 与脚注定义）；空串表示没有可恢复的原文
+      raw: '',
       frontmatter: '',
       footnotes: '',
       name: '未命名.md',
@@ -474,6 +476,8 @@ export default function App() {
       const footnoteSplit = extractFootnotes(split.body)
       return {
         text: footnoteSplit.body,
+        // 恢复态也要留下「原文」：整串（不是上面那个 body），否则源码视图会丢 frontmatter（第 45 轮 F1）
+        raw: text,
         frontmatter: split.frontmatter,
         footnotes: footnoteSplit.footnotes,
         name: parsed.name ?? '未命名.md',
@@ -1027,11 +1031,16 @@ export default function App() {
     if (!editor) return
     if (import.meta.env.DEV) performance.mark('sl-load-start')
     setMarkdown(initial.text)
+    // 恢复出来的文档也要有「原文」：否则 baseline 用整串生成（带尾换行），而源码模式
+    // 兜底的 serializeBodyNow() 拿不到 original，只差一个尾换行就被判成脏（第 45 轮 F1）
+    const raw = initial.raw.length > 0 ? initial.raw : null
+    setOriginalText(raw)
+    rawTextRef.current = raw
     // 保存基线取「序列化后的正文」而不是原始文本：撤销回初始内容时必须刚好等于基线
     baselineRef.current = serializeDocument(editor, {
       frontmatter: initial.frontmatter,
       footnotes: initial.footnotes,
-      original: initial.text,
+      original: raw,
     }).replace(/\r\n/g, '\n')
     if (import.meta.env.DEV) performance.mark('sl-serialize-done')
     saveTargetRef.current = null
@@ -1041,7 +1050,7 @@ export default function App() {
     setSelection({ chars: context.selection.length, words: 0, from, to, source: context.source })
     syncDocInfo(editor)
     if (import.meta.env.DEV) performance.mark('sl-sync-done')
-  }, [editor, initial.text, setMarkdown, syncDocInfo])
+  }, [editor, initial.text, initial.raw, setMarkdown, setOriginalText, syncDocInfo])
 
   useDialogFocus(draftPrompt !== null, draftDialogRef)
 
@@ -1908,6 +1917,12 @@ export default function App() {
     })
     return () => cancelAnimationFrame(frame)
   }, [editor])
+
+  // 预览 / 源码不渲染页边栏：切过去时把抽屉状态收掉，避免只有遮罩没有内容（第 45 轮 ui F4）
+  useEffect(() => {
+    if (viewMode === 'edit') return
+    setRailOpen(false)
+  }, [viewMode])
 
   useEffect(() => {
     if (!editor) return
@@ -4636,19 +4651,21 @@ export default function App() {
         <button type="button" onClick={() => setSettingsOpen(true)}>
           设置
         </button>
-        <button
-          ref={railToggleRef}
-          type="button"
-          className="rail-toggle"
-          aria-expanded={railOpen}
-          aria-controls="margin-rail"
-          aria-label={`批注（${annotations.length} 条）`}
-          title={`批注（${annotations.length} 条）`}
-          onClick={() => (railOpen ? closeRail() : openRail())}
-        >
-          批注
-          {railOpen && annotations.length > 0 && <span className="rail-count">{annotations.length}</span>}
-        </button>
+        {viewMode === 'edit' && (
+          <button
+            ref={railToggleRef}
+            type="button"
+            className="rail-toggle"
+            aria-expanded={railOpen}
+            aria-controls="margin-rail"
+            aria-label={`批注（${annotations.length} 条）`}
+            title={`批注（${annotations.length} 条）`}
+            onClick={() => (railOpen ? closeRail() : openRail())}
+          >
+            批注
+            {railOpen && annotations.length > 0 && <span className="rail-count">{annotations.length}</span>}
+          </button>
+        )}
       </header>
 
       <div className="toolbar">
@@ -5191,8 +5208,9 @@ export default function App() {
         </Suspense>
       )}
 
-      {railOpen && (
-        <button type="button" className="rail-backdrop" aria-label="关闭批注" onClick={closeRail} />      )}
+      {railOpen && viewMode === 'edit' && (
+        <div className="rail-backdrop" role="presentation" onClick={closeRail} />
+      )}
 
       <SaveDialog
         open={pendingConfirm !== null}

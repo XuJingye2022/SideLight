@@ -54,4 +54,4 @@ powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 - 未签名：首次运行会被 SmartScreen 拦一次。
 - 不写 HKLM，不需要管理员。
 - `.md` 关联只做 opt-in 的「打开方式」候选：默认不勾、`/S` 不写、不碰 `UserChoice`/`FileExts`/`.md` 默认程序；卸载用 `/ifempty` 保留别人的候选。`FileExts` 的 MRU 若用户手动选过一次可能残留，属已知限制。
-- 体积预算：安装包内部预算 45,000,000 B（超了只报警），硬线 50,000,000 B（超了先打印载荷占比，不抬线）；0.32.1 实测 824,209 B（本机重建 824,595 B），第 39 轮真实打包实测 setup **1,300,711 B**、便携 zip **1,622,355 B**（含 Mermaid 惰性 chunk，首屏不受影响）。便携 zip 门槛 50,000,000 B（`packaging/portable.ps1` 的 `$threshold`），**与安装包共用硬线、不另设内部预算**：zip 含宿主与图标等固定载荷，字节与安装包不同源，单设内部线没有实测依据。
+- 体积预算：安装包内部预算 45,000,000 B（超了只报警），硬线 50,000,000 B（超了先打印载荷占比，不抬线）；具体字节每版都不同，**以 Release 页的 `SHA256SUMS-<版本>.txt` 为准**（第 45 轮本机 `installer.ps1 -AssocDryRun` 重建、未发布 setup **1,304,634 B**，含 Mermaid 惰性 chunk，首屏不受影响）。便携 zip 门槛 50,000,000 B（`packaging/portable.ps1` 的 `$threshold`），**与安装包共用硬线、不另设内部预算**：zip 含宿主与图标等固定载荷，字节与安装包不同源，单设内部线没有实测依据。
