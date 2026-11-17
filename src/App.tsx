@@ -78,6 +78,7 @@ import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontm
 import { serializeDocument } from './lib/serializeDocument.ts'
 import { repairHtml, escapeHtmlForParse } from './lib/html.ts'
 import { inlineMarks } from './lib/inlineHtmlTags.ts'
+import { inlineSyntaxMarks } from './lib/inlineSyntax.ts'
 import { splitTableCellBreaks } from './lib/tableCellBreaks.ts'
 import { tableTokenizer, taskListTokenizer, type BlockTokenizer } from './lib/markdownFastPath.ts'
 import { TaskListInput } from './lib/taskListInput.ts'
@@ -804,6 +805,14 @@ export default function App() {
   }, [settings.smartPunctuation])
   const smartTypingExtension = useMemo(() => createSmartTyping({ isEnabled: () => smartPunctRef.current }), [])
 
+  // 快捷行内语法（第 55 轮 B-101）同理：三个 mark 常驻 schema，开关只改解析，不重建编辑器。
+  // 已经打开的文档不重排；下一次解析（打开/拖入文档）才按当前开关决定认不认 `==a==`。
+  const inlineSyntaxRef = useRef(settings.inlineSyntax)
+  useEffect(() => {
+    inlineSyntaxRef.current = settings.inlineSyntax
+  }, [settings.inlineSyntax])
+  const inlineSyntaxExtensions = useMemo(() => inlineSyntaxMarks(), [])
+
   const shortcutExtension = useMemo(
     () =>
       Extension.create({
@@ -847,6 +856,8 @@ export default function App() {
       // 行内 HTML 白名单（第 47 轮）：kbd/mark/sub/sup 四种真成对标签在编辑视图与预览里成为真样式，
       // 保存仍写回原标签；其余标签照旧走实体与 repairHtml 的保真路径
       ...inlineMarks,
+      // 快捷行内语法（第 55 轮 B-101）：`==高亮==` / `^上标^` / `~下标~`，默认关，设置里开
+      ...inlineSyntaxExtensions,
       Markdown.configure({ indentation: { style: 'space', size: 2 } }),
       AnnotationDecorations,
       MermaidPreview,
@@ -1066,7 +1077,8 @@ export default function App() {
         return
       }
       // 必须在 parse 之前：GFM 默认把单个 ~ 当删除线（H~2~O → strike → 存成 ~~2~~）
-      disableSingleTildeStrike(manager)
+      // 第 55 轮起同一处还注册快捷行内语法的三个 token；开关从 ref 现读，关着就退回字面
+      disableSingleTildeStrike(manager, () => inlineSyntaxRef.current)
       const parsed = manager.parse(escapeHtmlForParse(protectMathPairs(body)))
       // 单元格里的 <br> 被 escapeHtmlForParse 转义成了文字：解析回 hardBreak，否则重开显示字面 <br>
       const node = editor.schema.nodeFromJSON(splitTableCellBreaks(parsed))

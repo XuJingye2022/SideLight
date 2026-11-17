@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { DEFAULT_USER_PROMPT } from '../lib/prompt.ts'
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, type Settings } from '../lib/settings.ts'
+import { BUILTIN_THEMES } from '../lib/themes.ts'
 import { useDialogFocus } from './useDialogFocus.ts'
 
 type Props = {
@@ -65,6 +66,23 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
                 {label}
               </button>
             ))}
+            {/* 内置主题清单（第 55 轮 B-105）：加一套主题 = themes.ts 加一项 + styles.css 加一段 */}
+            {BUILTIN_THEMES.map((theme) => (
+              <button
+                key={theme.id}
+                type="button"
+                role="radio"
+                aria-checked={draft.theme === theme.id}
+                className={draft.theme === theme.id ? 'is-on' : ''}
+                data-theme-id={theme.id}
+                onClick={() => {
+                  update({ theme: theme.id })
+                  document.documentElement.setAttribute('data-theme', theme.id)
+                }}
+              >
+                {theme.name}
+              </button>
+            ))}
           </div>
           <p className="field-hint">点一下就预览；保存后记住，取消会还原。</p>
         </div>
@@ -88,6 +106,18 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
           <span>智能标点与自动配对括号</span>
         </label>
         <p className="field-hint">只作用于键盘输入，不改已有正文；代码块内不转换。</p>
+
+        <label className="field field-check">
+          <input
+            type="checkbox"
+            checked={draft.inlineSyntax}
+            onChange={(event) => update({ inlineSyntax: event.target.checked })}
+          />
+          <span>快捷行内语法（`==高亮==` / `^上标^` / `~下标~`）</span>
+        </label>
+        <p className="field-hint">
+          默认关：关着这些符号按字面保存。开只作用在下次打开或拖入的文档上，已打开的正文不重排；写回字节两种状态都一样。
+        </p>
 
         <label className="field">
           <span>接口地址</span>

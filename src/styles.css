@@ -64,9 +64,41 @@ html[data-theme='dark'] {
   --shadow: rgba(0, 0, 0, 0.35);
 }
 
-/* 跟随系统：没有手动选浅色/深色时，系统深色就是深色（原生下拉、滚动条也跟着） */
+/* 内置主题「暖纸」（第 55 轮 B-105，清单见 src/lib/themes.ts）。
+   值与清单逐项一致：themes.test.ts 读这一段对照，改一处就要两处一起改。
+   独立成一套完整变量，不叠在浅色上：系统深色时也不能把纸底吃掉（见下面的媒体查询）。 */
+html[data-theme='sepia'] {
+  color-scheme: light;
+  --paper: #f4e8d2;
+  --paper-raised: #fbf3e3;
+  --panel: #efe2c9;
+  --ink: #3a2f21;
+  --ink-soft: #6b5d48;
+  --ink-faint: #7a6b54;
+  --line: #ddcbaa;
+  --line-strong: #cbb58e;
+  --accent: #7a5a2a;
+  --accent-ink: #64471f;
+  --accent-wash: #eee0c2;
+  --mark: #8a5420;
+  --mark-wash: #f0dfc0;
+  --mark-bg: #ecd7a6;
+  --note: #4a6a7a;
+  --note-wash: #e9e3d5;
+  --warn: #96432c;
+  --danger: #a8402f;
+  --on-accent: #fffdf7;
+  --on-mark: #fffdf7;
+  --line-input: #8a7a62;
+  --mark-strong: #7a5423;
+  --focus-color: #7a5a2a;
+  --focus-ring: 2px solid #7a5a2a;
+  --shadow: rgba(60, 45, 25, 0.08);
+}
+
+/* 跟随系统：没有手动选浅色/深色/内置主题时，系统深色就是深色（原生下拉、滚动条也跟着） */
 @media (prefers-color-scheme: dark) {
-  html:not([data-theme='light']):not([data-theme='dark']) {
+  html:not([data-theme='light']):not([data-theme='dark']):not([data-theme='sepia']) {
     color-scheme: dark;
     --paper: #15171a;
     --paper-raised: #1c1f23;
@@ -708,6 +740,32 @@ button:disabled {
 .doc-body sub {
   bottom: -0.25em;
 }
+
+/* 快捷行内语法（第 55 轮 B-101）：`==高亮==` / `^上标^` / `~下标~`。默认关；
+   关着不产生这三个 mark，所以这里不需要额外的开关样式 */
+.doc-body .sl-eq {
+  background: var(--mark-bg);
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+.doc-body .sl-sup {
+  font-size: 0.75em;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+  top: -0.5em;
+}
+
+.doc-body .sl-sub {
+  font-size: 0.75em;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+  bottom: -0.25em;
+}
+
+/* 预览面板与编辑视图同一套排版：预览根节点也带 .doc-body */
 
 /* Mermaid 预览：挂在代码块下面的装饰 widget（第 36 轮，不进序列化） */
 .mermaid-preview {

@@ -247,6 +247,14 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **296,610 B**（比第 52 轮 +555，内部 310,000 / 硬线 320,000，余 23,390）；`npm test` **35 个文件 449 条**全过。
 - UNVERIFIED（本轮）：真实拖放带出的 FSA 句柄（拖真文件后 `Ctrl+S` 写回原文件、拖真文件夹开工作区树）与多文件只开首个；宿主 WebView2 窗口内的 130%–200% 整页缩放与 `Ctrl+滚轮`。
 
+**第 55 轮（同一未发版区间）**
+
+- **`==高亮==` / `^上标^` / `~下标~` 快捷语法**（B-101）：新增 `src/lib/inlineSyntax.ts`（`eqHighlight` / `caretSup` / `tildeSub` 三个专用 mark + 三个 marked 行内 tokenizer），`src/lib/tilde.ts` 在原有的单 `~` 守卫同一次 `use()` 里注册；设置面板加「快捷行内语法」开关，**默认关**（旧存档读成关）。关着这些符号按字面保存；开只改解析，不重建编辑器，已打开的正文不重排，下一次打开/拖入才生效。行内 HTML 白名单的 `<mark>` / `<sub>` / `<sup>` 路径不变。新增 `src/lib/inlineSyntax.test.ts`（9 条）；`scripts/roundtrip.mjs` 补 `inlineMarks` 与新样本 `fixtures/markdown/08-inline-html.md`。
+- **主题体系 MVP：一套内置「暖纸」主题**（B-105）：新增 `src/lib/themes.ts` 清单（id + 显示名 + 变量表），`src/styles.css` 加 `html[data-theme='sepia']` 完整变量块，跟随系统媒体查询排除 `sepia`（系统深色不吃掉暖纸纸底）；设置面板在三档模式之后追加内置主题按钮，选中即时预览、取消还原。新增 `src/lib/themes.test.ts`（4 条，含「清单值 = CSS 值」与对比度）。
+- **差距表计数与拆行修正**（B-112、B-117）：`docs/typora-gap.md` 表头改为「已经有的（35）」/「缺的（7）」，行数与子节计数逐项对上；`==高亮==` 三行从「缺的」移入「已有」，原并在一行的 TOC / emoji 单独成行；`README.md` 与 `AGENTS.md` 的 32/9 口径改 35/7；整页缩放口径改 50–200%；全屏只写「`F11` 有入口，宿主内未验」。
+- 门禁：`npm run verify` PASS，首屏 gzip **297,656 B**（比第 54 轮 +1,046，内部 310,000 / 硬线 320,000，余 12,344）；`npm test` **37 个文件 462 条**全过；`npm run roundtrip` PASS（rich 6/8、source 8/8，新样本 08 完全保真）。
+- UNVERIFIED（本轮）：开时的写回字节用应用内「导出 Markdown」取 Blob 验（与保存共用序列化链），未经真实磁盘/FSA 保存；宿主 WebView2 里的暖纸主题与 `F11`；真实中文 IME 下的 `==` / `^` / `~` 逐键表现。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

@@ -77,7 +77,13 @@ check(':root 声明 color-scheme', (initial.colorScheme ?? '').includes('light')
 // 深色档：预览 → 保存 → reload 仍在
 await openSettings()
 const radios = await page.locator('[role="radiogroup"][aria-label="主题"] [role="radio"]').allTextContents()
-check('设置首行三档主题', radios.join('|') === '浅色|深色|跟随系统', radios.join('|'))
+// 第 55 轮 B-105：三档模式之后追加内置主题清单（暖纸）。这里只断言「旧三档仍在原位」+ 清单非空，
+// 免得以后每加一套主题就要改这条脚本。
+check(
+  '设置首行三档主题',
+  radios.slice(0, 3).join('|') === '浅色|深色|跟随系统' && radios.length >= 4,
+  radios.join('|'),
+)
 await pickTheme('深色')
 const darkPreview = await state()
 check('深色即时预览（data-theme）', darkPreview.theme === 'dark', darkPreview.theme ?? 'none')

@@ -1,7 +1,9 @@
 import { DEFAULT_USER_PROMPT } from './prompt.ts'
 import type { SearchProvider } from './search.ts'
+import { isThemeChoice, type ThemeChoice } from './themes.ts'
 
-export type ThemeMode = 'light' | 'dark' | 'system'
+/** 三档模式 + 内置主题 id（清单在 themes.ts） */
+export type ThemeMode = ThemeChoice
 
 export type Settings = {
   baseUrl: string
@@ -24,6 +26,8 @@ export type Settings = {
   autoSave: boolean
   /** 键盘输入把直引号 / -- / ... / 中文后半角标点换成排版符，并自动配对括号引号 */
   smartPunctuation: boolean
+  /** `==高亮==` / `^上标^` / `~下标~` 快捷语法（默认关；只改解析与写回，不重建编辑器） */
+  inlineSyntax: boolean
 }
 
 const STORAGE_KEY = 'sidelight.settings.v1'
@@ -49,6 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   promptVersion: 3,
   autoSave: true,
   smartPunctuation: true,
+  inlineSyntax: false,
 }
 
 /** 旧默认提示词的指纹（v1）：长度 + FNV-1a；命中才升级，用户改过的不动 */
@@ -102,10 +107,8 @@ export function loadSettings(): Settings {
       fontSize: clampFontSize(parsed.fontSize ?? DEFAULT_SETTINGS.fontSize),
       // 旧存档没有这个键：读出来必须是 100，不能把整页放大成别倍
       pageZoom: clampPageZoom(parsed.pageZoom ?? DEFAULT_SETTINGS.pageZoom),
-      theme:
-        parsed.theme === 'light' || parsed.theme === 'dark' || parsed.theme === 'system'
-          ? parsed.theme
-          : DEFAULT_SETTINGS.theme,
+      // 三档模式或内置主题 id（第 55 轮 B-105）；不认识的写回默认，不白屏
+      theme: isThemeChoice(parsed.theme) ? parsed.theme : DEFAULT_SETTINGS.theme,
       searchProvider:
         parsed.searchProvider === 'tavily' || parsed.searchProvider === 'bocha' || parsed.searchProvider === 'deepseek' ? parsed.searchProvider : 'off',
       searchApiKey: parsed.searchApiKey ?? '',
@@ -114,6 +117,8 @@ export function loadSettings(): Settings {
       autoSave: parsed.autoSave !== false,
       // 旧存档没有这个键，读出来必须是开（不能把老用户的功能默认关掉）
       smartPunctuation: parsed.smartPunctuation !== false,
+      // 新功能默认关：旧存档读出来是关（第 55 轮 B-101）
+      inlineSyntax: parsed.inlineSyntax === true,
     }
   } catch {
     return { ...DEFAULT_SETTINGS }

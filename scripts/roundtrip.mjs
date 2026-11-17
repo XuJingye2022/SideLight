@@ -10,6 +10,7 @@ import { TaskList } from '@tiptap/extension-task-list'
 import { extractFootnotes } from '../src/lib/footnotes.ts'
 import { leadingNewlines, splitFrontmatter } from '../src/lib/frontmatter.ts'
 import { escapeHtmlForParse } from '../src/lib/html.ts'
+import { inlineMarks } from '../src/lib/inlineHtmlTags.ts'
 import { protectMathPairs } from '../src/lib/math.ts'
 import { baselineLosses } from '../src/lib/risk.ts'
 import { serializeDocument } from '../src/lib/serializeDocument.ts'
@@ -25,7 +26,8 @@ const ReusableTable = Table.extend({
   },
 })
 
-const EXTENSIONS = [StarterKit, ReusableTable, TableRow, TableHeader, TableCell, TaskList, TaskItem]
+/** 与 App 相同的扩展集：表格、任务列表、行内 HTML 白名单（第 55 轮补，原本漏了 inlineMarks） */
+const EXTENSIONS = [StarterKit, ...inlineMarks, ReusableTable, TableRow, TableHeader, TableCell, TaskList, TaskItem]
 
 /** 与 App 的保存流程一致：摘 frontmatter/脚注 → 解析 → 共享 serializeDocument（含表格复用）→ 拼回 */
 function throughApp(manager, source) {
