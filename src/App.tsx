@@ -65,7 +65,7 @@ import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } fro
 import { MathInputRules } from './lib/mathInput.ts'
 import { normalizeForBaseline } from './lib/baseline.ts'
 import { diskSnapshot, reusableDiskText, type DiskSnapshot } from './lib/saveDisk.ts'
-import { inTableAncestry } from './lib/tableScope.ts'
+import { inTableAncestry, typingBlockMarkerInCell } from './lib/tableScope.ts'
 import { DISCUSS_SYSTEM_PROMPT } from './lib/prompt.ts'
 import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDefinitions, lossLabels, type Loss } from './lib/risk.ts'
 import { repairCalloutMarkers } from './lib/escapes.ts'
@@ -79,6 +79,7 @@ import { serializeDocument } from './lib/serializeDocument.ts'
 import { repairHtml, escapeHtmlForParse } from './lib/html.ts'
 import { inlineMarks } from './lib/inlineHtmlTags.ts'
 import { splitTableCellBreaks } from './lib/tableCellBreaks.ts'
+import { tableTokenizer, taskListTokenizer, type BlockTokenizer } from './lib/markdownFastPath.ts'
 import { TaskListInput } from './lib/taskListInput.ts'
 import { protectMathPairs, repairMath } from './lib/math.ts'
 import { disableSingleTildeStrike, repairTildes } from './lib/tilde.ts'
@@ -134,6 +135,9 @@ const StrikeShortcut = Strike.extend({
  * 和文档级 `\n\n` 叠加会每存一次多两行。实测 MarkdownManager 用的是这里注册的扩展。
  */
 const ReusableTable = Table.extend({
+  // 载入 1 MB 多节点文档时 marked 会在每个块位置调一次 block tokenizer：原实现的 start
+  // 一进来就 split 剩下的整篇（实测占 23.8%）。这里换成只看前两行的同义守卫（第 52 轮 B-013）。
+  markdownTokenizer: tableTokenizer(Table.config.markdownTokenizer as unknown as BlockTokenizer),
   renderMarkdown(node, helpers) {
     // 用运行时 parent 调原实现：Tiptap 的 this 类型带 name/options/storage，这里只取 parent
     const parent = (this as unknown as { parent: (node: unknown, helpers: unknown) => string }).parent
@@ -142,6 +146,11 @@ const ReusableTable = Table.extend({
       .replace(/^\n+/, '')
       .replace(/\n+$/, '')
   },
+})
+
+/** 任务列表也按每个块位置被调用一次：原 tokenize 开头 split 全文（实测占 71.1%），套同义守卫 */
+const FastTaskList = TaskList.extend({
+  markdownTokenizer: taskListTokenizer(TaskList.config.markdownTokenizer as unknown as BlockTokenizer),
 })
 
 const SAMPLE = `# 侧灯
@@ -825,7 +834,7 @@ export default function App() {
       TableRow,
       TableHeader,
       TableCell,
-      TaskList,
+      FastTaskList,
       // 去掉 TaskItem 自带的 `[ ] ` 输入规则：它在 listItem 里恒失败（没有 group），却会在
       // 普通段落里把字面 `[ ] ` 变成任务项（Typora 不会）。任务项改由 TaskListInput 在
       // 无序列表里建，单打 `[ ] ` 保持字面。
@@ -848,6 +857,24 @@ export default function App() {
     contentType: 'markdown',
     editorProps: {
       attributes: { class: 'editor doc-body', spellcheck: 'false', 'aria-label': '正文编辑器' },
+      /**
+       * 表格单元格里手打块级标记（`# 标题` / `> 引用` / `- 列表`）不造块（第 52 轮 B-007）。
+       * 输入规则看到「块首标记 + 空格」会把段落换成 heading/blockquote/list，但 Markdown 表格
+       * 只装行内内容，存盘时这些块会把表格结构写坏。这里只在「给标记补空格」这一下自己插字，
+       * 其余输入一律返回 false 交回输入规则（正文里的 `# ` 照常变标题）。
+       * editorProps 是 EditorView 的直连 props，优先于插件 props，所以能在 inputRules 之前拦下。
+       */
+      handleTextInput: (view, from, to, text) => {
+        if (text !== ' ') return false
+        const $from = view.state.selection.$from
+        if (from < $from.start() || from > $from.end()) return false
+        const names: string[] = []
+        for (let depth = $from.depth; depth > 0; depth -= 1) names.push($from.node(depth).type.name)
+        const before = $from.parent.textBetween(0, from - $from.start())
+        if (!typingBlockMarkerInCell(names, before)) return false
+        view.dispatch(view.state.tr.insertText(text, from, to))
+        return true
+      },
       handleKeyDown: (view, event) => {
         // 表格范围判据与 window 层、公式块守卫共用（第 48 轮）：这里只把祖先名收集起来
         const names: string[] = []
@@ -3769,6 +3796,18 @@ export default function App() {
     return true
   }, [selectionInTable, show])
 
+  // 全屏（F11，第 52 轮 B-002）：页面自己进出全屏；桌面宿主靠 ContainsFullScreenElementChanged
+  // 跟着切窗口。dataset 给测试与排障一个可读状态，Esc 退出全屏时也会及时改回 false。
+  useEffect(() => {
+    const root = document.documentElement
+    const sync = () => {
+      root.dataset.fullscreen = document.fullscreenElement !== null ? 'true' : 'false'
+    }
+    sync()
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const mod = event.ctrlKey || event.metaKey
@@ -3854,6 +3893,15 @@ export default function App() {
             return
           }
         }
+        return
+      }
+
+      // 全屏：F11 进出页面全屏。失败（宿主或浏览器不允许）时保持原状，
+      // 状态只由 fullscreenchange 回写，不在按键里猜。
+      if (event.key === 'F11' && !mod && !event.altKey && !event.shiftKey) {
+        event.preventDefault()
+        if (document.fullscreenElement !== null) void document.exitFullscreen().catch(() => undefined)
+        else void document.documentElement.requestFullscreen().catch(() => undefined)
         return
       }
 

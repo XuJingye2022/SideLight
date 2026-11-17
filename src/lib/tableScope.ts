@@ -8,3 +8,14 @@ export const TABLE_SCOPE_NAMES = ['table', 'tableRow', 'tableCell', 'tableHeader
 export function inTableAncestry(names: readonly string[]): boolean {
   return names.some((name) => (TABLE_SCOPE_NAMES as readonly string[]).includes(name))
 }
+
+/**
+ * 单元格里正在手打的块级标记：`#` / `>` / `-` / `1.` / ```` ``` ```` 后面那个空格。
+ * 输入规则命中它就会把段落换成 heading/blockquote/list，而 Markdown 表格只装行内内容，
+ * 存盘时这些块会被写成表格里装不下的语法（第 52 轮 B-007）。守卫只认「块首的标记 + 一个空格」。
+ */
+const MARKER_BEFORE_SPACE = /^[ \t]*(?:#{1,6}|>|[-+*]|\d{1,9}[.)]|`{3,}|~{3,}|-{3,}|\*{3,}|_{3,})$/
+
+export function typingBlockMarkerInCell(names: readonly string[], markdownBeforeCursor: string): boolean {
+  return inTableAncestry(names) && MARKER_BEFORE_SPACE.test(markdownBeforeCursor)
+}

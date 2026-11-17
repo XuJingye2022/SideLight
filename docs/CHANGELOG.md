@@ -232,6 +232,14 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **295,476 B**（比第 50 轮 +563，内部 310,000 / 硬线 320,000，余 24,524）；`npm test` **34 个文件 442 条**全过（432 + `saveDisk` 8 + `settings` 2）；本轮未动 Markdown 序列化，`roundtrip` 未跑。
 - UNVERIFIED（本轮）：写盘期间切换 / 删除的回滚分支（假 FSA 造不出写盘期身份变化）；真实磁盘 `lastModified` 粒度（NTFS 1–2 s）下的同秒外部改动；宿主 WebView2 内的 `Ctrl+滚轮` 缩放；真实 IME 组合输入下的 `Ctrl+Shift+=`。
 
+**第 52 轮（同一未发版区间）**
+
+- **1 MB 多节点载入 110.9 s → ≤3 s**（P1，性能）：根因是 marked 在每个块位置都调 table / taskList tokenizer，而它们的 `start` / `tokenize` 一进来就 split 整篇（O(n²)）；新增 `src/lib/markdownFastPath.ts`，只加「表格看前两行、任务列表看头 2048 字符的第一个非空行」的等价守卫，命中才调原实现，不换依赖、不改解析语义。同脚本同 seed（`.tmp/e2e-r51-b1.mjs`）实测 1,000,012 字符 / 44,446 块：`ready` 112,560 ms → **2,947 ms**，100 KB **1,130 ms**（门槛 3,000）；顶层节点 44,446 / 4,648、首末段与正文长度逐字不变；`roundtrip` rich 5/7、source 7/7。
+- **F11 全屏**（P1，用户可见）：页面走 `requestFullscreen` / `exitFullscreen` 并用 `document.documentElement.dataset.fullscreen` 回写状态；桌面宿主接 `ContainsFullScreenElementChanged` 跟切窗口边框与最大化并还原，同时关掉 WebView2 原生 Ctrl+滚轮缩放（`IsZoomControlEnabled = false`），避免与应用内整页缩放成双轨。浏览器态实测 `false → true → false` 往返、`fullscreenElement` 同步，快捷键表补 F11 一行；宿主内未实测。
+- **表格单元格手打块级标记不造块**（P2，数据安全）：`editorProps.handleTextInput` 只在「块首标记 + 空格」这一下自己插字，单元格里 `# ` / `> ` / `- ` 保持字面文本（每格仍 1 个 `p`，`Ctrl+S` 后源码含字面标记、重开表格 3 行不变），正文里照常造 heading / blockquote / list；工具栏「表格单元格里不能用命令插入…」提示仍在。
+- 门禁：`npm run verify` PASS，首屏 gzip **296,055 B**（比第 51 轮 +579，内部 310,000 / 硬线 320,000，余 23,945）；`npm test` **34 个文件 442 条**全过；`roundtrip` PASS；`keyboard-acceptance` 51/52、`bigfile-acceptance` 2/3，两条 FAIL 均为旧脚本断言过期（第 51 轮 ttl 1.5 s 提示、5.5 MiB 文案早已改），非本轮回归，见 `docs/iteration/round-52/test.md`。
+- UNVERIFIED（本轮）：真实宿主窗口里的 F11 进出全屏与宿主 Ctrl+滚轮；真实 IME 下的表格块级标记与 F11；改后热点 profile 未另取样（top 3 沿用改前 `.tmp/r51-b1-prof.json`）。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

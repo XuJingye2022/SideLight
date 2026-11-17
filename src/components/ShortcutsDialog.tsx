@@ -43,6 +43,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
     title: '视图与字号',
     items: [
       ['Ctrl+Shift+P', '预览'],
+      ['F11', '全屏（再按一次退出）'],
       ['Ctrl+Shift+= / Ctrl+Shift+-', '整页放大 / 缩小'],
       ['Ctrl+Shift+0', '整页缩放复位 100%'],
       ['Ctrl+滚轮', '整页缩放'],

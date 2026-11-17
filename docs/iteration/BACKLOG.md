@@ -16,16 +16,17 @@
 | ID | 状态 | 区域 | 问题 | 证据 | 轮 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | B-001 | fixed | 视图 | 整页视图缩放（Ctrl+滚轮 + 重置；正文字号已有） | `docs/typora-gap.md:56` | 差距表 |
-| B-002 | open | 视图 | 全屏 | `docs/typora-gap.md:57` | 差距表 |
+| B-002 | fixed | 视图 | 全屏 | `docs/typora-gap.md:57` | 差距表 |
 | B-003 | open | 文件 | 拖入 `.md` / 文件夹直接打开（现在只提示，不打开） | `docs/typora-gap.md:64`；第 43 轮 | 差距表 |
 | B-004 | open | 宿主 | `/__asset`：WebView2 单文件打开时相对路径图片 | STATE 第 38 轮 | 38 |
 | B-005 | fixed | 测试 | `scripts/data-safety-acceptance.mjs` 的 `.editor` 过期选择器 | STATE 待办 | 41 |
 | B-006 | fixed | 保存 | F1 保存先整篇读回旧文件 / 无改动也写；F4 一次停笔写 4 份全文 | `docs/iteration/round-50/test.md` | 50 |
-| B-007 | open | 表格 | 单元格里手打 `# ` / `> ` / `- ` 仍造块级节点，存盘丢结构 | `docs/iteration/round-48/test.md` | 48 |
+| B-007 | fixed | 表格 | 单元格里手打 `# ` / `> ` / `- ` 仍造块级节点，存盘丢结构 | `docs/iteration/round-48/test.md` | 48 |
 | B-011 | fixed | 视图 | `Ctrl+Shift+=` / `Ctrl+Shift+-` 现在也改正文字号（实测 17→18→17），与 Typora 整页缩放键位重叠；快捷键对话框只写 `Ctrl+=` / `Ctrl+-` | `src/App.tsx:3891`（`event.key === '+'`）、`src/components/ShortcutsDialog.tsx:46`；`.tmp/r51-typora-out.json` | 51 |
-| B-012 | open | 宿主 | 桌面宿主无缩放/全屏钩子：`host/` 无 `ZoomFactor`/`IsZoomControlEnabled`/`FullScreen`/`F11`（0 命中），WebView2 默认 Ctrl+滚轮原生缩放会与应用内缩成双轨，全屏需宿主接 `ContainsFullScreenElementChanged` | `host/`（grep 0 命中）；`src/` 无 `requestFullscreen`（0 命中） | 51 |
+| B-012 | fixed | 宿主 | 桌面宿主无缩放/全屏钩子：`host/` 无 `ZoomFactor`/`IsZoomControlEnabled`/`FullScreen`/`F11`（0 命中），WebView2 默认 Ctrl+滚轮原生缩放会与应用内缩成双轨，全屏需宿主接 `ContainsFullScreenElementChanged` | `host/`（grep 0 命中）；`src/` 无 `requestFullscreen`（0 命中） | 51 |
 | B-008 | fixed | 可访问性 | 视图模式四钮（专注/打字机/源码/预览）无 `aria-pressed`，开关状态读屏不可见（同排格式钮有） | `src/App.tsx:4956-4999`；`docs/iteration/round-51/findings-ui.md` F1 | 51 |
-| B-013 | open | 性能 | 1 MB 文档载入按节点数爆炸：约 2.4 万顶层节点要 110.9 s（300 段同类文件 1.7 s），载入期主线程全忙且无提示 | `.tmp/r51-bug-log4.txt`（parse 109,661 ms）；`.tmp/r51-bug-log3.txt`（79,858 ms）；`docs/iteration/round-51/findings-bug.md` F1 | 51 |
+| B-013 | fixed | 性能 | 1 MB 文档载入按节点数爆炸：约 2.4 万顶层节点要 110.9 s（300 段同类文件 1.7 s），载入期主线程全忙且无提示 | `.tmp/r51-bug-log4.txt`（parse 109,661 ms）；`.tmp/r51-bug-log3.txt`（79,858 ms）；`docs/iteration/round-51/findings-bug.md` F1 | 51 |
+| B-014 | open | 视图 | 整页缩放到 130% 起横向溢出：`#root` 布局宽缩成 1440/zoom，`.app` 的 `min-width:1120px` 不让，顶栏与工具栏右侧出屏、出现横向滚动条（130% 26 px / 150% 250 / 180% 586 / 200% 810） | `.tmp/r52-delta-zoom.log`；`shots/round-52/delta-zoom-200.png`；`src/styles.css:115-118`、`src/styles.css:132` | 52 |
 
 ## P2（路线图，open）
 
@@ -55,3 +56,4 @@
 | B-206 | 导出 | Mermaid 图进 HTML 导出/预览面板 | 已知限制，候选 | 36 |
 | B-207 | 编辑 | 多行 HTML 注释、带属性行内 HTML | 已知限制 | 40/47 |
 | B-208 | 界面 | 重命名成功提示借刷新文案「已刷新：新增 1 个，消失 1 个」，无专用「已重命名」提示 | P2 打磨（`src/App.tsx:2411`） | 51 |
+| B-209 | 测试 | 两条回归脚本断言过期：`scripts/keyboard-acceptance.mjs` 的 Ctrl+Shift+S 段把「旧 toast 仍在」当断言，第 51 轮新增「没有改动，未写入。」`ttl:1500` 后变 51/52；`scripts/bigfile-acceptance.mjs` 仍断文案含「文件太大」，HEAD 早已改成「「x」超过 5.5 MiB，仍在「y」」→ 2/3 | 非本轮引入（HEAD 既存），脚本改断言即可（`.tmp/r52-regress-keyboard2.log`、`.tmp/r52-regress-bigfile.log`） | 52 |

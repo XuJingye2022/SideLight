@@ -39,6 +39,11 @@ static class Program
     static bool portableDataDir;
     static string fatalInitError;
 
+    // 页面 requestFullscreen（F11）时 WebView2 只报告「里面有全屏元素」，窗口本身要宿主自己进全屏。
+    static bool hostFullScreen;
+    static FormWindowState savedWindowState = FormWindowState.Normal;
+    static Rectangle savedWindowBounds = Rectangle.Empty;
+
     // /__doc 与写回：只认 argv / 单实例转发打开的这一个文件；页面永远拿不到路径。
     static string currentPath;
     static DocMeta currentMeta;
@@ -1495,6 +1500,18 @@ static class Program
             {
                 Log("browser accelerator keys setting failed");
             }
+            // WebView2 自带的 Ctrl+滚轮缩放与应用内「整页缩放」会成双轨：关掉原生那条。
+            try
+            {
+                core.Settings.IsZoomControlEnabled = false;
+                Log("native zoom control disabled");
+            }
+            catch (Exception)
+            {
+                Log("native zoom control setting failed");
+            }
+            // 页面里的 document.requestFullscreen 只让 WebView2 报告状态，窗口进出全屏由宿主做
+            core.ContainsFullScreenElementChanged += OnContainsFullScreenElementChanged;
             core.ProcessFailed += delegate(object s, CoreWebView2ProcessFailedEventArgs e)
             {
                 Log("process failed " + e.ProcessFailedKind);
@@ -1526,6 +1543,48 @@ static class Program
             fatalInitError = "Sidelight 启动失败：无法创建 WebView2 环境。" + ex.Message + " 日志：" + logPath;
             try { form.Close(); } catch { }
         }
+    }
+
+    // 页面按 F11 → requestFullscreen/exitFullscreen：只切窗口边框与状态，不碰页面内容。
+    // 事件可能在 WebView2 的线程上送达，统一切回 UI 线程再动 Form。
+    static void OnContainsFullScreenElementChanged(object sender, object args)
+    {
+        try
+        {
+            CoreWebView2 core = web.CoreWebView2;
+            bool full = core != null && core.ContainsFullScreenElement;
+            if (form.IsHandleCreated && form.InvokeRequired)
+            {
+                form.BeginInvoke(new Action(delegate { ApplyHostFullScreen(full); }));
+                return;
+            }
+            ApplyHostFullScreen(full);
+        }
+        catch (Exception ex)
+        {
+            Log("fullscreen toggle failed: " + ex.Message);
+        }
+    }
+
+    static void ApplyHostFullScreen(bool full)
+    {
+        if (full == hostFullScreen) return;
+        hostFullScreen = full;
+        if (full)
+        {
+            savedWindowState = form.WindowState;
+            savedWindowBounds = form.WindowState == FormWindowState.Normal ? form.Bounds : form.RestoreBounds;
+            form.FormBorderStyle = FormBorderStyle.None;
+            form.WindowState = FormWindowState.Maximized;
+        }
+        else
+        {
+            form.FormBorderStyle = FormBorderStyle.Sizable;
+            form.WindowState = FormWindowState.Normal;
+            if (savedWindowBounds.Width > 0 && savedWindowBounds.Height > 0) form.Bounds = savedWindowBounds;
+            form.WindowState = savedWindowState;
+        }
+        Log("host fullscreen " + (full ? "on" : "off"));
     }
 
     static void OnPermissionRequested(object sender, CoreWebView2PermissionRequestedEventArgs e)
