@@ -111,9 +111,9 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 - 无遥测，启动不联网；联网只发生在用户点「联网核对」并配好搜索服务时。
 ## 依赖与体积
 
-首屏 gzip 从 364,960 B 降到 **288,411 B（−21.0%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 84 KB：JS 76,553 B + CSS 7,365 B）按需加载，首屏不再包含；第 30 轮再把预览面板与导出模板改成按需加载，首屏又少 1,309 B；第 31 轮加链接点击与列表缩进后 +232 B；第 32 轮加选区计数与字数明细段落口径后 +291 B；第 33 轮加智能标点与自动配对后 +839 B；第 34 轮加脚注拦截与焦点回正文后 +46 B；第 35 轮拆分 AI 提示词并修 Esc 焦点后 +119 B；第 36 轮加 Mermaid 惰性渲染插件后 +2,200 B（只是插件与 shim 的静态代码，Mermaid 本体 0 B 进首屏）；第 37 轮加表格列宽拖拽与源码框 caret 落位后 +155 B（只多 CSS）；第 38 轮加工作区图片解析（`assetResolve` + `ResolvingImage` NodeView）、含 `|` 行的智能标点保护与嵌套 mermaid 收集后 +1,019 B；第 39 轮加表格单元格 `<br>` 往返、`../`/`%20` 图片解析与源码模式查找锁定后 +591 B；第 40 轮加单波浪号/HTML 注释保真、预览排版容器、`&nbsp;` 空段落与标题单源后 +702 B；第 41 轮加正文实体往返、查找大小写/整词开关与确认框期间不自动保存后 +594 B；第 42 轮加预览锁替换、Esc 正向出口、工具栏按下态、表格条分色与正文焦点指示线后 +449 B；第 43 轮加预览只读守卫、拖入文件提示与两个精确快路径（相等短路、跳过支不重算字数）后 +280 B；第 44 轮加任务列表输入规则（手打 `- [ ] `）与只读视图按钮说明后 +635 B；第 45 轮加恢复态原文（`initial.raw`）、遮罩改 `div`、开关条件渲染与 `.note-diff` 回块流后 +26 B；第 46 轮加页边让位（`railSpace`）、Mermaid 主题重绘与插件订阅后 +498 B；第 47 轮加行内 HTML 白名单渲染、行内代码智能标点守卫与 Mermaid 错误图清理后 +546 B。首屏口径不含启动后立刻动态 import 的常驻 chunk（如 `MarginRail-*.js`，gzip 2,327 B，第 43 轮实测），实际首载 ≈ total + 2,327 B。首屏预算内部 **310,000 B** / 硬线 **320,000 B**（2026-11-17 产品负责人放宽；原临时上限与数据安全例外作废，历史理由见 STATE），当前 293,751 B（第 47 轮 `npm run verify` 实测，距硬线余 **26,249 B**、距内部预算余 16,249 B）；安装包内部预算 **45,000,000 B** / 硬线 **50,000,000 B**（2026-11-17 第二次放宽，见 ADR-0017）。安装包与便携 zip 的具体字节每版都不同，**以 Release 页的 `SHA256SUMS-<版本>.txt` 为准**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
+首屏 gzip 从 364,960 B 降到 **294,123 B（−19.4%）**：KaTeX 的 JS/CSS 拆成独立 chunk（gzip 约 84 KB：JS 76,553 B + CSS 7,365 B）按需加载，首屏不再包含；第 30 轮再把预览面板与导出模板改成按需加载，首屏又少 1,309 B；第 31 轮加链接点击与列表缩进后 +232 B；第 32 轮加选区计数与字数明细段落口径后 +291 B；第 33 轮加智能标点与自动配对后 +839 B；第 34 轮加脚注拦截与焦点回正文后 +46 B；第 35 轮拆分 AI 提示词并修 Esc 焦点后 +119 B；第 36 轮加 Mermaid 惰性渲染插件后 +2,200 B（只是插件与 shim 的静态代码，Mermaid 本体 0 B 进首屏）；第 37 轮加表格列宽拖拽与源码框 caret 落位后 +155 B（只多 CSS）；第 38 轮加工作区图片解析（`assetResolve` + `ResolvingImage` NodeView）、含 `|` 行的智能标点保护与嵌套 mermaid 收集后 +1,019 B；第 39 轮加表格单元格 `<br>` 往返、`../`/`%20` 图片解析与源码模式查找锁定后 +591 B；第 40 轮加单波浪号/HTML 注释保真、预览排版容器、`&nbsp;` 空段落与标题单源后 +702 B；第 41 轮加正文实体往返、查找大小写/整词开关与确认框期间不自动保存后 +594 B；第 42 轮加预览锁替换、Esc 正向出口、工具栏按下态、表格条分色与正文焦点指示线后 +449 B；第 43 轮加预览只读守卫、拖入文件提示与两个精确快路径（相等短路、跳过支不重算字数）后 +280 B；第 44 轮加任务列表输入规则（手打 `- [ ] `）与只读视图按钮说明后 +635 B；第 45 轮加恢复态原文（`initial.raw`）、遮罩改 `div`、开关条件渲染与 `.note-diff` 回块流后 +26 B；第 46 轮加页边让位（`railSpace`）、Mermaid 主题重绘与插件订阅后 +498 B；第 47 轮加行内 HTML 白名单渲染、行内代码智能标点守卫与 Mermaid 错误图清理后 +546 B；第 48 轮加表格内块级守卫与源码基线归一化后 +372 B。首屏口径不含启动后立刻动态 import 的常驻 chunk（如 `MarginRail-*.js`，gzip 2,327 B，第 43 轮实测），实际首载 ≈ total + 2,327 B。首屏预算内部 **310,000 B** / 硬线 **320,000 B**（2026-11-17 产品负责人放宽；原临时上限与数据安全例外作废，历史理由见 STATE），当前 294,123 B（第 48 轮 `npm run verify` 实测，距硬线余 **25,877 B**、距内部预算余 15,877 B）；安装包内部预算 **45,000,000 B** / 硬线 **50,000,000 B**（2026-11-17 第二次放宽，见 ADR-0017）。安装包与便携 zip 的具体字节每版都不同，**以 Release 页的 `SHA256SUMS-<版本>.txt` 为准**。KaTeX 字体 213,664 B（15 个文件，只发 woff2；另 1 个 face 内联）。
 
-**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 284,761 B（第 31 轮），原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 950`（主 chunk 以最近一次 `npm run build` 输出为准：第 45 轮 910,048 B raw，第 36 轮 898,601 B）。
+**KaTeX 为什么现在按需加载**：`@tiptap/extension-mathematics` 顶层静态 `import katex` 曾是首屏 365 KB 的大头；0.24.0 用 `resolve.alias` 的数组正则把裸 `katex` 指到 `src/lib/katexLazy.ts`，再让 loader 用深路径动态加载 KaTeX 的 JS 与 CSS。首屏不再含 KaTeX；265 KiB（271,360 B）不可达，实测 284,761 B（第 31 轮），原因见 [ADR-0012](docs/adr/0012-katex-lazy-loading.md)。构建仍用 `chunkSizeWarningLimit: 950`（主 chunk 以最近一次 `npm run build` 输出为准：第 48 轮 913,110 B raw（`index-Bx-dU1eB.js`），第 36 轮 898,601 B）。
 
 运行时依赖只有三组，都不是为省几行代码引入的：
 
@@ -130,7 +130,7 @@ macOS 首次打开（未签名时按系统版本二选一，**每次更新后重
 ```bash
 npm install
 npm run dev       # http://localhost:5173
-npm test          # 30 个文件、400 条断言
+npm test          # 32 个文件、414 条断言
 npm run roundtrip # Markdown 往返损失测量，写 docs/roundtrip-report.md
 npm run build     # 类型检查 + 打包
 npm run verify    # build + 首屏 gzip 字节门
@@ -168,7 +168,7 @@ src/
   styles.css              全站样式（12px 小字、窄窗断点、暗色媒体查询）
   components/             文件树、大纲、页边批注、查找条、预览、设置、保存对比、状态栏、公式编辑器、浮层
   lib/                    上下文、批注、大纲、字数、frontmatter、脚注、HTML/callout、公式、导出、差分、图片命名、查找、缓存、搜索、错误文案
-  lib/*.test.ts           30 个测试文件挂进 npm test（含 session / prompt / settings / katexLazy / mermaidLazy），与实现同目录
+  lib/*.test.ts           32 个测试文件挂进 npm test（含 session / prompt / settings / katexLazy / mermaidLazy），与实现同目录
 host/                     C# WebView2 宿主（Program.cs、build.ps1、冒烟与转发探针）
 packaging/                NSIS 安装器、便携包、图标生成、安装/便携验收脚本
 scripts/                  截图、验收、缺陷探测、往返测量、字体裁剪

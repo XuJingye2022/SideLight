@@ -63,6 +63,8 @@ import { cacheKey, legacyKeyFor, readCache, readCacheText, removeCache, writeCac
 import { buildChunkContext, buildContext, splitSelection, type Block, type ContextPayload } from './lib/context.ts'
 import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } from './lib/decorations.ts'
 import { MathInputRules } from './lib/mathInput.ts'
+import { normalizeForBaseline } from './lib/baseline.ts'
+import { inTableAncestry } from './lib/tableScope.ts'
 import { DISCUSS_SYSTEM_PROMPT } from './lib/prompt.ts'
 import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDefinitions, lossLabels, type Loss } from './lib/risk.ts'
 import { repairCalloutMarkers } from './lib/escapes.ts'
@@ -812,6 +814,7 @@ export default function App() {
       smartTypingExtension,
       MathInputRules.configure({
         onBlockCreated: (position) => mathEditRef.current?.(position),
+        onBlockedTable: () => show('表格单元格里不能放块级公式：Markdown 表格只装行内内容'),
       }),
     ],
     content: '',
@@ -819,21 +822,20 @@ export default function App() {
     editorProps: {
       attributes: { class: 'editor doc-body', spellcheck: 'false', 'aria-label': '正文编辑器' },
       handleKeyDown: (view, event) => {
-        let inTable = false
+        // 表格范围判据与 window 层、公式块守卫共用（第 48 轮）：这里只把祖先名收集起来
+        const names: string[] = []
         for (let depth = view.state.selection.$from.depth; depth > 0; depth -= 1) {
-          const name = view.state.selection.$from.node(depth).type.name
-          if (name === 'table' || name === 'tableRow' || name === 'tableCell' || name === 'tableHeader') {
-            inTable = true
-            break
-          }
+          names.push(view.state.selection.$from.node(depth).type.name)
         }
+        const inTable = inTableAncestry(names)
         const mod = event.ctrlKey || event.metaKey
         if (inTable && mod && event.key === 'Enter') {
           event.preventDefault()
           editor?.chain().focus().addRowAfter().run()
           return true
         }
-        if (inTable && mod && event.key.toLowerCase() === 'l') {
+        // 只认 Ctrl+L：Ctrl+Shift+L 是侧栏开关（window 层），不能顺手删一行（第 48 轮）
+        if (inTable && mod && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'l') {
           event.preventDefault()
           editor?.chain().focus().deleteRow().run()
           return true
@@ -1903,7 +1905,8 @@ export default function App() {
     if (sourceOriginalEntryRef.current && sourceText === sourceBaselineRef.current) {
       setDirty(false)
     } else if (baselineRef.current !== null) {
-      setDirty(sourceText.replace(/\r\n/g, '\n') !== baselineRef.current)
+      // 与保存基线同一归一化（第 48 轮）：补末尾换行的那一步不能各算各的
+      setDirty(normalizeForBaseline(sourceText, originalText) !== baselineRef.current)
     }
     if (sourceText === sourceBaselineRef.current) return
     try {
@@ -1911,7 +1914,7 @@ export default function App() {
     } catch {
       // 存储不可用时只保留内存
     }
-  }, [sourceMode, sourceText])
+  }, [sourceMode, sourceText, originalText])
 
   // 首屏把光标送进正文：对话框/查找/切换确认打开时不抢焦点
   useEffect(() => {
@@ -2850,8 +2853,8 @@ export default function App() {
 
   /** 保存前统一准备：LF 给宿主，EOL 给文件；末尾换行跟随原文（保住字节） */
   const prepareSave = useCallback(() => {
-    let normalized = currentMarkdown().replace(/\r\n/g, '\n')
-    if (originalText !== null && originalText.endsWith('\n') && !normalized.endsWith('\n')) normalized += '\n'
+    // 归一化与基线同源（第 48 轮）：补末尾换行的规则只写在一个函数里
+    const normalized = normalizeForBaseline(currentMarkdown(), originalText)
     const withEol = eolRef.current === 'crlf' ? normalized.replace(/\n/g, '\r\n') : normalized
     return { normalized, withEol }
   }, [currentMarkdown, originalText])
@@ -3588,6 +3591,25 @@ export default function App() {
     requestSave('switch')
   }, [requestSave])
 
+  /* ---------- 表格内的块级守卫（第 48 轮） ---------- */
+
+  /** 选区祖先里有没有表格节点（与 handleKeyDown 同一份判据） */
+  const selectionInTable = useCallback(() => {
+    const $from = editor?.state.selection.$from
+    if (!$from) return false
+    const names: string[] = []
+    for (let depth = $from.depth; depth > 0; depth -= 1) names.push($from.node(depth).type.name)
+    return inTableAncestry(names)
+  }, [editor])
+
+  /** 命中表格就提示并返回 true（调用方直接 return，不执行命令） */
+  const guardBlockInTable = useCallback(() => {
+    if (!selectionInTable()) return false
+    setMenuOpen(false)
+    show('表格单元格里不能用命令插入标题或块级内容：Markdown 表格只装行内内容')
+    return true
+  }, [selectionInTable, show])
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const mod = event.ctrlKey || event.metaKey
@@ -3756,6 +3778,8 @@ export default function App() {
       if (mod && !event.altKey && !event.shiftKey && /^[1-6]$/.test(key)) {
         event.preventDefault()
         if (viewMode !== 'edit') return
+        // 单元格里造标题存不进 Markdown 表格：拦在命令之前（第 48 轮）
+        if (guardBlockInTable()) return
         editor?.chain().focus().setHeading({ level: Number(key) as 1 | 2 | 3 | 4 | 5 | 6 }).run()
         return
       }
@@ -3826,6 +3850,7 @@ export default function App() {
     previewMode,
     viewMode,
     show,
+    guardBlockInTable,
     railOpen,
     newDocument,
     openSingleFile,
@@ -3932,9 +3957,10 @@ export default function App() {
       // （1 MB 文档约 24 ms）。setDirty 必须留在块外，脏按保存基线算。
       syncDocInfo(editor)
     }
-    // 离开源码：脏按保存基线算，不能只看「源码里改没改」
-    if (baselineRef.current !== null) setDirty(normalizedSource !== baselineRef.current)
-  }, [editor, sourceText, setMarkdown, syncDocInfo, serializeBodyNow])
+    // 离开源码：脏按保存基线算，不能只看「源码里改没改」。
+    // 基线是 prepareSave 归一化过的串（可能补了末尾换行），比较也必须走同一个函数（第 48 轮）
+    if (baselineRef.current !== null) setDirty(normalizeForBaseline(sourceText, originalText) !== baselineRef.current)
+  }, [editor, sourceText, setMarkdown, syncDocInfo, serializeBodyNow, originalText])
 
   /**
    * 三种视图统一在这里切：离开源码时先把源码写回正文，
@@ -4304,6 +4330,12 @@ export default function App() {
         mathEditRef.current(from)
         return
       }
+      // 块级公式（$$…$$）是块节点，Markdown 表格单元格装不进去：插入前就拦（第 48 轮）。
+      // 位置在「光标落在已有公式上」的早返回之后：「插入 → 公式块」与 Ctrl+Shift+M 都走这里。
+      if (block && selectionInTable()) {
+        show('表格单元格里不能放块级公式：Markdown 表格只装行内内容')
+        return
+      }
       const coords = editor.view.coordsAtPos(from)
       mathAnchorRef.current = new DOMRect(
         coords.left,
@@ -4322,7 +4354,7 @@ export default function App() {
         }
       }
     }
-  }, [editor, viewMode])
+  }, [editor, viewMode, selectionInTable, show])
 
   // 跟着输入刷新预览；光标离开草稿就把源码还原成公式
   useEffect(() => {
@@ -4706,19 +4738,44 @@ export default function App() {
           </button>
           {menuOpen && (
             <div className="menu">
-              <button type="button" onClick={() => run((chain) => chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!guardBlockInTable()) run((chain) => chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))
+                }}
+              >
                 表格
               </button>
-              <button type="button" onClick={() => run((chain) => chain.toggleCodeBlock())}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!guardBlockInTable()) run((chain) => chain.toggleCodeBlock())
+                }}
+              >
                 代码块
               </button>
-              <button type="button" onClick={() => run((chain) => chain.toggleBlockquote())}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!guardBlockInTable()) run((chain) => chain.toggleBlockquote())
+                }}
+              >
                 引用
               </button>
-              <button type="button" onClick={() => run((chain) => chain.toggleTaskList())}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!guardBlockInTable()) run((chain) => chain.toggleTaskList())
+                }}
+              >
                 任务列表
               </button>
-              <button type="button" onClick={() => run((chain) => chain.setHorizontalRule())}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!guardBlockInTable()) run((chain) => chain.setHorizontalRule())
+                }}
+              >
                 分割线
               </button>
               <button
@@ -4768,7 +4825,9 @@ export default function App() {
             aria-pressed={heading1On}
             disabled={viewMode !== 'edit'}
             title={viewMode === 'edit' ? '一级标题（Ctrl+1）' : '只有编辑视图支持'}
-            onClick={() => run((chain) => chain.toggleHeading({ level: 1 }))}
+            onClick={() => {
+              if (!guardBlockInTable()) run((chain) => chain.toggleHeading({ level: 1 }))
+            }}
           >
             H1
           </button>
@@ -4778,7 +4837,9 @@ export default function App() {
             aria-pressed={heading2On}
             disabled={viewMode !== 'edit'}
             title={viewMode === 'edit' ? '二级标题（Ctrl+2）' : '只有编辑视图支持'}
-            onClick={() => run((chain) => chain.toggleHeading({ level: 2 }))}
+            onClick={() => {
+              if (!guardBlockInTable()) run((chain) => chain.toggleHeading({ level: 2 }))
+            }}
           >
             H2
           </button>

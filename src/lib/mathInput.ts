@@ -1,10 +1,13 @@
 import { Extension, InputRule } from '@tiptap/core'
 
 import { isMathBody } from './math.ts'
+import { inTableAncestry } from './tableScope.ts'
 
 type Options = {
   /** 新建块级公式后回调，用来立刻打开就地编辑 */
   onBlockCreated?: (position: number) => void
+  /** 在表格单元格里被守卫拦下时回调，用来给用户一句提示 */
+  onBlockedTable?: () => void
 }
 
 /**
@@ -19,7 +22,7 @@ export const MathInputRules = Extension.create<Options>({
   priority: 1000,
 
   addOptions() {
-    return { onBlockCreated: undefined }
+    return { onBlockCreated: undefined, onBlockedTable: undefined }
   },
 
   // 正在就地编辑某条公式时，别再让输入规则把它抢走
@@ -68,6 +71,15 @@ export const MathInputRules = Extension.create<Options>({
         if ($from.parent.textContent.trim() !== '$$') return false
         const blockMath = state.schema.nodes.blockMath
         if (!blockMath) return false
+
+        // 块级公式是块节点，Markdown 表格单元格装不进去（第 48 轮）：
+        // 吞掉这一下回车，既不插入，也不让默认回车把单元格拆成两段。
+        const names: string[] = []
+        for (let depth = $from.depth; depth > 0; depth -= 1) names.push($from.node(depth).type.name)
+        if (inTableAncestry(names)) {
+          this.options.onBlockedTable?.()
+          return true
+        }
 
         const start = $from.before()
         const end = start + $from.parent.nodeSize
