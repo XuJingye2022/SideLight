@@ -107,6 +107,50 @@ test('边界不误判：====、2^10、孤立 ~ 都还是字面', () => {
   }
 })
 
+/**
+ * 第 56 轮 B-119：finder 复现串。修前 5 条都红（连续符号段把第二对当定界符、空格旁的单侧符号被吃成定界符）。
+ * 期望：连续段与不贴内容的定界符按字面保存，写回逐字节不变。
+ */
+test('B-119：==== 与 ==不闭合 按字面保存', () => {
+  enabled = true
+  const source = '==== 与 ==不闭合\n'
+  const parsed = manager.parse(escapeHtmlForParse(source)) as Json
+  assert.deepEqual(markedText(parsed, 'eqHighlight'), [])
+  assert.equal(roundTrip(source), source)
+})
+
+test('B-119：x ==== y ==z 按字面保存', () => {
+  enabled = true
+  const source = 'x ==== y ==z\n'
+  const parsed = manager.parse(escapeHtmlForParse(source)) as Json
+  assert.deepEqual(markedText(parsed, 'eqHighlight'), [])
+  assert.equal(roundTrip(source), source)
+})
+
+test('B-119：^^ 与 ^不闭合 按字面保存', () => {
+  enabled = true
+  const source = '^^ 与 ^不闭合\n'
+  const parsed = manager.parse(escapeHtmlForParse(source)) as Json
+  assert.deepEqual(markedText(parsed, 'caretSup'), [])
+  assert.equal(roundTrip(source), source)
+})
+
+test('B-119：a ^ b 与 c^d 按字面保存', () => {
+  enabled = true
+  const source = 'a ^ b 与 c^d\n'
+  const parsed = manager.parse(escapeHtmlForParse(source)) as Json
+  assert.deepEqual(markedText(parsed, 'caretSup'), [])
+  assert.equal(roundTrip(source), source)
+})
+
+test('B-119：~a~ ~b~ 与 a ~ b 与 H~2~O 只认成对且不贴空白的', () => {
+  enabled = true
+  const source = '~a~ ~b~ 与 a ~ b 与 H~2~O\n'
+  const parsed = manager.parse(escapeHtmlForParse(source)) as Json
+  assert.deepEqual(markedText(parsed, 'tildeSub'), ['a', 'b', '2'])
+  assert.equal(roundTrip(source), source)
+})
+
 test('同会话关开关不刷新：已解析的字面不改，再解析才变', () => {
   enabled = true
   const literal = manager.parse(escapeHtmlForParse('==a==')) as Json

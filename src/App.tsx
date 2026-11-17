@@ -973,11 +973,11 @@ export default function App() {
     onUpdate: ({ editor: current, transaction }) => {
       // 载入文档的那次替换带 addToHistory:false，不算用户改动。
       if (transaction?.getMeta('addToHistory') === false) return
-      // 脏 = 当前正文与保存基线不等：撤销回原样会自动变干净，不再要求必存一次
-      if (baselineRef.current !== null) {
-        const dirtyNow = contentRef.current().replace(/\r\n/g, '\n') !== baselineRef.current
-        dirtyRef.current = dirtyNow
-        setDirty(dirtyNow)
+      // 脏标记（第 56 轮 B-116）：同步路径只置脏，逐键不再做全文序列化（100 KB ~10 ms、1 MB ~51 ms）。
+      // 与保存基线的比较挪进下面 300 ms 回调，由它双向纠正（撤销回原样还是自动变干净）。
+      if (baselineRef.current !== null && !dirtyRef.current) {
+        dirtyRef.current = true
+        setDirty(true)
       }
       if (statsTimerRef.current) clearTimeout(statsTimerRef.current)
       statsTimerRef.current = setTimeout(() => {
@@ -990,6 +990,14 @@ export default function App() {
       if (deriveTimerRef.current) clearTimeout(deriveTimerRef.current)
       deriveTimerRef.current = setTimeout(() => {
         deriveTimerRef.current = null
+        // 脏 = 当前正文与保存基线不等：撤销回原样会自动变干净，不再要求必存一次
+        if (baselineRef.current !== null) {
+          const dirtyNow = contentRef.current().replace(/\r\n/g, '\n') !== baselineRef.current
+          if (dirtyNow !== dirtyRef.current) {
+            dirtyRef.current = dirtyNow
+            setDirty(dirtyNow)
+          }
+        }
         const original = rawTextRef.current
         const body = repairCalloutMarkers(
           repairHtml(repairMath(repairTildes(repairFootnoteRefs(current.getMarkdown()))), original),

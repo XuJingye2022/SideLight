@@ -24,17 +24,47 @@ type SyntaxSpec = {
   className: string
   /** 序列化写回的两端（对称符号） */
   delimiter: string
-  /** 从一段文本开头匹配一整条；第 1 组是要渲染的内容 */
+  /**
+   * 从一段文本开头匹配一整条；第 1 组是要渲染的内容。
+   * 第 56 轮 B-119 加 flanking：开定界符后不贴空白、收定界符前不贴空白（`== a ==` 不再解析）。
+   * 左邻判定做不了：marked 传进来的就是候选位起的剩余串，位置 0 之前没有字符可看。
+   */
   whole: RegExp
   /** marked 的 start 语义：入参是去掉首字符后的剩余源码，返回下一个候选起点 */
   candidate: RegExp
+  /**
+   * 连续符号段守卫：候选位同符号连续 ≥N 个时整段按字面吃（`====` 的第三、四个 `=` 不再当开定界符）。
+   * `~` 不守：`~~…~~` 是删除线，必须留给 marked 的 del 规则。
+   */
+  literalRun: RegExp | null
 }
 
 /** 清单顺序就是 marked 里的优先级顺序（见 tilde.ts），也是设置里提示的书写顺序 */
 export const INLINE_SYNTAX: readonly SyntaxSpec[] = [
-  { kind: 'eqHighlight', className: 'sl-eq', delimiter: '==', whole: /^==(?!=)([^=\n]+?)==(?!==)/, candidate: /==/ },
-  { kind: 'caretSup', className: 'sl-sup', delimiter: '^', whole: /^\^([^\n^]+?)\^/, candidate: /\^/ },
-  { kind: 'tildeSub', className: 'sl-sub', delimiter: '~', whole: /^(?<!~)~(?!~)([^\n~]+?)~(?!~)/, candidate: /(?<!~)~(?!~)/ },
+  {
+    kind: 'eqHighlight',
+    className: 'sl-eq',
+    delimiter: '==',
+    whole: /^==(?![=\s])([^\n=]+?)(?<!\s)==(?!==)/,
+    candidate: /==/,
+    literalRun: /^={3,}/,
+  },
+  {
+    kind: 'caretSup',
+    className: 'sl-sup',
+    delimiter: '^',
+    whole: /^\^(?![\s^])([^\n^]+?)(?<!\s)\^/,
+    candidate: /\^/,
+    literalRun: /^\^{2,}/,
+  },
+  {
+    kind: 'tildeSub',
+    className: 'sl-sub',
+    delimiter: '~',
+    whole: /^(?<!~)~(?![\s~])([^\n~]+?)(?<!\s)~(?!~)/,
+    candidate: /(?<!~)~(?!~)/,
+    literalRun: null,
+  },
 ]
 
 function syntaxMark(spec: SyntaxSpec) {
@@ -77,6 +107,9 @@ type LexerLike = { inlineTokens(src: string): unknown[] }
 function makeTokenizer(spec: SyntaxSpec, isEnabled: () => boolean) {
   return function tokenize(this: { lexer?: LexerLike } | undefined, src: string) {
     if (!isEnabled()) return undefined
+    // 连续符号段整段按字面吃：raw 与 text 都要给，只给 raw 会被解析侧当空文本吞掉
+    const run = spec.literalRun?.exec(src)
+    if (run) return { type: 'text', raw: run[0], text: run[0] } as never
     const match = spec.whole.exec(src)
     if (!match) return undefined
     const children = this?.lexer ? this.lexer.inlineTokens(match[1]) : []
