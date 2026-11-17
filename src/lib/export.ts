@@ -29,19 +29,43 @@ export type HtmlExportOptions = {
   footnotes?: string
 }
 
-/** 把 `[^id]: 内容` 形式的脚注定义转成列表项 */
-export function renderFootnotes(footnotes: string): string {
-  const items = footnotes
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith('[^'))
-    .map((line) => line.replace(/^\[\^[^\]]+\]:\s*/, ''))
-    .filter((line) => line.length > 0)
+/** 续行判据与 `footnotes.ts:3` 同一套：4 空格或 tab 开头 + 非空白 */
+const FOOTNOTE_CONTINUATION = /^(?: {4,}|\t)\S/
 
-  if (items.length === 0) return ''
-  return `<section class="footnotes"><h2>注释</h2><ol>${items
-    .map((item) => `<li>${escapeHtml(item)}</li>`)
-    .join('')}</ol></section>`
+/**
+ * 把 `[^id]: 内容` 形式的脚注定义转成列表项；缩进续行跟同一条，用 `<br>` 连接。
+ *
+ * 分派规则与 `src/lib/footnotes.ts` 同一套：定义行开新条，缩进续行接当前条，
+ * 其余行（引用式定义 `[label]:`、正文）结束当前条；块内空行**不**结束当前条
+ * （`footnotes.ts:47-51` 就把空行拼回同一块，渲染层必须跟上）。
+ * 行为变化：完全空的 `[^1]:`（后面没有任何续行）不出 `<li>`；而 `[^1]:` + 缩进续行
+ * 现在输出 `<li>续行</li>`（旧实现两处都输出 `''`）。
+ */
+export function renderFootnotes(footnotes: string): string {
+  const items: string[][] = []
+  let current: string[] | null = null
+  for (const raw of footnotes.replace(/\r\n?/g, '\n').split('\n')) {
+    // 块内空行不结束当前条
+    if (raw.trim().length === 0) continue
+    const definition = /^\[\^([^\]]+)\]:\s*(.*)$/.exec(raw)
+    if (definition) {
+      current = [definition[2]]
+      items.push(current)
+      continue
+    }
+    if (current !== null && FOOTNOTE_CONTINUATION.test(raw)) {
+      current.push(raw.trim())
+      continue
+    }
+    current = null // `[label]:` 引用式定义、正文行都结束当前条
+  }
+  const rendered = items
+    .map((lines) => lines.map((line) => line.trim()).filter((line) => line.length > 0))
+    .filter((lines) => lines.length > 0)
+    .map((lines) => `<li>${lines.map(escapeHtml).join('<br>')}</li>`)
+
+  if (rendered.length === 0) return ''
+  return `<section class="footnotes"><h2>注释</h2><ol>${rendered.join('')}</ol></section>`
 }
 
 /** 把 YAML frontmatter 原样放进一个等宽小字块，至少不丢 */

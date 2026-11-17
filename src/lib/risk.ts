@@ -382,13 +382,18 @@ export function activeLosses(original: string, current: string, baseline: Loss[]
   )
 }
 
-export function lossLabels(losses: Loss[]): string[] {
+/**
+ * 损失描述文案。`forExport` 用于导出：导出不保存，标签里的「在保存后」「保存时」
+ * 要换成导出措辞，否则用户会看见一条指向错误动作的警告。分类逻辑不受影响。
+ */
+export function lossLabels(losses: Loss[], forExport = false): string[] {
   const seen = new Set<string>()
   const labels: string[] = []
   for (const loss of losses) {
-    if (seen.has(loss.label)) continue
-    seen.add(loss.label)
-    labels.push(loss.label)
+    const label = forExport ? loss.label.replace('在保存后', '在导出后').replace('保存时', '导出时') : loss.label
+    if (seen.has(label)) continue
+    seen.add(label)
+    labels.push(label)
   }
   return labels
 }

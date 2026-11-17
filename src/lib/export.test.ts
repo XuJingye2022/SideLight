@@ -82,6 +82,32 @@ test('没有脚注时不输出空节', () => {
   assert.equal(renderFootnotes(''), '')
 })
 
+test('脚注缩进续行跟同一条，用 <br> 连接', () => {
+  const html = renderFootnotes('[^1]: 第一行定义\n    续行接着写')
+  assert.ok(html.includes('第一行定义<br>续行接着写'))
+  assert.equal((html.match(/<li>/g) ?? []).length, 1)
+})
+
+test('多条脚注各自带上自己的续行', () => {
+  const html = renderFootnotes('[^a]: 甲\n    甲续\n[^b]: 乙')
+  assert.equal((html.match(/<li>/g) ?? []).length, 2)
+  assert.ok(html.includes('甲<br>甲续'))
+  assert.ok(html.includes('<li>乙</li>'))
+})
+
+test('引用式定义的续行不追加到上一条脚注', () => {
+  const html = renderFootnotes('[^1]: 第一行\n    续行\n[label]: 引用定义\n    不该追加')
+  assert.ok(html.includes('第一行<br>续行'))
+  assert.equal((html.match(/<li>/g) ?? []).length, 1)
+  assert.ok(!html.includes('不该追加'))
+})
+
+test('脚注定义与续行之间隔空行仍算同一条', () => {
+  const html = renderFootnotes('[^1]: 甲\n\n    乙')
+  assert.ok(html.includes('甲<br>乙'))
+  assert.equal((html.match(/<li>/g) ?? []).length, 1)
+})
+
 test('导出时把元数据与脚注一起带上', () => {
   const html = buildHtmlDocument({
     title: '周记.md',

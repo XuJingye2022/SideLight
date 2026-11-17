@@ -282,7 +282,11 @@ button:disabled {
   top: 0;
   left: 0;
   right: 0;
-  padding: 0 2px;
+  /* 第 50 轮：与正文同一条排版链，键入第一个字时不再换字族、跳基线 */
+  padding: 0;
+  font-family: var(--font-read);
+  font-size: var(--editor-size, 17px);
+  line-height: 1.95;
   color: var(--ink-faint);
   pointer-events: none;
   user-select: none;
@@ -591,14 +595,24 @@ button:disabled {
 
 .doc-body h2 {
   font-size: 1.32em;
+  line-height: 1.35;
   font-weight: 600;
   margin: 1.45em 0 0.5em;
 }
 
 .doc-body h3 {
   font-size: 1.1em;
+  line-height: 1.4;
   font-weight: 600;
   margin: 1.3em 0 0.4em;
+}
+
+/* 第 50 轮：h4 之前落 UA 默认，与 strong 完全同形（17 px / 700），标题不成阶梯 */
+.doc-body h4 {
+  font-size: 1.08em;
+  line-height: 1.45;
+  font-weight: 600;
+  margin: 1.15em 0 0.45em;
 }
 
 .doc-body p {
@@ -1318,6 +1332,18 @@ button:disabled {
   color: var(--ink-soft);
 }
 
+/*
+ * 第 50 轮：工具栏同一排原来三种高度（插入 25 / 格式与视图 24 / </> 21）。
+ * 只收紧 `.toolbar-group` 的直接子按钮——`插入 ▾` 下拉的 `.menu button` 是孙子节点，
+ * 加 height/display 会把它从 30 px 压到 24 px、标签从左对齐变居中（第 50 轮复审 R50-12）。
+ */
+.toolbar-group > button {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .toolbar button.is-on,
 .toolbar button.is-open {
   background: var(--accent-wash);
@@ -1334,7 +1360,7 @@ button:disabled {
 
 .toolbar button.mono {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .menu {
@@ -1594,6 +1620,10 @@ button:disabled {
   color: inherit;
   cursor: pointer;
   border-radius: 4px;
+  /* 第 50 轮：点击区从 16 px 抬到 24 px（WCAG 2.2 的 24×24） */
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
 }
 
 .stats-trigger:focus-visible {

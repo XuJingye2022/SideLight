@@ -41,6 +41,7 @@ export function StatusBar({
         <button
           type="button"
           className="stats-trigger"
+          aria-label="字数明细"
           aria-haspopup="dialog"
           aria-expanded={statsOpen}
           aria-controls={statsOpen ? 'stats-detail' : undefined}

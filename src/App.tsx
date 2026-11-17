@@ -71,6 +71,7 @@ import { repairCalloutMarkers } from './lib/escapes.ts'
 import { ensureKatex } from './lib/katexLazy.ts'
 import { MermaidPreview } from './lib/mermaidPreview.ts'
 import { findAll, type Match } from './lib/find.ts'
+import { applyReplacements, type ReplaceRange } from './lib/replaceRanges.ts'
 import { extractFootnotes, joinFootnotes, repairFootnoteRefs } from './lib/footnotes.ts'
 import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontmatter.ts'
 import { serializeDocument } from './lib/serializeDocument.ts'
@@ -1859,17 +1860,88 @@ export default function App() {
   const replaceEvery = useCallback(() => {
     if (previewMode) return
     if (!editor || matches.length === 0) return
-    let transaction = editor.state.tr
-    for (let index = matches.length - 1; index >= 0; index -= 1) {
-      const match = matches[index]
-      transaction =
-        replacement.length > 0
-          ? transaction.insertText(replacement, match.from, match.to)
-          : transaction.delete(match.from, match.to)
+    const doc = editor.state.doc
+    const schema = editor.state.schema
+    // 重叠命中（find.ts 允许，例如 'aaa' 里查 'aa'）用整节点替换会得到与逐条替换不同的结果，
+    // 命中跨文本节点（'甲**乙**丙' 里查 '甲乙'）同理会漏替换：两种都整单退回旧的逐条路径。
+    let fallback = false
+    for (let index = 1; index < matches.length; index += 1) {
+      if (matches[index].from < matches[index - 1].to) {
+        fallback = true
+        break
+      }
+    }
+    // 按文本节点分组：每个文本节点最多一步，1 MB / 39,936 命中从数万步降到约千步。
+    // 被批注盖住的文本节点不能整节点换：那一步会把节点里的批注区间一起映射塌（第 36 轮
+    // 「全部替换不清空页边批注」），这些节点里的命中退回逐条替换。
+    const groups: { from: number; to: number; local: ReplaceRange[]; node: PMNode }[] = []
+    const singles: { from: number; to: number }[] = []
+    if (!fallback) {
+      const annotatedNodes = annotations.length > 0
+      let covered = 0
+      let matchIndex = 0
+      doc.descendants((node, pos) => {
+        if (!node.isText) return
+        const nodeFrom = pos
+        const nodeTo = pos + node.nodeSize
+        while (matchIndex < matches.length && matches[matchIndex].to <= nodeFrom) matchIndex += 1
+        const local: ReplaceRange[] = []
+        const nodeMatches: { from: number; to: number }[] = []
+        for (let i = matchIndex; i < matches.length && matches[i].from < nodeTo; i += 1) {
+          const match = matches[i]
+          if (match.from < nodeFrom || match.to > nodeTo) continue
+          local.push({ from: match.from - nodeFrom, to: match.to - nodeFrom })
+          nodeMatches.push({ from: match.from, to: match.to })
+        }
+        if (local.length === 0) return
+        covered += local.length
+        if (annotatedNodes && annotations.some((a) => a.from < nodeTo && a.to > nodeFrom)) {
+          singles.push(...nodeMatches)
+          return
+        }
+        groups.push({ from: nodeFrom, to: nodeTo, local, node: node })
+      })
+      // 有命中跨过文本节点：分区收不全，退回逐条路径
+      if (covered !== matches.length) {
+        groups.length = 0
+        singles.length = 0
+      }
+    }
+    if (fallback || (groups.length === 0 && singles.length === 0)) {
+      let transaction = editor.state.tr
+      for (let index = matches.length - 1; index >= 0; index -= 1) {
+        const match = matches[index]
+        transaction =
+          replacement.length > 0
+            ? transaction.insertText(replacement, match.from, match.to)
+            : transaction.delete(match.from, match.to)
+      }
+      editor.view.dispatch(transaction)
+      editor.commands.focus()
+      return
+    }
+    const transaction = editor.state.tr
+    // 反序应用：后面步骤的位置仍按原文档坐标算。整节点替换与逐条替换互不重叠（分属不同文本节点）
+    const ops = [
+      ...groups.map((group) => ({ from: group.from, to: group.to, group })),
+      ...singles.map((match) => ({ from: match.from, to: match.to, group: null })),
+    ].sort((left, right) => right.from - left.from)
+    for (const op of ops) {
+      if (!op.group) {
+        if (replacement.length > 0) transaction.insertText(replacement, op.from, op.to)
+        else transaction.delete(op.from, op.to)
+        continue
+      }
+      const group = op.group
+      // group.local 是节点内相对坐标，node.textContent 是替换前原文：一次算完新文本
+      const nextText = applyReplacements(group.node.textContent, group.local, replacement)
+      // 用原节点的 marks 重建文本节点，替换词继承原来的行内格式
+      if (nextText.length === 0) transaction.delete(group.from, group.to)
+      else transaction.replaceWith(group.from, group.to, schema.text(nextText, group.node.marks))
     }
     editor.view.dispatch(transaction)
     editor.commands.focus()
-  }, [editor, matches, replacement, previewMode])
+  }, [annotations, editor, matches, replacement, previewMode])
 
   /* ---------- 滚动与页边定位 ---------- */
 
@@ -2921,7 +2993,7 @@ export default function App() {
     [hostDoc, performSaveAs, performCommit, performSwitch, sourceMode],
   )
 
-  /** 四条保存路径的唯一入口：先过差异门，确认后才真正写 */
+  /** 保存路径的统一入口（导出不写盘，走同一判据但只提示）：先过差异门，确认后才真正写 */
   const requestSave = useCallback(
     (target: SaveTarget, after?: () => void) => {
       if (!editor) return
@@ -4095,8 +4167,23 @@ export default function App() {
         if (sourceMode) applySource()
         if (kind === 'markdown') {
           const name = exportName(docName, 'md')
-          saveBlob(name, currentMarkdown(), 'text/markdown;charset=utf-8')
-          show(`已导出 ${name}`)
+          const markdown = currentMarkdown()
+          // 第 50 轮：导出与保存共用同一判据；导出不写盘，所以给可关闭的提示而不是模态确认
+          const losses =
+            originalText !== null
+              ? activeLosses(originalText, normalizeForBaseline(markdown, originalText), baselineLossesRef.current)
+              : []
+          saveBlob(name, markdown, 'text/markdown;charset=utf-8')
+          if (losses.length > 0) {
+            setNotice({
+              text: `已导出 ${name}。注意：导出的是改写后的正文——${lossLabels(losses, true).join('；')}`,
+              kind: 'info',
+              persist: true,
+              action: { label: '知道了', onClick: () => setNotice(null) },
+            })
+          } else {
+            show(`已导出 ${name}`)
+          }
           return
         }
         if (kind === 'html') {
@@ -4127,7 +4214,7 @@ export default function App() {
         setNotice({ text: `导出失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
       }
     },
-    [editor, docName, currentMarkdown, settings.fontSize, saveBlob, show, sourceMode, applySource],
+    [editor, docName, currentMarkdown, settings.fontSize, saveBlob, show, sourceMode, applySource, originalText],
   )
 
   const insertImageFile = useCallback(
