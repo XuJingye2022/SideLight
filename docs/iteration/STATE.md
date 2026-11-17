@@ -6,19 +6,18 @@
 
 把 Sidelight 做成可发布的开源桌面 Markdown 编辑器，Windows 首发。验收维度：功能好用、安装简单、体积小巧、界面简洁美观、易于操作。
 
-## 循环（不设轮次上限）
+## 循环 v2（两轮一侦察，不设轮次上限）
 
-停止条件：5 路端到端侦察都报 0 条 BUG/改进建议，且 planner 也排不出任务，**连续两轮确认**后才停。
+停止条件：Phase 1 路线图（`docs/typora-gap.md` 剩余项 + `BACKLOG.md` 的开放项）清空，然后 Phase 2 缺陷审计连续两轮 0 个 P0/P1。硬预算：Phase 1+2 ≤18 轮；到点发布或由产品负责人续期。
 
-每轮五个阶段，顺序固定：
+每个两轮周期：
 
-1. **侦察**：5 个 finder 并行（缺陷 / Typora 对照 / 安装启动 / 代码性能 / 界面可访问性），只读，全部做端到端实测。产出 `round-NN/findings-*.md`，每条问题带证据与文件:行号。
-2. **计划**：planner 读五份发现 + 本文件 + `git log`，写 `round-NN/plan.md`，最多 4 个任务，每个任务写清文件、验收标准、门禁命令、风险。
-3. **审计划**：critic 对照代码验证计划，写 `round-NN/plan-review.md`，结论 PASS 或 REVISE + 编号漏洞。REVISE 时 planner 修改，最多 2 次。
-4. **实施**：1 个 executor 按计划实现。每完成一个任务跑该任务的门禁。产出 `round-NN/impl.md`。
-5. **验收**：tester 独立复验（不看实施报告、自己跑），写 `round-NN/test.md`。结论三选一：**PASS** / **PASS-WITH-UNVERIFIED** / **FAIL**。UNVERIFIED 必须写清哪一条、为什么测不了、下一轮怎么补，不因此回滚整轮。门禁破、验收项造假、引入回归才判 FAIL；FAIL 时 executor 修复后复验，最多 2 次，仍 FAIL 则整轮回滚（`git reset --hard` 到轮前 commit）。PASS 后 tester 更新文档并 commit。
+1. **侦察**：5 个 finder 并行（缺陷 / Typora / 安装启动 / 代码性能 / 界面），各 15 分钟、≤4 条，写 `BACKLOG.md` 与 `round-NN/findings-*.md`（≤4 KB）。
+2. **计划**：planner 写两轮计划（每轮 ≤3 任务，≤6 KB）；critic 只审 P0/P1 与高风险，最多 1 次修订。
+3. **实施 + 验收**：第 1 轮 executor（25 分钟）→ tester（15 分钟）；第 2 轮先 1 个 finder-delta 做 10 分钟回归检查，再 executor → tester。
+4. **批末**：scribe 同步 README/AGENTS/CHANGELOG/STATE/METRICS。
 
-根代理只在批次之间做事：分派、读报告、跑最终门禁、更新本文件、决定下一批。根代理不写产品代码。
+每轮 tester 独立验收并 commit；FAIL 修复 1 次，仍 FAIL 回滚。根代理只在批次之间复核门禁与指标。
 
 ## 门禁
 
@@ -165,7 +164,7 @@
 3. CDP 用 9222–9226（每个端口独立 profile；9227 不可用）。每轮 E2E 前跑 `node .tmp/reset.mjs <端口>`：它会关旧页面、清 localStorage/IndexedDB。旧页面会执行 HMR 没应用的 App.tsx 中间版本，见 AGENTS §8。
 4. 用 DSH `workflow` 调度五角色：3–5 个只读 finder 并行 → planner → critic（REVISE 回 planner，最多 2 次）→ executor → tester；FAIL 返修最多 2 次，仍 FAIL 回滚。不再复用持久代理或 send_message。
 5. 根代理只在批次之间做事：读报告与 `git log`、串行跑 `npm run build`/`npm test`/`measure`、更新本文件、决定下一批。产品代码由子代理写。
-6. 第 49 轮完成（PASS，未发版，本轮 HEAD 见 `git rev-parse HEAD`）。取消轮次上限：5 路端到端侦察都报 0 条且 planner 无可做任务，连续两轮才停。后续优先见上面「第 49 轮下一轮优先」：全部替换 1 MB 冻结 → 表格内手打块级标记 → typora `Ctrl+滚轮`/全屏 → 48-F4 占位符 → 性能批次 → UI 第二批 → 发布/文档批次。排序：稳定性 > 核心功能 > 体积优化 > 节省 Token > 速度。
+6. 第 50 轮完成（PASS，未发版，HEAD `fb6fe9a`）。v2 已生效：每 2 轮一次 5 路侦察、两轮计划、报告与时间上限、BRIEF/BACKLOG/METRICS。后续优先见 `docs/iteration/BACKLOG.md` 与「第 50 轮下一轮优先」：① 路线图 B-001 整页缩放 / B-002 全屏 / B-003 拖入打开；② 保存链 F1/F4；③ ui U5/U3；④ code F2；⑤ 发布/文档批次。硬预算：Phase 1+2 ≤18 轮（第 51–68 轮）。
 
 ## 决策记录
 
@@ -196,3 +195,5 @@
 - 2026-11-17 第 35 轮：体积护栏换挡（首屏内部 310,000 / 硬线 320,000；安装包内部 1,800,000 / 硬线 2,000,000；ADR-0012/0017 同步，ADR-0017 结论改「接受，第 36 轮实现」）；AI 提示词拆分（格式与安全规则进内置 `ANALYSIS_SYSTEM_PROMPT`、设置只编辑 `userPrompt`、`promptVersion` 3 与 v2 指纹迁移、追问用 `DISCUSS_SYSTEM_PROMPT`）；Esc 后焦点回正文（预览/源码/快速打开）＋ `FindBar` Esc `stopPropagation` 使一个按键只关查找。测试 22/295；首屏 286,056 B；未发版。
 - 2026-11-17 产品负责人：优先级固定为 **稳定性 > 核心功能 > 体积优化 > 节省 Token > 工作速度**；不要为省几 KB 砍能提升体验的功能。
 - 2026-11-17 产品负责人：安装包硬线改为 **50,000,000 B**（内部 **45,000,000 B**）；取消轮次上限；每轮 5 个端到端审查代理；停止条件为 5 路全部 0 条且 planner 无可做任务，连续两轮。已同步 packaging/*.ps1、packaging/README.md、README、ADR-0017 与本文件。首屏预算不变（310,000 / 320,000）。
+
+- 2026-11-18 根代理：v2 生效。变化：5 路侦察改为每 2 轮一次；planner 写两轮计划；critic 只审 P0/P1、最多 1 次修订；报告上限（findings 4 KB / plan 6 KB / review 4 KB / impl 4 KB / test 5 KB）；代理先读 docs/iteration/BRIEF.md（≤2 KB），不整篇读 AGENTS/README/STATE；批末 scribe 同步文档；新增 BACKLOG.md 与 METRICS.md。停止改为「Phase 1 路线图清空 + Phase 2 缺陷审计连续两轮 0 P0/P1」，硬预算 ≤18 轮（第 51–68 轮）。第 47–50 轮完成（33 文件 432 条，首屏 294,913 B，HEAD fb6fe9a）；v1 最后一批 52 个代理 / 308 分钟，作为对照基线。
