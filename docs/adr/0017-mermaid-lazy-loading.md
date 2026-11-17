@@ -1,6 +1,6 @@
-# Mermaid 惰性加载：首屏 0 B，真实最小增量 **1,474,881 B** 落在新线 **1,800,000 / 2,000,000** 内
+# Mermaid 惰性加载：首屏 0 B，第 36 轮实测安装包 **1,299,777 B**（预估 1,474,881 B），首屏 +2,200 B
 
-Typora 内置 Mermaid：`resources/Docs/Draw Diagrams With Markdown.md:42-64`，截图 `shots/typora/02-window-maximized.png`。Sidelight 现在把 ```` ```mermaid ```` 当普通代码块渲染（`language-mermaid`，`svg` 0 个、全程 0 个含 `mermaid` 的请求），用户要图只能自己截图。技术写作里流程图/时序图是刚需，所以这份 ADR 把「要不要上、怎么上」的体积事实量清楚，本轮**只量、第 36 轮实现**。
+Typora 内置 Mermaid：`resources/Docs/Draw Diagrams With Markdown.md:42-64`，截图 `shots/typora/02-window-maximized.png`。Sidelight 现在把 ```` ```mermaid ```` 当普通代码块渲染（`language-mermaid`，`svg` 0 个、全程 0 个含 `mermaid` 的请求），用户要图只能自己截图。技术写作里流程图/时序图是刚需，所以这份 ADR 把「要不要上、怎么上」的体积事实量清楚，本轮**只量、第 36 轮实现**。**第 36 轮已落地，实测字节见文末「第 36 轮实测」节。**
 
 ## 背景
 
@@ -74,4 +74,38 @@ Typora 内置 Mermaid：`resources/Docs/Draw Diagrams With Markdown.md:42-64`，
 
 ## 状态
 
-2026-11-17 接受（第 36 轮实施）。再评估触发条件：① 字体子集化（`round-32/findings-ship.md:59-66`，粗估省 80–120 KB）落地后重算；② 首屏或安装包预算被产品负责人调整；③ 拿到「只留 flowchart + sequence」子集方案的实测数字。届时用真安装包字节替换本 ADR 的预估表。
+**已接受并落地（第 36 轮，2026-11-17；实现文件 `src/lib/mermaidLazy.ts` / `mermaidLoader.ts` / `mermaidPreview.ts` + `src/mermaid-dist.d.ts`，实测见下节）。** 再评估触发条件：① 字体子集化（`round-32/findings-ship.md:59-66`，粗估省 80–120 KB）落地后重算；② 首屏或安装包预算被产品负责人调整；③ 拿到「只留 flowchart + sequence」子集方案的实测数字。
+
+## 第 36 轮实测（用真字节替换上面的预估）
+
+按本轮计划的门 A（单值判据 `assoc-dryrun ≤ 1,997,853 B` = 硬线 2,000,000 − dry-run 口径差 2,147）：
+
+| 项 | 实测 | 说明 |
+| :--- | ---: | :--- |
+| `mermaid` 版本 | 11.12.0（`package.json` 精确锁定，不加 `^`） | 与上面量测同版本 |
+| 安装后包体积 | `node_modules/mermaid` raw 66,020,674 B（含 121 个 `*.mjs.map`） | 只是磁盘占用，不进安装包 |
+| `dist` 总量 | 31 文件 / 1,471,108 B → **97 文件 / 3,833,607 B**（+2,362,499 B raw） | `dist` 内 `*.js` 从 13 → **79**（`Get-ChildItem dist -Recurse -Filter *.js` 实测） |
+| 其中 mermaid 入口 chunk | `mermaidLoader-CKf580Bv.js` 77,792 B raw / 27.51 kB gzip | 只被动态 `import()`，首屏不含 |
+| 图类型 chunk（rollup 按动态 `import()` 全部收进 `dist`） | 66 个（79 − 基线 13），最大 `cytoscape.esm` 441.71 kB、`chunk-FPAJGGOC` 361.22 kB | 与档 2 的预估方向一致：rollup 确实把按需 chunk 全打进 `dist` |
+| **安装包 dry-run** | **1,299,777 B**（`packaging/installer.ps1 -AssocDryRun`，同 dist 连跑两次逐字节相同） | 门 A 通过：≤ 1,997,853 B（余 698,076 B） |
+| 正式包预估 | **1,297,630 B** = 1,299,777 − 2,147 | 未正式打包（UNVERIFIED，发版那轮实测） |
+| 内部线 1,800,000 差值 | `target=1800000 gap=-500,223` | **在内部预算内**，不是原预估的「贴近硬线」 |
+| 首屏 gzip | 286,056 → **288,256 B**（+2,200 B） | `files=3`，首屏集合多出 `rolldown-runtime` 450 B gzip，不含 mermaid |
+| `dist/index.html` 里的 `mermaid` | **0 命中**；`dist` 内 `*.map` **0 个** | 惰性 chunk 不进引用清单 |
+| 首渲染时真实下载 | `mermaidLoader` + 对应图类型 chunk（E2E `## lazy-evidence`） | 流程图首屏额外下载 ≈ 27.5 kB gzip + 图类型 chunk |
+
+为什么比预估好 175,104 B：预估公式是「raw × 0.329」，而 mermaid 的 66 个图类型 chunk 之间有大量重复的字符串/代码片段，LZMA 跨文件压缩率高，实际压缩比远好于 0.329。原预估方向没错（档 2 会破 2,000,000 是错的，实测连内部线都没破），但绝对值偏大。
+
+**明写偏离原方案**（不改就等于宣称已完成）：
+
+1. 原方案 `:21` 写「导出 HTML 复用 `ensureKatex()` 的写法」——**本轮未做**：HTML 导出与预览面板都不含图，只显示 fence 原文。原因：widget 是 ProseMirror 装饰，`getHTML()` 序列化文档树看不到它；要含图得在导出时按 fence 再渲染一次，属单独一轮（见 `plan.md` §8）。
+2. 原方案的文件名是 `src/lib/mermaidRender.ts`——落地改成 `mermaidLoader.ts`（只做动态 import，与 `katexLoader.ts` 同型）+ `mermaidPreview.ts`（ProseMirror 插件）；渲染逻辑在 `mermaidLazy.ts`。
+3. 原方案说「渲染失败降级为代码块 + 一句提示」——落地为：代码块原样保留（从不被改写），下面挂 `.mermaid-preview.is-error` 一句「图表没渲染出来，代码块内容仍是原文，可以继续编辑。」（E2E 已验证 `pre code` 文本逐字不变）。
+4. 渲染完成的刷新**没有 dispatch 事务**：改为就地更新已挂上的 widget DOM。理由：装饰按 `key` 复用 DOM，dispatch 重建并不会换掉节点；就地更新少一次事务，也不进撤销栈、不触发批注映射。
+
+已知限制（写进 README/CHANGELOG）
+
+- HTML 导出、预览面板不含图（同上第 1 条）。
+- 切换主题不重绘（`initialize()` 只跑一次，读 `html[data-theme]`）。
+- 同一文档里两段相同代码各渲染一次（不做跨块共享，避免共用 DOM 节点错位）。
+- dev server 下首次请求 mermaid 会触发 Vite 依赖重优化 + 整页 reload（dev-only，正式构建没有 optimizeDeps）。

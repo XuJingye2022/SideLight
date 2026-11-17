@@ -259,7 +259,7 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release view "$TAG" --json assets -q '.assets[].name' | grep -- '-macos-arm64.zip' | while read -r name; do
               gh release delete-asset "$TAG" "$name" -y || true
-            done
+            done || true
           fi
 
       - name: Publish GitHub Release

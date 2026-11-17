@@ -62,9 +62,9 @@ console.log(`total raw=${totalRaw} gzip=${totalGzip} headroom=${max - totalGzip}
 console.log(`target=${target} gap=${target - totalGzip}`)
 console.log(`gzip 省下 ${saved} B（${percent.toFixed(1)}%）`)
 
-const banned = entries.filter((entry) => /katex/i.test(entry.url) || /lazy/i.test(entry.url))
+const banned = entries.filter((entry) => /katex/i.test(entry.url) || /lazy/i.test(entry.url) || /mermaid/i.test(entry.url))
 if (banned.length > 0) {
-  console.log(`FAIL 首屏集合含 katex/lazy chunk：${banned.map((entry) => entry.url).join(', ')}`)
+  console.log(`FAIL 首屏集合含 katex/lazy/mermaid chunk：${banned.map((entry) => entry.url).join(', ')}`)
   process.exit(1)
 }
 if (totalGzip > target) {

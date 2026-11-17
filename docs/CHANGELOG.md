@@ -2,7 +2,7 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–35 轮，未发版）
+## Unreleased（第 29–36 轮，未发版）
 
 数据安全 + 大纲折叠；计划里的 T2（状态栏字数点击明细）**未做**，留待下一轮。第 30 轮补上字数明细、修删除撤销丢正文，并给安装器版本与发版流水线加门。
 
@@ -65,6 +65,17 @@
 - **Esc 后焦点回正文**：退出预览、退出源码、关快速打开之后，焦点回到 `.ProseMirror`，下一次击键不再静默丢失（退出后 `activeElement` 曾是 `body`，4/4、3/3、3/3 复现）。`FindBar` 的两个 Esc 分支改成 `preventDefault()` + `stopPropagation()`，一个 Esc 只关查找，不再连带退出源码/预览；关闭查找后按模式分派焦点——源码模式回 `textarea.source-editor`（`.ProseMirror` 不在 DOM，`focusEditor()` 是空操作），预览模式显式不聚焦（预览 pane `contentEditable=false` 且无 `tabindex`，只读、快捷键由 window 处理），再按一次 Esc 才退出预览并聚焦正文。
 - 测试：`npm test` 22 个文件 **295** 条（287 + 提示词拆分 8，全部走既有测试文件，未新建文件）；`npx tsc --noEmit`、`npm run build`、`npm run verify`、`npm run roundtrip` 均 exit 0；首屏 gzip **286,056 B**（预算内部 310,000 / 硬线 320,000，距硬线余 33,944 B）；主 chunk `index-CYKrmZl7.js` 895,227 B raw / 279,028 B gzip。本轮不发版，原始命令输出与截图见 `docs/iteration/round-35/` 与 `shots/round-35/`。
 - UNVERIFIED：真模型在格式/偏好分离后是否更听话（无 Key，只验了请求体形状）；安装包新预算线的真实字节（本轮不打包，只做静态与语法检查）；CI 换线后的实际绿（不 push）；`packaging/verify-installer.ps1` 新增体积段的真机运行（会写 `release/`）；`scripts/qa15.mjs` 因提示词拆分失效的 4 行（不在任何门禁里，下一轮修）；WKWebView 下的 Esc 焦点行为（本机 Windows）；预览模式下关查找后焦点暂时在 `body`（只读视图无输入目标，下一轮可加 `tabIndex={-1}` + `.preview-pane:focus { outline: none }`）。
+
+**第 36 轮（同一未发版区间）**
+
+- **Mermaid 图表（产品负责人第 32 轮批准，ADR-0017 落地）**：```` ```mermaid ```` 代码块下面挂一个预览 widget，`graph TD; A-->B` 这类流程图直接出图。实现是「ProseMirror 插件 + 装饰」，不改 codeBlock 节点、不改 Markdown 序列化：`src/lib/mermaidLazy.ts`（惰性 loader / 按 code 缓存 / 失败不抛错 / 测试钩子）+ `src/lib/mermaidLoader.ts`（只被动态 `import()`，同 `katexLoader.ts`）+ `src/lib/mermaidPreview.ts`（插件，400 ms 防抖、同 hash 复用 widget DOM）+ `src/mermaid-dist.d.ts`。首屏 **0 B**：`dist/index.html` 0 处 `mermaid`、首屏集合 `files=3` 不含 mermaid chunk；打开含图文档才下载 `mermaidLoader` chunk（27.51 kB gzip）与对应图类型 chunk。渲染失败把 widget 换成 `is-error` + 一句「图表没渲染出来，代码块内容仍是原文，可以继续编辑。」，代码块文本逐字不动（E2E 已验证）。依赖 `mermaid` 精确锁 11.12.0（`AGENTS.md` §4 的例外，理由与实测见 ADR-0017）。
+- **修数据丢失**：「全部替换」不再清空页边批注。`replaceEvery` 里那句 `setAnnotations([])` 删掉后，整篇替换与普通编辑走**同一条**事务映射路径（`src/App.tsx` 的既有 `transaction` 监听器：`addToHistory === false` 才跳过），批注自动跟随，不需要第二套位置算法。E2E：种子批注「很蓝」、「天空」→「天」三处不等长全部替换后，正文变「天很蓝。天很蓝。另一段也有天。」、批注仍是 1 条且高亮仍是「很蓝」（单次映射 from 3→2、to 5→4；双映射会缩成「很」）、`.sidelight/annotations/批注.json` 里 `to - from === 2`；`Ctrl+Z` 后位置回到 3–5，条数不变。
+- **修丢键**：进源码框后焦点不再掉在 `body`。三个入口（`enterSourceFor`、`switchView`、工具栏「源码」）与 `Ctrl+/` 现在都用模块级 `focusSourceEditor()`（rAF + `textarea.source-editor`，与关查找条同一选择器）；`Ctrl+/` 退出源码回正文（`focusEditor()`），打字真的落进正文。载入即源码（含引用式链接定义的文档）**不抢焦点**，E2E 专门拦这条回归。
+- 发版：`.github/workflows/release.yml:262` 的 `while read` 管道后补 `|| true`——`grep -- '-macos-arm64.zip'` 在 0.29.0 起资产改名后必然 0 命中，`pipefail` + `set -e` 让同一 tag 的重发必红。
+- 文档：`README.md` 依赖从「两组」改「三组」并补 Mermaid 一行（`AGENTS.md` §4 要求）+ 首屏/安装包实测数字；`docs/typora-gap.md` 的 Mermaid 从「无」改「有（第 36 轮，惰性渲染）」；ADR-0017 补「第 36 轮实测」节，用真字节替换预估并明写四处偏离原方案。
+- 门禁：`npx tsc --noEmit`、`npm test`（**23 个文件 301 条**，新增 `src/lib/mermaidLazy.test.ts` 6 条）、`npm run roundtrip`（`docs/roundtrip-report.md` 无 diff，source 7/7 等值）、`npm run verify`、`npm run build` 全 exit 0；首屏 gzip **288,256 B**（+2,200 B，预算内部 310,000 / 硬线 320,000，距硬线余 31,744 B）；安装包 `-AssocDryRun` 实测 **1,299,777 B**（正式包预估 1,297,630 B，内部预算 1,800,000 / 硬线 2,000,000 内）。
+- UNVERIFIED：正式安装包字节（只跑 dry-run，跳过 2,000,000 硬判）；WebView2 宿主里的真实 mermaid 渲染（只用 CDP 浏览器）；HTML 导出与预览面板的图形（本轮不做，见 ADR-0017 已知限制）；中文输入法下的源码框聚焦（`keyboard.type` 只发 ASCII）；>1 MB 文档含 5+ 张图的滚动性能（只测 1 张图）；mermaid 各类图的真实报错文案（只测一个坏语法样本）。
+
 
 ## 0.32.1 — 2026-11-16
 

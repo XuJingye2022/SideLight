@@ -49,11 +49,12 @@
 
 ## 当前版本与体积
 
-- v0.32.1（第 30–35 轮改动都在同一个未发版区间）。首屏 JS+CSS gzip **286,056 B**（预算内部上限 310,000 / 硬线 320,000，距硬线余 33,944 B；第 30 轮 284,529 → 31 轮 +232 → 32 轮 +291 → 33 轮 +839 → 34 轮 +46 → 35 轮 +119）；安装包预算内部 1,800,000 / 硬线 2,000,000；测试 **22 文件 295 条**（30 轮 18/260 → 31 轮 21/272 → 32 轮 21/276 → 33 轮 22/285 → 34 轮 22/287 → 35 轮 22/295）。首屏/测试数字为第 35 轮轮末 `npm run verify` 与 `npm test` 实测（主 chunk `index-CYKrmZl7.js` 895,227 B raw / 279,028 B gzip）。
+- v0.32.1（第 30–36 轮改动都在同一个未发版区间）。首屏 JS+CSS gzip **288,256 B**（预算内部上限 310,000 / 硬线 320,000，距硬线余 31,744 B；第 30 轮 284,529 → 31 轮 +232 → 32 轮 +291 → 33 轮 +839 → 34 轮 +46 → 35 轮 +119 → 36 轮 +2,200）；安装包预算内部 1,800,000 / 硬线 2,000,000（第 36 轮 dry-run 1,299,777 B）；测试 **23 文件 301 条**（30 轮 18/260 → 31 轮 21/272 → 32 轮 21/276 → 33 轮 22/285 → 34 轮 22/287 → 35 轮 22/295 → 36 轮 23/301）。首屏/测试数字为第 36 轮 `npm run verify` 与 `npm test` 实测（主 chunk `index-CkPNnBZ0.js` 898,601 B raw / 280,679 B gzip）。
 - 第 33 轮：智能标点与自动配对（设置可关，`src/lib/smartTyping.ts`）；`packaging/verify-installer.ps1` 与 release 流水线版本号变量化；首屏 285,891 B。
 - 第 34 轮：**脚注定义丢失拦截（P0，自动保存也拦）**、查找/快速打开焦点回正文、同一篇不弹切换框、新增 `npm run verify` 首屏门；首屏 285,937 B（余 63 B）。
 - 第 35 轮：**体积护栏换挡**（首屏内部 310,000 / 硬线 320,000，安装包内部 1,800,000 / 硬线 2,000,000，measure/installer/portable/verify-installer/CI 静态跟随）、**AI 提示词拆分**（格式与安全规则内置 `ANALYSIS_SYSTEM_PROMPT`，设置只改 `userPrompt`，旧 `analysisPrompt` 指纹迁移）、**Esc 后焦点回正文**（预览/源码/快速打开）＋查找框开着时一个 Esc 只关查找；首屏 286,056 B、测试 22/295。
-- 下一轮优先：① Mermaid 惰性渲染（产品负责人已批，第 36 轮第一件事，按真实安装包字节替换 ADR-0017 预估）；② 工作区相对路径图片破图（需新增宿主路由 `/__asset` + 重建宿主 + `host-smoke`，第 32/33/34 轮连续提出）；③ `scripts/qa15.mjs` 因提示词拆分失效的 4 行（`:44`/`:48`/`:53`/`:55`）随提示词回归一起修；④ 快速打开在源码/预览里的「一次按键两个动作」先补一条 e2e 再定；⑤ `docs/typora-gap.md` 全表核对与 README/AGENTS 的「21 项有、18 项缺」。排序仍是 稳定性 > 核心功能 > 体积优化 > 节省 Token > 速度。
+- 第 36 轮（未发版，v0.32.1 不变）：**Mermaid 惰性渲染**（`src/lib/mermaidLazy.ts` + `mermaidLoader.ts` + `mermaidPreview.ts` + `src/mermaid-dist.d.ts`；ADR-0017 落地，`mermaid` 精确锁 11.12.0）。首屏 **288,256 B**（+2,200 B，`files=3`，`dist/index.html` mermaid 0 命中）、首渲染才下载 `mermaidLoader` 27.51 kB gzip + 图类型 chunk；安装包 `-AssocDryRun` **1,299,777 B**（正式包预估 1,297,630，内部线 1,800,000 / 硬线 2,000,000 内）。另修两条 P1：**「全部替换」不再清空页边批注**（`replaceEvery` 删掉 `setAnnotations([])`，映射交给既有监听器）、**进源码即聚焦源码框 + `Ctrl+/` 退出回正文**（`focusSourceEditor`）。收尾：`release.yml` 重发路径 `done || true`、README/typora-gap/AGENTS 计数与体积同步（22 项有 / 17 项缺）。测试 **23 文件 301 条**。
+- 下一轮优先：① 源码框 caret 位置（进源码后 caret 在 0，首次击键插到文首，第 36 轮验收观察）；② `docs/typora-gap.md` 全表复核（`自动配对括号与引号`、`智能标点` 两行仍写「无」，第 33 轮已实现）；③ 工作区相对路径图片破图（需新增宿主路由 `/__asset` + 重建宿主 + `host-smoke`，第 32/33/34 轮连续提出）；④ findings-ship F2/F3/F5（installer.ps1 取 NSIS 无哈希、CI 空转 artifact、本地 release 不能自证）；⑤ `scripts/qa15.mjs` 因提示词拆分失效的 4 行（`:44`/`:48`/`:53`/`:55`）；⑥ HTML 导出/预览面板的图形渲染与主题切换重绘（T3 已知限制）。排序仍是 稳定性 > 核心功能 > 体积优化 > 节省 Token > 速度。
 - 首启：空白 `未命名.md`，不再加载示例；文件菜单「关闭文档」；工作区无句柄文档 Ctrl+S 直接落 `未命名.md`。
 - 发布资产：Windows setup 824,209 B、Windows zip 910,360 B、macOS Universal 905,892 B；校验和见 `SHA256SUMS-0.32.1.txt`。
 - 重开恢复：IndexedDB 只存 FSA 句柄；宿主 `/__annotations` 读回；Ctrl+S 原地。批注 v2（overall/unresolved）；重跑整窗替换。
@@ -99,6 +100,7 @@
 | 33 | 智能标点与自动配对 + 验收/发版门禁版本号 | round-33/plan.md | PASS-WITH-UNVERIFIED：智能标点 8 条单测、e2e 13 组、keyboard 52/52、首屏 285,891、测试 22/285、verify-installer 版本号正反例 | 186dfeb |
 | 34 | 脚注定义丢失拦截 P0 + 焦点回正文 + verify 门禁 | round-34/plan.md | PASS-WITH-UNVERIFIED：T1 6/6（自动保存也拦）、T2 6/6、verify 正反例、keyboard 52/52、树 54/56（2 条旧脚本过期）、首屏 285,937、测试 22/287；验收后未提交，根代理补交 | 08775f2 |
 | 35 | 体积护栏换挡 + AI 提示词拆分 + Esc 后焦点回正文 | round-35/plan.md | PASS-WITH-UNVERIFIED：T1 a–l（首屏 320,000 硬线 / 310,000 内部、安装包 1,800,000 / 2,000,000、三脚本 BOM+语法解析 0 错、workflows 与文档旧线 0 命中且有改前对照）、T2 17/17 项断言 + 单测（system/user 分离、旧键迁移、落盘只写 `userPrompt`）、T3 6 组全过（a/b/c/d/e/d2）、tsc/build/verify PASS、roundtrip 0、首屏 286,056、测试 22/295；未发版 | 7ae5be4 |
+| 36 | Mermaid 惰性渲染 + 全部替换保住批注 + 进源码聚焦 | round-36/plan.md | PASS-WITH-UNVERIFIED：T1 静态（`setAnnotations([])` 3→2、无第二套映射）+ E2E（正文全替换、批注 1 条、from/to 2–4、store `to-from=2`、撤销回 3–5）；T2 四段（源码框/正文/工具栏三入口打字都落位、载入即源码不抢焦点）；T3 E2E（普通文档 0 次 mermaid 本体请求、出 svg、懒 chunk 27.51 kB、坏语法只多一句提示且 `pre code` 逐字不变、Ctrl+S 写回 = 原 fence）+ 体积门 A `assoc-dryrun=1,299,777 ≤ 1,997,853`（余 698,076）；T4 release.yml `done || true` + README/gap 表计数；tsc/build/verify PASS、roundtrip rich 5/7 source 7/7、keyboard 52/52、首屏 288,256（files=3）、测试 23/301；未发版 | 见下一次「看板记录」提交 |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 

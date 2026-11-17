@@ -12,7 +12,7 @@
     "build": "tsc --noEmit && vite build",
     "verify": "npm run build && node scripts/measure-first-screen.mjs",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types src/lib/context.test.ts && node --experimental-strip-types src/lib/annotations.test.ts && node --experimental-strip-types src/lib/outline.test.ts && node --experimental-strip-types src/lib/wordcount.test.ts && node --experimental-strip-types src/lib/frontmatter.test.ts && node --experimental-strip-types src/lib/diff.test.ts && node --experimental-strip-types src/lib/asset.test.ts && node --experimental-strip-types src/lib/find.test.ts && node --experimental-strip-types src/lib/footnotes.test.ts && node --experimental-strip-types src/lib/html.test.ts && node --experimental-strip-types src/lib/escapes.test.ts && node --experimental-strip-types src/lib/export.test.ts && node --experimental-strip-types src/lib/math.test.ts && node --experimental-strip-types src/lib/cache.test.ts && node --experimental-strip-types src/lib/search.test.ts && node --experimental-strip-types src/lib/errorCopy.test.ts && node --experimental-strip-types src/lib/session.test.ts && node --experimental-strip-types src/lib/trash.test.ts && node --experimental-strip-types src/lib/settings.test.ts && node --experimental-strip-types src/lib/prompt.test.ts && node --experimental-strip-types src/lib/katexLazy.test.ts && node --experimental-strip-types src/lib/smartTyping.test.ts",
+    "test": "node --experimental-strip-types src/lib/context.test.ts && node --experimental-strip-types src/lib/annotations.test.ts && node --experimental-strip-types src/lib/outline.test.ts && node --experimental-strip-types src/lib/wordcount.test.ts && node --experimental-strip-types src/lib/frontmatter.test.ts && node --experimental-strip-types src/lib/diff.test.ts && node --experimental-strip-types src/lib/asset.test.ts && node --experimental-strip-types src/lib/find.test.ts && node --experimental-strip-types src/lib/footnotes.test.ts && node --experimental-strip-types src/lib/html.test.ts && node --experimental-strip-types src/lib/escapes.test.ts && node --experimental-strip-types src/lib/export.test.ts && node --experimental-strip-types src/lib/math.test.ts && node --experimental-strip-types src/lib/cache.test.ts && node --experimental-strip-types src/lib/search.test.ts && node --experimental-strip-types src/lib/errorCopy.test.ts && node --experimental-strip-types src/lib/session.test.ts && node --experimental-strip-types src/lib/trash.test.ts && node --experimental-strip-types src/lib/settings.test.ts && node --experimental-strip-types src/lib/prompt.test.ts && node --experimental-strip-types src/lib/katexLazy.test.ts && node --experimental-strip-types src/lib/smartTyping.test.ts && node --experimental-strip-types src/lib/mermaidLazy.test.ts",
     "roundtrip": "node --experimental-strip-types scripts/roundtrip.mjs",
     "acceptance": "node scripts/acceptance.mjs",
     "shot": "node scripts/shot.mjs"
@@ -30,6 +30,7 @@
     "@tiptap/react": "^3.34.0",
     "@tiptap/starter-kit": "^3.34.0",
     "katex": "^0.18.10",
+    "mermaid": "11.12.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

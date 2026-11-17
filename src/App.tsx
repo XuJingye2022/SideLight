@@ -68,6 +68,7 @@ import { DISCUSS_SYSTEM_PROMPT } from './lib/prompt.ts'
 import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDefinitions, lossLabels, type Loss } from './lib/risk.ts'
 import { repairCalloutMarkers } from './lib/escapes.ts'
 import { ensureKatex } from './lib/katexLazy.ts'
+import { MermaidPreview } from './lib/mermaidPreview.ts'
 import { findAll, type Match } from './lib/find.ts'
 import { extractFootnotes, joinFootnotes, repairFootnoteRefs } from './lib/footnotes.ts'
 import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontmatter.ts'
@@ -327,6 +328,13 @@ function hostErrorCopy(code: string): string {
  */
 const focusEditor = () => requestAnimationFrame(() => document.querySelector<HTMLElement>('.ProseMirror')?.focus())
 
+/**
+ * 把焦点送进源码框：进源码后不聚焦，之后打的字全掉在 body 上（第 36 轮）。
+ * 选择器与关查找条的 `textarea.source-editor` 一致；rAF 等 setViewMode 挂载完再聚焦
+ */
+const focusSourceEditor = () =>
+  requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea.source-editor')?.focus())
+
 export default function App() {
   const [settings, setSettings] = useState<Settings>(() => loadSettings())
   // 没配 Key 时走本地模拟流，界面必须明说，否则用户会以为模型读过文章
@@ -515,6 +523,8 @@ export default function App() {
     setViewMode('source')
     setFocusMode(false)
     setTypewriterMode(false)
+    // 载入即源码不抢焦点；用户主动进源码才聚焦，否则之后的击键掉在 body 上（第 36 轮）
+    if (!fromLoad) focusSourceEditor()
   }, [])
   /** 保存基线：当前正文与它不等才算脏；载入、保存成功、草稿恢复时更新 */
   const baselineRef = useRef<string | null>(null)
@@ -752,6 +762,7 @@ export default function App() {
       TaskItem.configure({ nested: true }),
       Markdown.configure({ indentation: { style: 'space', size: 2 } }),
       AnnotationDecorations,
+      MermaidPreview,
       shortcutExtension,
       smartTypingExtension,
       MathInputRules.configure({
@@ -1792,7 +1803,6 @@ export default function App() {
     }
     editor.view.dispatch(transaction)
     editor.commands.focus()
-    setAnnotations([])
   }, [editor, matches, replacement])
 
   /* ---------- 滚动与页边定位 ---------- */
@@ -3761,7 +3771,8 @@ export default function App() {
   const switchView = useCallback(
     (next: 'edit' | 'source' | 'preview') => {
       if (!editor) return
-      if (viewMode === 'source' && next !== 'source') applySource()
+      const leavingSource = viewMode === 'source' && next !== 'source'
+      if (leavingSource) applySource()
       if (next === 'source') {
         // 未编辑时显示文件原文（引用式链接定义还在）；编辑过才显示当前内容
         const text =
@@ -3779,6 +3790,10 @@ export default function App() {
         setTypewriterMode(false)
       }
       setViewMode(next)
+      // 两个方向都要聚焦，否则键盘用户进源码打的字全丢（第 36 轮）。
+      // 预览不是聚焦目标：PreviewPane 是 contentEditable=false 且无 tabindex
+      if (next === 'source') focusSourceEditor()
+      else if (leavingSource && next === 'edit') focusEditor()
     },
     [editor, viewMode, sourceText, dirty, draftRestored, currentMarkdown, applySource],
   )
