@@ -72,3 +72,19 @@ test('不命中返回 null（不是 false、不是 undefined）', () => {
   assert.notEqual(result, false)
   assert.notEqual(result, undefined)
 })
+
+test('含 | 的行不把 -- 换成 —：手打的表格分隔行原样保留', () => {
+  // 第 4 个参数是光标前整行；GFM 表格允许省略首尾竖线，所以只判「行里有 |」
+  assert.equal(smartInput('| --', '-', ' ', '| --'), null)
+  assert.equal(smartInput('--- | --', '-', '', '--- | --'), null)
+})
+
+test('普通行的 -- 仍换成 —（修表格行不能连累破折号）', () => {
+  assert.deepEqual(smartInput('-', '-', '', ''), { kind: 'replace', from: -1, to: 0, text: '—' })
+  assert.deepEqual(smartInput('a-', '-', '', 'a-'), { kind: 'replace', from: -1, to: 0, text: '—' })
+})
+
+test('第三根 dash 不连吞（不因为新规则误命中）', () => {
+  assert.equal(smartInput('—', '-', '', '---'), null)
+  assert.equal(smartInput('—', '-', '', ''), null)
+})

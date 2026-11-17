@@ -2,7 +2,7 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–37 轮，未发版）
+## Unreleased（第 29–38 轮，未发版）
 
 数据安全 + 大纲折叠；计划里的 T2（状态栏字数点击明细）**未做**，留待下一轮。第 30 轮补上字数明细、修删除撤销丢正文，并给安装器版本与发版流水线加门。
 
@@ -86,6 +86,16 @@
 - 门禁：`npx tsc --noEmit` exit 0；`npm test` **23 个文件 301 条**全过（T1 不加单测，与第 36 轮同）；`npm run roundtrip` rich 5/7、source 7/7（与第 36 轮同，`04-reference-links.md` 与 `06-task-list.md` 的既有差异不变）；`npm run build` exit 0；首屏 gzip **288,411 B**（+155 B，只多 T1 的 CSS；`files=3`，首屏集合无 `mermaid`/`lazy`/`katex`；内部预算 310,000 / 硬线 320,000，距硬线余 31,589 B）。
 - **T4（零字节，`scripts/measure-first-screen.mjs`）**：距硬线不足 5% 时打一行 `WARN 首屏距硬线 …`——预算余量从 21,744 B 掉到 0 之前不再静默（第 36 轮刚单轮 +2,200 B）。只提醒，不改参数、不改 exit 码。四条正反例按计划全过：默认 `headroom=31744` 无 WARN、`PASS`、exit 0；`--max 300000` 出 WARN（余 11,744 B）仍 `PASS`；`--max 288000` 仍 `FAIL` exit 1（WARN 不吞 FAIL）；`--target 280000` 不报 ENOENT、打「超过内部预算」、exit 0。
 - UNVERIFIED：WebView2 宿主里的表格拖拽与源码框 caret（本轮只用 CDP 浏览器）；拖过的表在 HTML 导出里会带出 `colwidth="278"`（DOM 已实测；没有 `<colgroup>`，宽度不生效）——本轮按计划不改，第 38 轮给 `TableCell`/`TableHeader` 的 `colwidth` 加 `renderHTML: () => null` 并用 E2E 断言导出片段；暗色主题与 150%/200% 缩放屏下的 handle/caret；真实中文 IME 下的源码框 caret。
+
+**第 38 轮（同一未发版区间）**
+
+- **工作区相对路径图片能显示**（`assets/xxx.png` 原名破图，P1，第 32/33/34 轮连续记录）：新增 `src/lib/assetResolve.ts`（模块级缓存 + 在飞去重 + 代际 + 订阅，纯函数可在 Node 单测）与 `src/lib/assetImage.ts`（`ResolvingImage` NodeView，只把 DOM 的 `src` 换成本地 blob URL）。正文节点与 `.md` 字节不变，仍是 `assets/…`（保存后逐字节等于种子，0 处 `blob:`）。编辑视图、预览面板都能显示；换目录（根 → `sub/` → 回根）两个方向都对，图片不因切文档串到别篇。单文件打开（无目录句柄）与宿主文档**不**按工作区根解析，避免显示别人的图。E2E 十段全绿；`npm test` 24 个文件 **311** 条（新增 `assetResolve.test.ts` 5 条）。
+- **修预览面板在源码态载入后永久破图**：源码模式下编辑器不挂载、没有 NodeView，缓存没人填；`PreviewPane` 改为自订阅 + 自发起解析（`useSyncExternalStore` 快照 = 资产版本号）。红/绿对照实测：去掉该 effect 时 `naturalWidth:0`、`src` 仍是 `assets/d.png`；恢复后 `naturalWidth:1`、`src` 是 `blob:`。
+- **智能标点不再改写含 `|` 的行**（数据保真）：手打的 GFM 表格分隔行 `| --- | --- |` 原样保留，不再变成 `| —- | —- |`。`smartInput` 加第 4 个可选参数 `lineBefore`（只在按 `-` 时由插件传入整行文本），命中返回 `null` 让后面的横向分隔线输入规则照常收到输入（空段落打 `---` 仍出 HR，E2E 实测 `hrCount:1`）。
+- **Mermaid：列表项与引用块里的围栏也渲染**（第 37 轮顺延的 a 半）：`listMermaidBlocks` 由 `doc.forEach` 改 `doc.descendants`，嵌套节点用绝对 `pos` 挂 widget。E2E 三篇（列表项 / 引用块 / 顶层）各 `previewCount:1`、`isReady:true`、`svgCount:1`，代码块原文逐字不变。b 半（两段相同代码的 SVG id 按实例唯一）仍不在本轮。
+- 文档：`docs/typora-gap.md` 把「工作区相对路径图片显示」从「缺的」移进「已经有的」（**29 项有 / 11 项缺**），「文件与工作区」子计数 2 → 1，下一批重排 3 条；`README.md` 能力句与限制句同步（单文件打开仍显示不了），智能标点限制补一句；`AGENTS.md` 测试计数与差距计数同步；ADR-0017 已知限制补一行。
+- 门禁：`npx tsc --noEmit` exit 0；`npm test` **24 个文件 311 条**全过；`npm run roundtrip` rich 5/7、source 7/7（不碰序列化）。
+- UNVERIFIED：真实文件夹句柄与权限三态（CDP 是假 FSA）；宿主（WebView2）单文件打开时的相对路径图片（宿主只有 `/__doc`，无目录句柄，按其路由要宿主轮）；插入图片后「立刻显示」（假盘 `createWritable().write()` 把 Blob 当文本写，PNG 会坏）；宿主内 NodeView 的图片选中/拖拽；真实中文 IME 下表格分隔行的输入；大量图片（>50 张）的 blob 内存与切文档撤销；暗色主题与 150%/200% 缩放屏下的图片与预览。
 
 
 ## 0.32.1 — 2026-11-16

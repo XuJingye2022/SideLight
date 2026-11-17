@@ -25,12 +25,14 @@ const CJK = /[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]/
 /**
  * 唯一的判定入口：不碰 view，不碰选区。
  * `before` / `after` 是光标前 / 后最多 4 个字符（不跨节点）。
+ * `lineBefore` 是光标所在文本块里光标之前的全文，只在按 `-` 时传：
+ * 这一行里有 `|` 就可能是手打的表格分隔行，不许把 `--` 换成 `—`。
  * 命中返回结果，不命中返回 `null`（不是 `false`，不是 `undefined`）。
  *
  * 边界：`skip` 只对光标（空选区）成立——函数签名里看不到选区，
  * 「有选区时不得吞掉这次输入」由插件在 dispatch 前判。
  */
-export function smartInput(before: string, inserted: string, after: string): SmartResult | null {
+export function smartInput(before: string, inserted: string, after: string, lineBefore = ''): SmartResult | null {
   const last = before.slice(-1)
   const next = after.slice(0, 1)
   const atStart = last === '' || /\s/.test(last) || OPENERS.includes(last)
@@ -53,6 +55,8 @@ export function smartInput(before: string, inserted: string, after: string): Sma
     return null
   }
 
+  // 手打的表格分隔行 | --- | --- | 不能被改成 | —- | —- |：这一行有 | 就整行不动
+  if (inserted === '-' && lineBefore.includes('|')) return null
   // -- → —：第三根 - 的 before 末尾已是 —，不命中，交回 HorizontalRule 的输入规则
   if (inserted === '-' && last === '-') return { kind: 'replace', from: -1, to: 0, text: '—' }
   if (inserted === '.' && before.slice(-2) === '..') return { kind: 'replace', from: -2, to: 0, text: '…' }
@@ -100,7 +104,9 @@ export function createSmartTyping(options: { isEnabled: () => boolean }): Extens
               const offset = $from.parentOffset
               const before = parent.textBetween(Math.max(0, offset - 4), offset, null, '\ufffc')
               const after = parent.textBetween(offset, Math.min(parent.content.size, offset + 4), null, '\ufffc')
-              const result = smartInput(before, inserted, after)
+              // 整行文本只在按 - 时取：其余键用不到，别让每个键都拼一次段落
+              const lineBefore = inserted === '-' ? parent.textBetween(0, offset, null, '\ufffc') : ''
+              const result = smartInput(before, inserted, after, lineBefore)
               // 不命中时返回 false：否则会截断后面的 prop，输入规则收不到这次输入
               if (!result) return false
               const tr = state.tr

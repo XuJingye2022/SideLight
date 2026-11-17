@@ -122,3 +122,47 @@ test('mermaid：没有 mermaid 块就不加载', () => {
   assert.deepEqual(listMermaidBlocks(doc), [])
   assert.equal(__getLoadCount(), 0)
 })
+
+test('mermaid：列表项里的围栏也收集（第 38 轮）', () => {
+  const doc = schema.nodeFromJSON({
+    type: 'doc',
+    content: [
+      {
+        type: 'bulletList',
+        content: [
+          {
+            type: 'listItem',
+            content: [
+              { type: 'paragraph', content: [{ type: 'text', text: '一项' }] },
+              { type: 'codeBlock', attrs: { language: 'mermaid' }, content: [{ type: 'text', text: 'graph TD;\n  A-->B' }] },
+            ],
+          },
+        ],
+      },
+    ],
+  })
+  const blocks = listMermaidBlocks(doc)
+  assert.equal(blocks.length, 1)
+  assert.equal(blocks[0].code, 'graph TD;\n  A-->B')
+  assert.ok(blocks[0].pos > 0)
+})
+
+test('mermaid：引用块里的围栏也收集，pos 单调递增', () => {
+  const doc = schema.nodeFromJSON({
+    type: 'doc',
+    content: [
+      {
+        type: 'blockquote',
+        content: [
+          { type: 'codeBlock', attrs: { language: 'mermaid' }, content: [{ type: 'text', text: 'graph LR;\n  Q-->R' }] },
+        ],
+      },
+      { type: 'codeBlock', attrs: { language: 'mermaid' }, content: [{ type: 'text', text: 'graph TD;\n  S-->T' }] },
+    ],
+  })
+  const blocks = listMermaidBlocks(doc)
+  assert.equal(blocks.length, 2)
+  assert.ok(blocks[1].pos > blocks[0].pos)
+  // 顶层行为不变
+  assert.equal(blocks[1].code, 'graph TD;\n  S-->T')
+})

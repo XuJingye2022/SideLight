@@ -1,7 +1,8 @@
-import { useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
 
 import katex from '../lib/katexLazy.ts'
 import { isKatexReady, subscribe } from '../lib/katexLazy.ts'
+import { getAssetVersion, getResolvedAsset, isRelativeAsset, resolveAsset, subscribeResolved } from '../lib/assetResolve.ts'
 import { renderFootnotes, renderFrontmatter } from '../lib/export.ts'
 
 type Props = {
@@ -22,6 +23,11 @@ function renderMath(html: string): string {
     })
     element.replaceWith(holder)
   }
+  // 工作区相对路径图片换成已解析的 blob URL；没解析到就保持原样（预览是只读副本，不改正文）
+  for (const img of doc.querySelectorAll('img[src]')) {
+    const next = getResolvedAsset(img.getAttribute('src') ?? '')
+    if (next) img.setAttribute('src', next)
+  }
   return doc.body.innerHTML
 }
 
@@ -31,12 +37,23 @@ function renderMath(html: string): string {
  */
 export function PreviewPane({ bodyHtml, frontmatter, footnotes }: Props) {
   const ready = useSyncExternalStore(subscribe, isKatexReady, () => false)
+  // 图片解析版本号：源码模式下编辑器没有挂载，缓存不会自己热起来，只能预览自己发起解析
+  const assetVersion = useSyncExternalStore(subscribeResolved, getAssetVersion, () => 0)
   const hasMath = bodyHtml.includes('data-type="inline-math"') || bodyHtml.includes('data-type="block-math"')
+
+  useEffect(() => {
+    if (!bodyHtml) return
+    const doc = new DOMParser().parseFromString(bodyHtml, 'text/html')
+    for (const img of doc.querySelectorAll('img[src]')) {
+      const src = img.getAttribute('src') ?? ''
+      if (isRelativeAsset(src) && !getResolvedAsset(src)) void resolveAsset(src)
+    }
+  }, [bodyHtml, assetVersion])
 
   const html = useMemo(() => {
     if (hasMath && !ready) return ''
     return `${renderFrontmatter(frontmatter)}${renderMath(bodyHtml)}${renderFootnotes(footnotes)}`
-  }, [bodyHtml, frontmatter, footnotes, hasMath, ready])
+  }, [bodyHtml, frontmatter, footnotes, hasMath, ready, assetVersion])
 
   if (hasMath && !ready) {
     return (

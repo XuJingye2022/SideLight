@@ -105,13 +105,18 @@ export async function renderDiagram(code: string): Promise<{ svg: string } | { e
   }
 }
 
-/** 收集文档里的 mermaid 代码块；没有就返回空数组，也不会触发加载 */
+/**
+ * 收集文档里的 mermaid 代码块（顶层与列表项/引用块里的嵌套块都算）；
+ * 没有就返回空数组，也不会触发加载。
+ */
 export function listMermaidBlocks(doc: PMNode): MermaidBlock[] {
   const blocks: MermaidBlock[] = []
-  doc.forEach((node, offset) => {
-    if (node.type.name !== 'codeBlock' || !isMermaidLanguage(node.attrs?.language)) return
+  doc.descendants((node, pos) => {
+    if (node.type.name !== 'codeBlock' || !isMermaidLanguage(node.attrs?.language)) return true
     const code = node.textContent.replace(/\n+$/u, '')
-    blocks.push({ pos: offset, nodeSize: node.nodeSize, code, hash: mermaidHash(code) })
+    blocks.push({ pos, nodeSize: node.nodeSize, code, hash: mermaidHash(code) })
+    // 代码块没有子节点，不必再往下钻
+    return false
   })
   return blocks
 }

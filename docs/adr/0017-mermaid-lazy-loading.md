@@ -109,3 +109,4 @@ Typora 内置 Mermaid：`resources/Docs/Draw Diagrams With Markdown.md:42-64`，
 - 切换主题不重绘（`initialize()` 只跑一次，读 `html[data-theme]`）。
 - 同一文档里两段相同代码各渲染一次（不做跨块共享，避免共用 DOM 节点错位）。
 - dev server 下首次请求 mermaid 会触发 Vite 依赖重优化 + 整页 reload（dev-only，正式构建没有 optimizeDeps）。
+- 列表项与引用块里的围栏同样渲染（第 38 轮）：收集改成 `doc.descendants`，嵌套块用绝对 `pos`。已知限制只剩「两段相同代码的 SVG id 不唯一」（b 半，未做）。

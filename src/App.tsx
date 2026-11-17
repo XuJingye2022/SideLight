@@ -8,7 +8,6 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
 import { TextSelection } from '@tiptap/pm/state'
 import { isHistoryTransaction } from 'prosemirror-history'
-import { Image } from '@tiptap/extension-image'
 import { Mathematics } from '@tiptap/extension-mathematics'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { TaskItem } from '@tiptap/extension-task-item'
@@ -95,6 +94,8 @@ import {
   type WorkspaceFileNode,
 } from './lib/workspace.ts'
 import { assetFileName, writeAsset } from './lib/asset.ts'
+import { clearAssetCache, resolveAsset, setAssetDocPath, setAssetResolver } from './lib/assetResolve.ts'
+import { ResolvingImage } from './lib/assetImage.ts'
 import { getHostTransport } from './lib/hostBridge.ts'
 import { loadSession, permissionOf, restorePlan, saveSession } from './lib/session.ts'
 
@@ -764,7 +765,7 @@ export default function App() {
     extensions: [
       StarterKit.configure({ strike: false }),
       StrikeShortcut,
-      Image.configure({ allowBase64: true }),
+      ResolvingImage.configure({ allowBase64: true }),
       Mathematics.configure({
         // 点公式就进编辑：位置交给节点自己报，比从 DOM 反推准
         inlineOptions: {
@@ -1025,6 +1026,8 @@ export default function App() {
   const applyHostPayload = useCallback(
     (data: HostDocResponse) => {
       if (!editor || typeof data.text !== 'string') return
+      // 宿主只有 /__doc，没有目录句柄：清掉上一篇工作区文档的路径，图片一律不解析
+      setAssetDocPath('')
       const writable = data.readOnly !== true
       hostModeRef.current = true
       setDocNotes([])
@@ -1108,6 +1111,7 @@ export default function App() {
     const hostUnavailable = (message: string) => {
       if (cancelled) return
       hostModeRef.current = true
+      setAssetDocPath('')
       setHostError(message)
       setHostDoc(null)
       setMarkdown('')
@@ -2005,6 +2009,9 @@ export default function App() {
   const loadIntoEditor = useCallback(
     (text: string, name: string, file: WorkspaceFileNode | null) => {
       if (!editor) return
+      // 必须早于下面的 setMarkdown：它同步 dispatch 建 NodeView，图片解析现读这个路径
+      // 读 workspaceRef 而不是 workspace：本函数的 deps 里没有 workspace，闭包会一直看到 null
+      setAssetDocPath(file?.path ?? (workspaceRef.current ? `${workspaceRef.current.name}/${name}` : ''))
       const split = splitFrontmatter(text)
       const footnoteSplit = extractFootnotes(split.body)
       eolRef.current = text.includes('\r\n') ? 'crlf' : 'lf'
@@ -3962,6 +3969,8 @@ export default function App() {
         try {
           const name = assetFileName(file.name || 'image.png', Date.now())
           const relative = await writeAsset(dir, name, file)
+          // 先解析一次再插节点：否则插入瞬间会闪一下破图（失败不影响插入）
+          await resolveAsset(relative)
           editor.chain().focus().setImage({ src: relative, alt: file.name }).run()
           return
         } catch (error) {
@@ -3983,6 +3992,58 @@ export default function App() {
   useEffect(() => {
     insertImageRef.current = (file: File) => void insertImageFile(file)
   }, [insertImageFile])
+
+  // 工作区图片解析器（第 38 轮）：assets/xxx.png 按文档所在目录读成 blob URL
+  useEffect(() => {
+    if (!editor) return
+    setAssetResolver(async (src, docPath) => {
+      const space = workspaceRef.current
+      if (!space?.rootHandle) return null
+      // 来源校验：宿主（空串）与单文件打开的裸名（图.md）都不许按工作区根解析，
+      // 否则会把别人的目录里的同名图显示成本篇的图
+      if (!docPath || !docPath.startsWith(space.name + '/')) return null
+      try {
+        const dir = await parentDirectory(space, docPath)
+        if (!dir) return null
+        const clean = src.startsWith('./') ? src.slice(2) : src
+        const parts = clean.split('/').filter(Boolean)
+        if (parts.length === 0) return null
+        let target = dir
+        for (const segment of parts.slice(0, -1)) target = await target.getDirectoryHandle(segment)
+        const handle = await target.getFileHandle(parts[parts.length - 1])
+        return URL.createObjectURL(await handle.getFile())
+      } catch {
+        // 文件不存在/无权限：返回 null 且不缓存，补上文件后还能重试
+        return null
+      }
+    })
+    return () => {
+      setAssetResolver(null)
+      clearAssetCache()
+    }
+  }, [workspace, editor])
+
+  // 预热本篇的相对路径图片：订阅者晚到或缓存被清后，NodeView 靠订阅把 src 换回来
+  useEffect(() => {
+    if (!editor) return
+    // 宿主重开时 setWorkspace/setActiveFile 会让本 effect 先跑一轮，不能覆盖宿主设的空路径
+    if (hostModeRef.current) {
+      setAssetDocPath('')
+      return
+    }
+    setAssetDocPath(activeFile?.path ?? (workspace ? `${workspace.name}/${docName}` : ''))
+    // 只在编辑视图预热：源码/预览里没有 NodeView，抢着解析会让预览面板「看起来」不靠自己也能显示
+    if (viewMode !== 'edit') return
+    const sources = new Set<string>()
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === 'image') {
+        const src = String(node.attrs?.src ?? '')
+        if (src) sources.add(src)
+      }
+      return true
+    })
+    for (const src of sources) void resolveAsset(src)
+  }, [workspace, activeFile?.path, docName, editor, viewMode])
 
   // 点链接进入编辑：选中整段链接文字，弹出文字/地址框
   useEffect(() => {
