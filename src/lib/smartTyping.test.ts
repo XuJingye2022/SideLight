@@ -121,3 +121,21 @@ test('会触发规则的键才取整行（性能守卫）', () => {
   assert.equal(needsLineContext('中'), false)
 })
 
+/* ---------- 第 49 轮 T3：紧邻汉字时 `--` 出 `——`（中文破折号占两个汉字位） ---------- */
+
+test('紧邻汉字时 -- 出 ——', () => {
+  assert.deepEqual(smartInput('中文-', '-', ''), { kind: 'replace', from: -1, to: 0, text: '——' })
+  // 后一个字是汉字也算中文上下文（光标在句中打 --）
+  assert.deepEqual(smartInput('甲-', '-', '乙'), { kind: 'replace', from: -1, to: 0, text: '——' })
+  // 第三根不连吞：before 末尾已是 ——
+  assert.equal(smartInput('——', '-', ''), null)
+})
+
+test('空段落与空格隔开时 -- 仍是一个 —（第 47 轮口径 + 分隔线回归）', () => {
+  assert.deepEqual(smartInput('-', '-', ''), { kind: 'replace', from: -1, to: 0, text: '—' })
+  assert.deepEqual(smartInput('甲 -', '-', ''), { kind: 'replace', from: -1, to: 0, text: '—' })
+  assert.deepEqual(smartInput('word-', '-', ''), { kind: 'replace', from: -1, to: 0, text: '—' })
+  // 表格行守卫仍在前
+  assert.equal(smartInput('| 中文-', '-', '', '| 中文-'), null)
+})
+

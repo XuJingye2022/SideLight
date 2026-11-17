@@ -9,19 +9,55 @@ const TAG_NAME = /^[a-zA-Z][a-zA-Z0-9-]*/
 const BLOCK_START = /^[ \t]*(?:(?:>[ \t]*)|(?:[-*+][ \t]+)|(?:\d{1,9}[.)][ \t]+))*$/
 /** 解出来的 `&` 紧跟「名字;」「#数字;」「#x十六进制;」时，它自己就成了一条实体 */
 const ENTITY_AHEAD = /^(?:#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/
+/** 原文里的真实体：按出现次数统计（只数代码外，围栏/行内代码里的不算） */
+const ENTITY_IN_SOURCE = /&([a-zA-Z][a-zA-Z0-9]*|#[0-9]+|#[xX][0-9a-fA-F]+);/g
+/** 原文里被当成「转义写法」提过的名字：`&amp;<名>;`（讲转义的段落），同名真实体与它长得一样 */
+const ENTITY_MENTION = /&amp;([a-zA-Z][a-zA-Z0-9]*|#[0-9]+|#[xX][0-9a-fA-F]+);/g
+/**
+ * 解析层自己会解码的实体名：`@tiptap/core` 的 decodeHtmlEntities 只认 lt|gt|quot|amp 与数字体，
+ * 所以正文里的 `&amp;<这些名字>;` 只可能来自作者手打的字面文本，不能参与「按次数解码」（R49-10）
+ */
+const PARSED_ENTITY = /^(?:amp|lt|gt|quot|#[0-9]+|#[xX][0-9a-fA-F]+)$/
 
 /**
  * 编辑器把行内 HTML 当普通文字，序列化时转义成 &lt;kbd&gt;。
  * 这里还原两类东西：
  * 1. 标签/注释形状的转义（`&lt;kbd&gt;` → `<kbd>`）；
  * 2. 序列化器对正文每个 `&`、`<`、`>` 写的实体（`a &lt; b` → `a < b`）。
- * 代码围栏与行内代码里的字节不动（第 41 轮）。原文里真的写过某条实体时，那一类整篇保持不动：
- * 讲转义的段落、代码样例不能变成真标签或真字符。
+ * 代码围栏与行内代码里的字节不动（第 41 轮）。原文里写过某条实体时按**出现次数**对照：
+ * 本稿同名 `&amp;<名>;` 的条数与原文真实体的条数一样多才逐一解回；原文里用 `&amp;<名>;`
+ * 讲转义时该名字保守地整条保持（第 49 轮）。
  */
 export function repairHtml(markdown: string, original?: string | null): string {
   const source = typeof original === 'string' ? original : null
   // 两条正则的必要条件就是这三类实体之一：都没有就不可能有命中，直接走快路径（第 42 轮守卫）
   if (!markdown.includes('&lt;') && !markdown.includes('&amp;') && !markdown.includes('&gt;')) return markdown
+  const realCount = new Map<string, number>()
+  const mentionCount = new Map<string, number>()
+  if (source !== null) {
+    mapOutsideCode(source, (segment) => {
+      for (const match of segment.matchAll(ENTITY_IN_SOURCE)) {
+        const body = match[1]
+        realCount.set(body, (realCount.get(body) ?? 0) + 1)
+      }
+      for (const match of segment.matchAll(ENTITY_MENTION)) {
+        const body = match[1]
+        mentionCount.set(body, (mentionCount.get(body) ?? 0) + 1)
+      }
+      return segment
+    })
+  }
+  // 本稿里同名 `&amp;<名>;` 的条数：先数完再解，解哪一处就与文档顺序无关（第 49 轮 R49-11）
+  const draftCount = new Map<string, number>()
+  if (realCount.size > 0 && markdown.includes('&amp;')) {
+    mapOutsideCode(markdown, (segment) => {
+      for (const match of segment.matchAll(ENTITY_MENTION)) {
+        const body = match[1]
+        draftCount.set(body, (draftCount.get(body) ?? 0) + 1)
+      }
+      return segment
+    })
+  }
   return mapOutsideCode(markdown, (segment, start) => {
     const restored = segment.replace(ESCAPED_TAG, (whole: string, inner: string) => {
       if (inner.startsWith('!')) {
@@ -37,12 +73,27 @@ export function repairHtml(markdown: string, original?: string | null): string {
     if (!/&(?:amp|lt|gt);/.test(restored)) return restored
     const lineStart = markdown.lastIndexOf('\n', Math.max(start - 1, 0)) + 1
     return restored.replace(ESCAPED_ENTITY, (whole: string, kind: string, offset: number) => {
-      // 原文里真的写过这条实体：这一整类解码会让「讲转义」的文档改字节
-      if (source !== null && source.includes(whole)) return whole
       if (kind === 'amp') {
-        // 解成 `&` 会自成实体（作者写字面 `&lt;`，存下来是 `&amp;lt;`）：保持，否则重开只剩一个 `<`
-        return ENTITY_AHEAD.test(restored.slice(offset + whole.length)) ? whole : '&'
+        const ahead = ENTITY_AHEAD.exec(restored.slice(offset + whole.length))?.[0]
+        if (ahead !== undefined) {
+          // 实体形状的 `&amp;<名>;`：按「原文里出现过几次」对照，而不是「整篇出现过没有」
+          const body = ahead.slice(0, -1)
+          // 解析层会自己解码的名字（amp/lt/gt/quot/数字体）不参与：解掉的一定是作者手打的字面文本
+          if (!PARSED_ENTITY.test(body)) {
+            const want = realCount.get(body) ?? 0
+            const drafted = draftCount.get(body) ?? 0
+            // 原文里把这个名字当转义写法提过：分不清是哪一处，保守地整条保持
+            const mentioned = (mentionCount.get(body) ?? 0) > 0
+            // 条数一一对应才解回字符；条数不齐（作者另有手打的字面实体）就整类保持，不改用户字节
+            if (!mentioned && want > 0 && drafted === want) return '&'
+          }
+          return whole
+        }
+        // 不是实体形状（如 `A &amp; B`、`&amp;lt`）：旧守卫只在这一支生效
+        return source !== null && source.includes(whole) ? whole : '&'
       }
+      // lt / gt 两支照旧：原文里真的写过这条实体时保持（旧守卫在这两支仍然生效）
+      if (source !== null && source.includes(whole)) return whole
       if (kind === 'gt') {
         // 行首（含引用/列表标记之后）的 `&gt;` 解开会变成引用块标记：保持
         const prefix = markdown.slice(lineStart, start) + restored.slice(0, offset)

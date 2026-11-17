@@ -83,8 +83,14 @@ export function smartInput(before: string, inserted: string, after: string, line
 
   // 手打的表格分隔行 | --- | --- | 不能被改成 | —- | —- |：这一行有 | 就整行不动
   if (inserted === '-' && lineBefore.includes('|')) return null
-  // -- → —：第三根 - 的 before 末尾已是 —，不命中，交回 HorizontalRule 的输入规则
-  if (inserted === '-' && last === '-') return { kind: 'replace', from: -1, to: 0, text: '—' }
+  // -- → —：紧邻汉字时出中文双破折号「——」（占两个汉字位）；空段落 / 纯 ASCII 仍是一个 —
+  // （空段落必须给 —，否则 `---` + 空格出不了分隔线：HorizontalRule 的输入规则靠 `—-`）
+  // 第三根 - 的 before 末尾已是 —，不命中，交回 HorizontalRule 的输入规则
+  if (inserted === '-' && last === '-') {
+    // before 只有光标前 ≤4 字、末位就是第一根 -；取它前一个字符判中文上下文
+    const cjk = CJK.test(before.slice(-2, -1)) || CJK.test(next)
+    return { kind: 'replace', from: -1, to: 0, text: cjk ? '——' : '—' }
+  }
   if (inserted === '.' && before.slice(-2) === '..') return { kind: 'replace', from: -2, to: 0, text: '…' }
 
   const half = HALF.indexOf(inserted)

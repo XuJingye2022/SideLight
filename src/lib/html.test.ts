@@ -135,3 +135,58 @@ test('解析前不转义围栏与行内代码里的标签', () => {
   assert.equal(escapeHtmlForParse('用 `<kbd>` 表示按键。'), '用 `<kbd>` 表示按键。')
   assert.equal(escapeHtmlForParse('按 <kbd>Ctrl</kbd> 触发。'), '按 <kbd>Ctrl</kbd> 触发。')
 })
+
+/* ---------- 第 49 轮 T1：命名实体在保存时保真（按出现次数对照原文，只数代码外） ---------- */
+
+test('原文的真实体按出现次数解回：&nbsp; 不再被二次转义', () => {
+  assert.equal(repairHtml('甲&amp;nbsp;乙', '甲&nbsp;乙'), '甲&nbsp;乙')
+})
+
+test('多个命名实体一起解回', () => {
+  assert.equal(repairHtml('甲&amp;copy;&amp;hellip;乙', '甲&copy;&hellip;乙'), '甲&copy;&hellip;乙')
+})
+
+test('没有原文时字面实体保持（回归）', () => {
+  assert.equal(repairHtml('甲&amp;nbsp;乙', null), '甲&amp;nbsp;乙')
+})
+
+test('原文里写的是 &amp;nbsp; 时保持（讲转义的段落）', () => {
+  assert.equal(repairHtml('甲&amp;nbsp;乙', '讲转义：&amp;nbsp; 的写法'), '甲&amp;nbsp;乙')
+})
+
+test('解析层会解码的名字不参与次数解码（手打的字面 &lt; 不变真 <）', () => {
+  // 原文写 &lt; 时正文是 <、序列化仍是 &lt;，永远走不到 &amp; 支；&amp;lt; 只可能来自手打的字面文本
+  assert.equal(repairHtml('写成 &amp;lt; 才不会变标签', '写成 &lt; 才不会变标签'), '写成 &amp;lt; 才不会变标签')
+  // 原文有真 &lt;、另有手打的字面 &lt;：字面那一处保持
+  assert.equal(
+    repairHtml('写成 &lt; 才不会变标签，另打 &amp;lt; 结束', '写成 &lt; 才不会变标签'),
+    '写成 &lt; 才不会变标签，另打 &amp;lt; 结束',
+  )
+})
+
+test('数字实体口径锁定：解析期解码，保存时不回写', () => {
+  assert.equal(repairHtml('甲—乙', '甲&#8212;乙'), '甲—乙')
+})
+
+test('同文件另有字面 &amp; 时不挡住真实体解码', () => {
+  assert.equal(
+    repairHtml('甲&amp;nbsp;乙\n链接 https://x/?a=1&amp;b=2\n', '甲&nbsp;乙\n链接 https://x/?a=1&amp;b=2\n'),
+    '甲&nbsp;乙\n链接 https://x/?a=1&amp;b=2\n',
+  )
+})
+
+test('条数不齐时整类保持：手打的字面实体不被解成真字符', () => {
+  assert.equal(repairHtml('甲&amp;nbsp;乙\n\n&amp;nbsp;', '甲&nbsp;乙\n'), '甲&amp;nbsp;乙\n\n&amp;nbsp;')
+  // 只数代码外：围栏里的 &nbsp; 不充数
+  assert.equal(
+    repairHtml('```\n甲&nbsp;乙\n```\n\n&amp;nbsp;\n', '```\n甲&nbsp;乙\n```\n\n'),
+    '```\n甲&nbsp;乙\n```\n\n&amp;nbsp;\n',
+  )
+})
+
+test('原文用 &amp;<名>; 讲转义时该名字整篇保持', () => {
+  assert.equal(
+    repairHtml('讲转义：&amp;nbsp; 的写法\n\n甲&amp;nbsp;乙\n', '讲转义：&amp;nbsp; 的写法\n\n甲&nbsp;乙\n'),
+    '讲转义：&amp;nbsp; 的写法\n\n甲&amp;nbsp;乙\n',
+  )
+})
