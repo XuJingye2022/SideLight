@@ -9,6 +9,8 @@ export type Settings = {
   model: string
   /** 正文字号，像素 */
   fontSize: number
+  /** 整页缩放，百分比：只缩界面与正文，不改 --editor-size（第 51 轮 B-001） */
+  pageZoom: number
   /** 浅色 / 深色 / 跟随系统 */
   theme: ThemeMode
   /** 联网核对用的搜索服务；off 表示不启用 */
@@ -29,11 +31,17 @@ const STORAGE_KEY = 'sidelight.settings.v1'
 export const MIN_FONT_SIZE = 12
 export const MAX_FONT_SIZE = 26
 
+/** 整页缩放范围与步长（百分比）；与正文字号的 12–26 px 是两条独立的链 */
+export const MIN_PAGE_ZOOM = 50
+export const MAX_PAGE_ZOOM = 200
+export const PAGE_ZOOM_STEP = 10
+
 export const DEFAULT_SETTINGS: Settings = {
   baseUrl: 'https://api.deepseek.com/v1',
   apiKey: '',
   model: 'deepseek-chat',
   fontSize: 17,
+  pageZoom: 100,
   theme: 'system',
   searchProvider: 'off',
   searchApiKey: '',
@@ -62,6 +70,11 @@ export function clampFontSize(value: number): number {
   return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(value)))
 }
 
+export function clampPageZoom(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_SETTINGS.pageZoom
+  return Math.min(MAX_PAGE_ZOOM, Math.max(MIN_PAGE_ZOOM, Math.round(value)))
+}
+
 /** 落盘形状：新键 userPrompt；旧版把字段叫 analysisPrompt，读的时候兼容一次 */
 type StoredSettings = Partial<Settings> & { analysisPrompt?: string }
 
@@ -87,6 +100,8 @@ export function loadSettings(): Settings {
       apiKey: parsed.apiKey ?? '',
       model: parsed.model?.trim() || DEFAULT_SETTINGS.model,
       fontSize: clampFontSize(parsed.fontSize ?? DEFAULT_SETTINGS.fontSize),
+      // 旧存档没有这个键：读出来必须是 100，不能把整页放大成别倍
+      pageZoom: clampPageZoom(parsed.pageZoom ?? DEFAULT_SETTINGS.pageZoom),
       theme:
         parsed.theme === 'light' || parsed.theme === 'dark' || parsed.theme === 'system'
           ? parsed.theme

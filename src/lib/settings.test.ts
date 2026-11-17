@@ -86,3 +86,24 @@ test('旧存档没有智能标点键时读出来是开，明确写 false 才关'
   const off = await setup({ smartPunctuation: false })
   assert.equal(off.loadSettings().smartPunctuation, false)
 })
+
+test('整页缩放：旧存档没有这个键读出来是 100，超出范围夹到 50–200', async () => {
+  const old = await setup({ fontSize: 17 })
+  assert.equal(old.loadSettings().pageZoom, 100)
+
+  const big = await setup({ pageZoom: 320 })
+  assert.equal(big.loadSettings().pageZoom, 200)
+
+  const small = await setup({ pageZoom: 10 })
+  assert.equal(small.loadSettings().pageZoom, 50)
+})
+
+test('clampPageZoom 与正文字号是两条独立的链', async () => {
+  const { clampPageZoom, clampFontSize, DEFAULT_SETTINGS } = await setup({})
+  assert.equal(DEFAULT_SETTINGS.pageZoom, 100)
+  assert.equal(clampPageZoom(DEFAULT_SETTINGS.pageZoom + 10), 110)
+  assert.equal(clampPageZoom(Number.NaN), 100)
+  // 字号的上限 26 不能把整页缩放也压到 26
+  assert.equal(clampFontSize(110), 26)
+  assert.equal(clampPageZoom(110), 110)
+})

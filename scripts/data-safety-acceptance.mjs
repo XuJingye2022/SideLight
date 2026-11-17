@@ -125,7 +125,7 @@ const openPage = async (routeHandler) => {
   await page.goto(URL, { waitUntil: 'networkidle' })
   await page.evaluate(() => localStorage.clear())
   await page.reload({ waitUntil: 'networkidle' })
-  await page.waitForSelector('.editor', { timeout: 15000 })
+  await page.waitForSelector('.ProseMirror, .source-editor', { timeout: 15000 })
   await page.waitForTimeout(500)
   return { context, page }
 }
@@ -145,7 +145,14 @@ const openFile = async (page, name, text) => {
 }
 
 const edit = async (page, text) => {
-  await page.locator('.editor').click()
+  // 含引用式链接定义的文档会自动进源码模式（第 39 轮起）：这条验收要验的是富文本保存的差异门，
+  // 所以先回富文本；改动前的 `.editor` 在源码模式里根本不存在，脚本会卡在 click（第 51 轮实测）。
+  const back = page.locator('.source-note button', { hasText: '回到富文本编辑' })
+  if (await back.count()) {
+    await back.first().click()
+    await page.waitForTimeout(400)
+  }
+  await page.locator('.ProseMirror').click()
   await page.keyboard.press('Control+End')
   await page.keyboard.type(text)
   await page.waitForTimeout(300)
@@ -306,7 +313,7 @@ const cancel = async (page) => {
 
   const canonical = await browserPage()
   await openFile(canonical.page, 'table-canonical.md', TABLE_CANONICAL)
-  await canonical.page.locator('.editor td').first().click()
+  await canonical.page.locator('.ProseMirror td').first().click()
   await canonical.page.keyboard.press('Control+A')
   await canonical.page.keyboard.type('乙')
   await canonical.page.keyboard.press('Control+s')

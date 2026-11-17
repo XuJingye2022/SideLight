@@ -110,6 +110,13 @@ body,
   height: 100%;
 }
 
+/* 整页缩放（第 51 轮 B-001）：只缩最外层容器，--editor-size 与排版尺寸不受影响。
+   zoom 会把布局高度一起放大，所以高度按倍数缩回去，100vh 才真的是一屏。 */
+#root {
+  zoom: var(--page-zoom, 1);
+  height: calc(100vh / var(--page-zoom, 1));
+}
+
 body {
   margin: 0;
   background: var(--paper);

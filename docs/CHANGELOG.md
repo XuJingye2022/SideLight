@@ -224,6 +224,14 @@
 - 门禁：`npx tsc --noEmit` exit 0；`npm test` **33 个文件 432 条**全过（425 + 导出 4 + 替换区间 3）；`npm run verify` 首屏 gzip **294,913 B**（比第 49 轮 +540 B，内部 310,000 / 硬线 320,000，余 25,087 B，PASS；主 chunk `index-xYcRGlyW.js` 915.27 kB raw / 290.31 kB gzip）；本轮没动 Markdown 序列化，`roundtrip` 未跑。
 - UNVERIFIED（本轮）：真实宿主 WebView2 里的预览/HTML 导出脚注与导出提示；真实磁盘 / 网络盘上的「全部替换」响应（dev server + 假工作区）；生产构建下的「全部替换」读数（dev + StrictMode 口径）；真实中文输入法下的占位符切换；系统 150% / 200% 缩放下的工具栏 24 px 与状态栏点击区；打印 / PDF 输出下的 h4 与标题行高。
 
+**第 51 轮（同一未发版区间）**
+
+- **保存不再每次整篇读回旧文件、无改动不再写盘**（P1，性能 + 数据安全）：1 MB `big.md` 打一个字 `Ctrl+S`，`File.text` 读全文 **0 次**、`createWritable` **1 次**，磁盘含新字（1,648 ms）；紧接着再按一次 `Ctrl+S` 四个计数全 0 并提示「没有改动，未写入。」。`rememberDisk` 在 6 个入口记下磁盘快照（正文 + UTF-8 字节数 + mtime），保存前只有三样全中才复用，否则读全文；空文件的 `''` 是有效正文（打「甲」保存 `text=0`），外部改过盘（字节数 / mtime 对不上）时读全文再写；`requestSave` 的新门只在 `goal==='file'` 且读同步 `dirtyRef`，「另存为」永不过门（不动字点另存为仍写盘）。`performCommit` 在 target 存在且 `normalized===baselineRef` 时直接返回，不进 `finishSaved`。新增 `src/lib/saveDisk.ts` + 8 条单测。
+- **整页缩放（`Ctrl+Shift+=` / `-` / `0`、`Ctrl+滚轮`）**（P1，用户可见）：`--page-zoom` 是无单位倍数，`#root` 的 `zoom` 与 `height: calc(100vh / 倍数)` 一起缩；`--editor-size` 完全不动（三次放大后仍 17 px，`Ctrl+=` 才是 17→18 px）。键位用 `event.code`（`Ctrl+Shift+=` 的 key 是 `+`、`Ctrl+Shift+-` 是 `_`，旧分支接不住），排在字号两条之前；`Ctrl+滚轮` 100 ms 节流并 `preventDefault`。实测 1.1 / 1.2 / 1.3 → 1.2 → 1，100/110/120% 无横纵滚动条，刷新后仍 120%，设置持久化 `pageZoom`（clamp 50–200，旧存档读出 100）；快捷键对话框补三行。
+- **视图四钮有 `aria-pressed`**（P2，可访问性）：专注 / 打字机 / 源码 / 预览加 `aria-pressed` 与容器 `role="group" aria-label="视图"`，源码 / 预览互斥；全文 `aria-pressed` 6 → 10。`scripts/data-safety-acceptance.mjs` 三处过期选择器 `.editor` → `.ProseMirror, .source-editor` 修好（含「回到富文本编辑」），脚本从卡住恢复到 20 PASS（其余 5 条过期期望见 `docs/iteration/round-51/test.md`）。
+- 门禁：`npm run verify` PASS，首屏 gzip **295,476 B**（比第 50 轮 +563，内部 310,000 / 硬线 320,000，余 24,524）；`npm test` **34 个文件 442 条**全过（432 + `saveDisk` 8 + `settings` 2）；本轮未动 Markdown 序列化，`roundtrip` 未跑。
+- UNVERIFIED（本轮）：写盘期间切换 / 删除的回滚分支（假 FSA 造不出写盘期身份变化）；真实磁盘 `lastModified` 粒度（NTFS 1–2 s）下的同秒外部改动；宿主 WebView2 内的 `Ctrl+滚轮` 缩放；真实 IME 组合输入下的 `Ctrl+Shift+=`。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

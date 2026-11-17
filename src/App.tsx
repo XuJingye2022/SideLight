@@ -64,6 +64,7 @@ import { buildChunkContext, buildContext, splitSelection, type Block, type Conte
 import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } from './lib/decorations.ts'
 import { MathInputRules } from './lib/mathInput.ts'
 import { normalizeForBaseline } from './lib/baseline.ts'
+import { diskSnapshot, reusableDiskText, type DiskSnapshot } from './lib/saveDisk.ts'
 import { inTableAncestry } from './lib/tableScope.ts'
 import { DISCUSS_SYSTEM_PROMPT } from './lib/prompt.ts'
 import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDefinitions, lossLabels, type Loss } from './lib/risk.ts'
@@ -82,7 +83,7 @@ import { TaskListInput } from './lib/taskListInput.ts'
 import { protectMathPairs, repairMath } from './lib/math.ts'
 import { disableSingleTildeStrike, repairTildes } from './lib/tilde.ts'
 import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline.ts'
-import { clampFontSize, DEFAULT_SETTINGS } from './lib/settings.ts'
+import { clampFontSize, clampPageZoom, DEFAULT_SETTINGS, PAGE_ZOOM_STEP } from './lib/settings.ts'
 import { searchWeb } from './lib/search.ts'
 import { hasKey, loadSettings, saveSettings, type Settings } from './lib/settings.ts'
 import { createSmartTyping } from './lib/smartTyping.ts'
@@ -560,6 +561,10 @@ export default function App() {
   const baselineRef = useRef<string | null>(null)
   /** 另存为拿到的落点：第二次保存直接写它，不再弹选择器 */
   const saveTargetRef = useRef<FileWriteTarget | null>(null)
+  /** 磁盘上现在是什么（第 51 轮 F1）：对得上就不整篇读回旧文件；null 表示不知道 */
+  const diskRef = useRef<DiskSnapshot | null>(null)
+  /** 整页缩放（第 51 轮 B-001）：滚轮/键位连按时要读到刚算出的值，不能等重渲染 */
+  const pageZoomRef = useRef(settings.pageZoom)
   /** 「另存为」的入口：提示条上的按钮与文件菜单都用它 */
   const saveAsCopyRef = useRef<() => void>(() => {})
   /** 当前正文的序列化结果（onUpdate 里做基线比较用，避开 useCallback 的声明顺序） */
@@ -616,7 +621,6 @@ export default function App() {
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const composeUntilRef = useRef(0)
   const autoFailCountRef = useRef(0)
-  const fileMtimeRef = useRef(0)
   /** onUpdate 里同步维护，自动保存定时器不读可能过期的 state */
   const dirtyRef = useRef(false)
   /** 对话框/设置开着时自动保存不写盘；定时器拿的是调度那一刻的闭包，只能读 ref（第 41 轮） */
@@ -652,6 +656,28 @@ export default function App() {
       // 配额满/禁用：只保留内存
     }
   }, [])
+  /**
+   * 记下「磁盘上现在是什么」（第 51 轮 F1）：保存前用它判断要不要整篇读回旧文件。
+   * 传 null 表示不知道（宿主文档、正文已不可信）；没有句柄也记不了。
+   * `''` 是有效正文（空文件），不能被当成「不知道」。
+   */
+  const rememberDisk = useCallback((text: string | null, handle?: FileSystemFileHandle | null) => {
+    if (text === null || !handle) {
+      diskRef.current = null
+      return
+    }
+    const entry = diskSnapshot(text)
+    diskRef.current = entry
+    // mtime 只能异步补；补不上就留 null，保存时退回读全文，绝不复用不可靠的缓存
+    void handle
+      .getFile()
+      .then((file) => {
+        if (diskRef.current !== entry) return
+        entry.mtime = file.lastModified
+      })
+      .catch(() => undefined)
+  }, [])
+
   const saveTimersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>())
   const nextSaveIdRef = useRef(0)
   const sendHostSaveRef = useRef<(text: string) => void>(() => {})
@@ -1045,6 +1071,8 @@ export default function App() {
     const raw = initial.raw.length > 0 ? initial.raw : null
     setOriginalText(raw)
     rawTextRef.current = raw
+    // 载入时还没有句柄：磁盘现状先记为未知，等真正拿到句柄的 loadIntoEditor 再记
+    rememberDisk(initial.raw, null)
     // 保存基线取「序列化后的正文」而不是原始文本：撤销回初始内容时必须刚好等于基线
     baselineRef.current = serializeDocument(editor, {
       frontmatter: initial.frontmatter,
@@ -1059,7 +1087,7 @@ export default function App() {
     setSelection({ chars: context.selection.length, words: 0, from, to, source: context.source })
     syncDocInfo(editor)
     if (import.meta.env.DEV) performance.mark('sl-sync-done')
-  }, [editor, initial.text, initial.raw, setMarkdown, setOriginalText, syncDocInfo])
+  }, [editor, initial.text, initial.raw, setMarkdown, setOriginalText, syncDocInfo, rememberDisk])
 
   useDialogFocus(draftPrompt !== null, draftDialogRef)
 
@@ -1090,6 +1118,8 @@ export default function App() {
       baselineRef.current = data.text.replace(/\r\n/g, '\n')
       setOriginalText(data.text)
       rawTextRef.current = data.text
+      // 宿主写回不走 FSA 句柄：磁盘现状由宿主保管，这里不需要猜
+      rememberDisk(null)
       eolRef.current = data.eol === 'crlf' ? 'crlf' : 'lf'
       // 载入即存在的结构损失才算基线；之后只拦仍命中同一结构位置的
       baselineLossesRef.current = baselineLosses(
@@ -1136,7 +1166,7 @@ export default function App() {
       const context = buildContext(readBlocks(editor), from, to)
       setSelection({ chars: context.selection.length, words: 0, from, to, source: context.source })
     },
-    [editor, enterSourceFor, setMarkdown, syncDocInfo],
+    [editor, enterSourceFor, setMarkdown, syncDocInfo, rememberDisk],
   )
 
   /**
@@ -1157,6 +1187,8 @@ export default function App() {
       setMarkdown('')
       baselineRef.current = ''
       setOriginalText('')
+      // 宿主正文取不到：磁盘现状也一并作废
+      rememberDisk(null)
       setDocName('未命名.md')
       docNameRef.current = '未命名.md'
       setFrontmatter('')
@@ -1809,6 +1841,43 @@ export default function App() {
     })
   }, [])
 
+  /* ---------- 整页缩放（第 51 轮 B-001） ---------- */
+
+  useEffect(() => {
+    // 无单位倍数：styles.css 里 #root 用它做 zoom，--editor-size 一点不动
+    document.documentElement.style.setProperty('--page-zoom', `${settings.pageZoom / 100}`)
+    pageZoomRef.current = settings.pageZoom
+  }, [settings.pageZoom])
+
+  const setPageZoom = useCallback((value: number) => {
+    const next = clampPageZoom(value)
+    pageZoomRef.current = next
+    setSettings((current) => {
+      if (current.pageZoom === next) return current
+      const merged = { ...current, pageZoom: next }
+      saveSettings(merged)
+      return merged
+    })
+  }, [])
+
+  // Ctrl + 滚轮：接管浏览器自己的整页缩放（那条会把布局一起缩，滚动条与固定层都乱）
+  useEffect(() => {
+    let lastAt = 0
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return
+      event.preventDefault()
+      // 100 ms 节流：一次手势会连发几十个 wheel，不节流会一路冲到 200%
+      const now = Date.now()
+      if (now - lastAt < 100) return
+      lastAt = now
+      const next = clampPageZoom(pageZoomRef.current + (event.deltaY < 0 ? PAGE_ZOOM_STEP : -PAGE_ZOOM_STEP))
+      setPageZoom(next)
+      show(`页面缩放 ${next}%`)
+    }
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => window.removeEventListener('wheel', onWheel)
+  }, [setPageZoom, show])
+
   useEffect(() => {
     if (!editor) return
     if (!findOpen || query.trim().length === 0) {
@@ -2157,6 +2226,8 @@ export default function App() {
       footnotesRef.current = footnoteSplit.footnotes
       setOriginalText(text.length > 0 ? text : null)
       rawTextRef.current = text.length > 0 ? text : null
+      // 刚读出来的就是磁盘现状：空文件也记 `''`（有效正文），mtime 在 setter 里异步补
+      rememberDisk(text, file?.handle ?? null)
       hasSavedBaselineRef.current = false
       savedContentVersionRef.current = contentVersionRef.current
       loadEpochRef.current += 1
@@ -2192,12 +2263,6 @@ export default function App() {
       if (draftTimerRef.current) {
         clearTimeout(draftTimerRef.current)
         draftTimerRef.current = null
-      }
-      fileMtimeRef.current = 0
-      if (file?.handle) {
-        void file.handle.getFile().then((blob) => {
-          fileMtimeRef.current = blob.lastModified
-        })
       }
       // 换成普通文档：宿主模式结束，之后保存不再写回 argv 文件
       setHostDoc(null)
@@ -2278,7 +2343,7 @@ export default function App() {
         })()
       }
     },
-    [editor, enterSourceFor, setMarkdown, restoreAnnotationsFor, syncDocInfo],
+    [editor, enterSourceFor, setMarkdown, restoreAnnotationsFor, syncDocInfo, rememberDisk],
   )
 
   // 切换文档前先拦住未保存的改动
@@ -2717,6 +2782,8 @@ export default function App() {
       })
       setOriginalText(withEol)
       rawTextRef.current = withEol
+      // 刚写进去的就是磁盘现状：下一次保存可以凭这份快照判断要不要读回，不用整篇读盘
+      rememberDisk(withEol, target.handle)
       hasSavedBaselineRef.current = true
       savedContentVersionRef.current = contentVersionRef.current
       // 刚写入的内容就是新基线：不再有已知结构损失
@@ -2765,7 +2832,7 @@ export default function App() {
       })()
       return true
     },
-    [cacheDirFor, hostDoc],
+    [cacheDirFor, hostDoc, rememberDisk],
   )
 
   /** 真正写盘：有句柄写句柄，没有就弹保存位置；调用前已经过差异门 */
@@ -2810,7 +2877,18 @@ export default function App() {
           const startedEpoch = loadEpochRef.current
           const startedDocId = activeDocIdRef.current
           const startedPath = fileRef.current?.path ?? ''
-          const previousText = await target.handle.getFile().then((file) => file.text()).catch(() => null)
+          // 正文没变就别写：磁盘上已经是这份内容（第 51 轮 F1）。不进 finishSaved，
+          // 但要把脏标记同步清掉，否则状态栏会一直挂着「未保存」
+          if (normalized === baselineRef.current) {
+            dirtyRef.current = false
+            setDirty(false)
+            return true
+          }
+          // 只有写盘期间身份变了才要回滚，所以旧正文不能每次全读：先用磁盘快照，
+          // 字节数与 mtime 对不上才读全文（`''` 也是有效正文，空文件不读盘）
+          const diskFile = await target.handle.getFile()
+          const known = reusableDiskText(diskRef.current, diskFile.size, diskFile.lastModified)
+          const previousText = known !== null ? known : await diskFile.text().catch(() => null)
           const writing = writeNode(
             { kind: 'file', name: target.name, path: activeFile?.path ?? target.name, handle: target.handle },
             withEol,
@@ -3002,6 +3080,13 @@ export default function App() {
       if (goal === 'host' && (hostDoc === null || !hostDoc.ready)) return
       if (goal === 'host' && hostDoc && !hostDoc.writable) goal = 'saveAs'
       if (goal === 'host' && !dirty) {
+        setNotice({ text: '没有改动，未写入。', kind: 'info', ttl: 1500 })
+        return
+      }
+      // 普通文件保存也一样：没有改动就不写盘（第 51 轮 F1）。判据读同步的 dirtyRef，
+      // 不读可能晚一拍的状态。落点未知的新文档不拦——空文档否则连文件都建不出来。
+      // 「另存为」永远不走这条门：不动字也可能只是想复制一份到别处。
+      if (goal === 'file' && !dirtyRef.current && (saveTargetRef.current || fileRef.current?.handle)) {
         setNotice({ text: '没有改动，未写入。', kind: 'info', ttl: 1500 })
         return
       }
@@ -3552,6 +3637,8 @@ export default function App() {
       baselineRef.current = sent.text
       setOriginalText(sent.text)
       rawTextRef.current = sent.text
+      // 宿主写回不走句柄：磁盘现状交给宿主
+      rememberDisk(null)
       baselineLossesRef.current = []
       setRisks([])
       setDirty(false)
@@ -3574,7 +3661,7 @@ export default function App() {
         setNotice({ text: `已保存到 ${hostDoc.fileName}`, kind: 'info', persist: true })
       }
     },
-    [hostDoc, performSwitch],
+    [hostDoc, performSwitch, rememberDisk],
   )
 
   useEffect(() => {
@@ -3696,6 +3783,7 @@ export default function App() {
         (mod && !event.altKey && /^[0-6]$/.test(key)) ||
         (mod && !event.altKey && key === '/') ||
         (mod && event.shiftKey && !event.altKey && (event.code === 'Digit1' || event.code === 'Digit3' || key === 'l')) ||
+        (mod && event.shiftKey && !event.altKey && (event.code === 'Equal' || event.code === 'Minus' || event.code === 'Digit0')) ||
         (mod && (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0'))
 
       if (event.key === 'Escape') {
@@ -3888,6 +3976,15 @@ export default function App() {
         togglePreviewRef.current()
         return
       }
+      // 整页缩放（第 51 轮 B-001/B-011）：Ctrl+Shift+= / Ctrl+Shift+- / Ctrl+Shift+0。
+      // 必须排在字号两条之前：Ctrl+Shift+= 的 key 是 '+'、Ctrl+Shift+- 的 key 是 '_'，
+      // 后面的分支接不住，B-011 就是这个键位空洞。用 event.code 判物理键。
+      if (mod && event.shiftKey && !event.altKey && (event.code === 'Equal' || event.code === 'Minus' || event.code === 'Digit0')) {
+        event.preventDefault()
+        if (event.code === 'Digit0') setPageZoom(100)
+        else setPageZoom(pageZoomRef.current + (event.code === 'Equal' ? PAGE_ZOOM_STEP : -PAGE_ZOOM_STEP))
+        return
+      }
       if (mod && (event.key === '=' || event.key === '+')) {
         event.preventDefault()
         setFontSize(settings.fontSize + 1)
@@ -3918,6 +4015,7 @@ export default function App() {
     cancelSwitch,
     settings.fontSize,
     setFontSize,
+    setPageZoom,
     sourceMode,
     previewMode,
     viewMode,
@@ -4953,10 +5051,11 @@ export default function App() {
 
         <div className="spacer" />
 
-        <div className="toolbar-group">
+        <div className="toolbar-group" role="group" aria-label="视图">
           <button
             type="button"
             className={focusMode ? 'is-on' : ''}
+            aria-pressed={focusMode}
             disabled={viewMode !== 'edit'}
             title={viewMode === 'edit' ? '只显示光标所在块' : '只有编辑视图支持'}
             onClick={() => setFocusMode((value) => !value)}
@@ -4966,6 +5065,7 @@ export default function App() {
           <button
             type="button"
             className={typewriterMode ? 'is-on' : ''}
+            aria-pressed={typewriterMode}
             disabled={viewMode !== 'edit'}
             title={viewMode === 'edit' ? '光标保持在视口中部' : '只有编辑视图支持'}
             onClick={() => {
@@ -4978,6 +5078,7 @@ export default function App() {
           <button
             type="button"
             className={sourceMode ? 'is-on' : ''}
+            aria-pressed={sourceMode}
             title={
               sourceMode
                 ? '回到编辑视图'
@@ -4992,6 +5093,7 @@ export default function App() {
           <button
             type="button"
             className={previewMode ? 'is-on' : ''}
+            aria-pressed={previewMode}
             title="只读预览（Ctrl+Shift+P）"
             onClick={togglePreview}
           >

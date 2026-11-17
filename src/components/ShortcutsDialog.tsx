@@ -43,6 +43,9 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
     title: '视图与字号',
     items: [
       ['Ctrl+Shift+P', '预览'],
+      ['Ctrl+Shift+= / Ctrl+Shift+-', '整页放大 / 缩小'],
+      ['Ctrl+Shift+0', '整页缩放复位 100%'],
+      ['Ctrl+滚轮', '整页缩放'],
       ['Ctrl+= / Ctrl+- / Ctrl+Alt+0', '字号放大 / 缩小 / 复位'],
       ['Esc', '关闭菜单 / 对话框，或退出源码与预览'],
     ],
