@@ -23,6 +23,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
     title: '编辑与批注',
     items: [
       ['Ctrl+F', '查找（Ctrl+H 同义）'],
+      ['Ctrl+Shift+F', '全局搜索（跨文件）'],
       ['Ctrl+P', '快速打开文件'],
       ['Ctrl+1…6 / Ctrl+0', '标题 1–6 / 正文'],
       ['Ctrl+/', '切换源码 / 编辑'],

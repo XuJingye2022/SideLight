@@ -277,6 +277,13 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **298,647 B**（比第 57 轮 +824，内部 310,000 / 硬线 320,000，余 21,353）；`npm test` **39 个文件 495 条**全过；`npm run roundtrip` 富文本 6/8、源码 8/8（报告与 HEAD 逐字节相同）；`keyboard-acceptance` 51/52，唯一 FAIL 是 B-209 已记的过期断言。
 - UNVERIFIED（本轮）：真实中文 IME 逐键下的引号守卫；真实磁盘 / 宿主写回（E2E 用打桩 VFS 与 localStorage 草稿）；WebView2 窗体里的目录 widget。已知限制：`[TOC]` 源段落不隐藏，目录只在编辑视图渲染。
 
+**第 59 轮（同一未发版区间）**
+
+- **全局搜索（B-104）**：`Ctrl+Shift+F` 搜整个工作区的 Markdown（结果行是「相对路径:行号」，懒加载 `src/components/GlobalSearch.tsx`，焦点进出用 `useDialogFocus`）。拆两层：`searchWorkspace(docs, query, limits)` 纯函数（行列号从 1 起、列按 UTF-16、200 条截断、1 MiB 按 UTF-8 字节跳过、默认不区分大小写、正则特殊字符按字面）与 `collectDocs(files)` 逐个 `readNode` + try/catch 跳过读不到的文件。点结果 → `openWorkspaceFile(node)` + 回填 `setQuery` + `setFindOpen(true)`；一个 `Esc` 只关对话框并把焦点送回正文；没有工作区时提示「先打开文件夹」。新增 `src/lib/globalSearch.test.ts` 9 条，`npm test` 40 个文件 504 条。
+- **文件列表形态的侧栏（B-102）**：文件侧栏头加「树 / 列表」两态（`aria-pressed`，会话内有效、不落盘）；列表态按 `flattenFiles` 平铺全部 Markdown、行内显示文件名与相对路径（新增 `relativePath()`），1000×620 无横向滚动，切回树态保留展开结构。已知限制：列表态无右键删除 / 重命名。
+- 门禁：`npm run verify` PASS，首屏 gzip **299,727 B**（比第 58 轮 +1,080，内部 310,000 / 硬线 320,000，余 20,273；全局搜索是惰性 chunk，不进首屏）；`npm test` **40 个文件 504 条**全过；`npm run roundtrip` 未跑（未动编辑器与序列化）；`tree-acceptance` 54/56，两条 FAIL 是既有过期断言（与第 58 轮同两条）。
+- UNVERIFIED（本轮）：真实 FSA 句柄与真实磁盘写回（E2E 用合成目录句柄）；中文 IME；宿主 WebView2。200 文件上限与 1 MiB 跳过的 UI 文案只有单测与代码核对。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

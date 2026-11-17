@@ -32,6 +32,10 @@ import { CloseGuardDialog } from './components/CloseGuardDialog.tsx'
 const FindBar = lazy(() => import('./components/FindBar.tsx').then((module) => ({ default: module.FindBar })))
 const Outline = lazy(() => import('./components/Outline.tsx').then((module) => ({ default: module.Outline })))
 const QuickOpen = lazy(() => import('./components/QuickOpen.tsx').then((module) => ({ default: module.QuickOpen })))
+// 全局搜索只在 Ctrl+Shift+F 打开时加载，不占首屏
+const GlobalSearch = lazy(() =>
+  import('./components/GlobalSearch.tsx').then((module) => ({ default: module.GlobalSearch })),
+)
 const SettingsDialog = lazy(() =>
   import('./components/SettingsDialog.tsx').then((module) => ({ default: module.SettingsDialog })),
 )
@@ -72,6 +76,7 @@ import { ensureKatex } from './lib/katexLazy.ts'
 import { MermaidPreview } from './lib/mermaidPreview.ts'
 import { createToc } from './lib/tocRender.ts'
 import { findAll, type Match } from './lib/find.ts'
+import type { SearchHit } from './lib/globalSearch.ts'
 import { applyReplacements, type ReplaceRange } from './lib/replaceRanges.ts'
 import { extractFootnotes, joinFootnotes } from './lib/footnotes.ts'
 import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontmatter.ts'
@@ -386,7 +391,11 @@ export default function App() {
   /** 宿主桥每次渲染取一次；Windows/WK 单例稳定，浏览器为 null */
   const host = getHostTransport()
   const [treeCollapsed, setTreeCollapsed] = useState(false)
+  /** 文件侧栏：树形 / 平铺列表两态（第 59 轮 B-102），会话内有效，不落盘 */
+  const [fileView, setFileView] = useState<'tree' | 'list'>('tree')
   const [quickOpen, setQuickOpen] = useState(false)
+  /** Ctrl+Shift+F 全局搜索（工作区跨文件）：关闭时卸载 */
+  const [globalSearch, setGlobalSearch] = useState(false)
   /** 窄窗时页边栏变抽屉：顶栏「批注」开关它 */
   const [railOpen, setRailOpen] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<'files' | 'outline'>('files')
@@ -2500,6 +2509,29 @@ export default function App() {
     [requestLoad, tooLargeNote],
   )
 
+  /** 关全局搜索：等对话框卸载后再把焦点送回正文，别落到 useDialogFocus 的顶栏兜底 */
+  const closeGlobalSearch = useCallback(() => {
+    setGlobalSearch(false)
+    if (viewMode === 'source') focusSourceEditor()
+    else if (viewMode !== 'preview') focusEditor()
+  }, [viewMode])
+
+  /** 点搜索结果：按路径找到节点打开文件，再把查找条打开并回填搜索词（第 59 轮 B-104） */
+  const openGlobalSearchHit = useCallback(
+    (hit: SearchHit, term: string) => {
+      const node = flattenFiles(workspace?.root ?? null).find((file) => file.path === hit.path)
+      setGlobalSearch(false)
+      if (!node) {
+        setNotice({ text: '这个文件已经不在工作区里了：先刷新文件树再搜。', kind: 'error' })
+        return
+      }
+      void openWorkspaceFile(node)
+      setQuery(term)
+      setFindOpen(true)
+    },
+    [openWorkspaceFile, workspace],
+  )
+
   /**
    * 拖入的第一项（第 54 轮 B-003）：文件夹开工作区，`.md` 直接打开，图片等仍给旧提示。
    * 句柄只用来决定保存落点；正文一律按 File 读，与「打开文件」同一道门槛。
@@ -3919,13 +3951,14 @@ export default function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       const mod = event.ctrlKey || event.metaKey
       const key = event.key.toLowerCase()
-      const dialogOpen = settingsOpen || shortcutsOpen || pendingConfirm !== null || pendingSwitch !== null
+      const dialogOpen =
+        settingsOpen || shortcutsOpen || globalSearch || pendingConfirm !== null || pendingSwitch !== null
       const productCombo =
         (mod && !event.shiftKey && !event.altKey && key === 's') ||
         (mod && event.altKey && !event.shiftKey && ['n', 'o', 's', 'e'].includes(key)) ||
         (mod && event.altKey && event.shiftKey && key === 'o') ||
         (mod && !event.altKey && (key === 'f' || key === 'h' || key === 'k' || key === 'm' || key === 'p')) ||
-        (mod && !event.altKey && event.shiftKey && (key === 'p' || key === 'm')) ||
+        (mod && !event.altKey && event.shiftKey && (key === 'p' || key === 'm' || key === 'f')) ||
         (mod && !event.altKey && /^[0-6]$/.test(key)) ||
         (mod && !event.altKey && key === '/') ||
         (mod && event.shiftKey && !event.altKey && (event.code === 'Digit1' || event.code === 'Digit3' || key === 'l')) ||
@@ -3933,6 +3966,12 @@ export default function App() {
         (mod && (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0'))
 
       if (event.key === 'Escape') {
+        // 放最上层浮层在最前：全局搜索是模态框，Esc 一次只关它（第 59 轮 B-104）
+        if (globalSearch) {
+          event.preventDefault()
+          closeGlobalSearch()
+          return
+        }
         // 放在 Escape 判断之内：放外面会把所有按键都吃掉
         if (statsDetail !== null) {
           setStatsDetail(null)
@@ -4062,6 +4101,16 @@ export default function App() {
         saveFile()
         return
       }
+      if (mod && event.shiftKey && !event.altKey && key === 'f') {
+        event.preventDefault()
+        // 没有工作区时给可执行的下一步，而不是开一个搜不到东西的空框
+        if (!workspaceRef.current) {
+          show('先打开文件夹，再全局搜索（Ctrl+Shift+F）')
+          return
+        }
+        setGlobalSearch(true)
+        return
+      }
       if (mod && !event.altKey && !event.shiftKey && (key === 'f' || key === 'h')) {
         event.preventDefault()
         setFindOpen(true)
@@ -4168,6 +4217,8 @@ export default function App() {
     findOpen,
     settingsOpen,
     shortcutsOpen,
+    globalSearch,
+    closeGlobalSearch,
     pendingConfirm,
     pendingSwitch,
     menuOpen,
@@ -5321,6 +5372,16 @@ export default function App() {
         </Suspense>
       )}
 
+      {globalSearch && (
+        <Suspense fallback={null}>
+          <GlobalSearch
+            files={flattenFiles(workspace?.root ?? null)}
+            onOpen={openGlobalSearchHit}
+            onClose={closeGlobalSearch}
+          />
+        </Suspense>
+      )}
+
       {viewMode === 'edit' && editor?.isActive('table') && (
         <div className="table-bar">
           <span className="table-bar-label">表格</span>
@@ -5392,6 +5453,8 @@ export default function App() {
             workspace={workspace}
             activePath={activeFile?.path ?? null}
             collapsed={treeCollapsed}
+            view={fileView}
+            onViewChange={setFileView}
             onToggle={() => setTreeCollapsed((value) => !value)}
             onOpenFolder={openFolder}
             onNewFile={newFileInWorkspace}

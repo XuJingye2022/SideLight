@@ -10,6 +10,7 @@ import {
 } from 'react'
 
 import type { Workspace, WorkspaceFileNode, WorkspaceNode } from '../lib/workspace.ts'
+import { flattenFiles, relativePath } from '../lib/workspace.ts'
 
 const TreeActions = lazy(() => import('./TreeActions.tsx'))
 const RenameInput = lazy(() =>
@@ -32,6 +33,9 @@ type Props = {
   onBeforeRename: () => Promise<void>
   onRenameFile: (file: WorkspaceFileNode, newName: string) => void
   dirtyPath?: string | null
+  /** 文件呈现方式：树形逐层展开 / 平铺列表（第 59 轮 B-102） */
+  view: 'tree' | 'list'
+  onViewChange: (view: 'tree' | 'list') => void
   panelId?: string
   hidden?: boolean
   inert?: boolean
@@ -71,6 +75,8 @@ export function FileTree({
   onBeforeRename,
   onRenameFile,
   dirtyPath,
+  view,
+  onViewChange,
   panelId,
   hidden,
   inert,
@@ -116,6 +122,7 @@ export function FileTree({
   }, [activePath])
 
   const nodes = workspace ? rootNodes(workspace) : []
+  const flatFiles = workspace ? flattenFiles(workspace.root) : []
   const rows = visibleRows(nodes, expanded)
   const visiblePaths = new Set(rows.map((row) => row.node.path))
   const focusVisible = focusPath && visiblePaths.has(focusPath) ? focusPath : null
@@ -379,6 +386,26 @@ export function FileTree({
         <span className="file-tree-name" title={workspace.name}>
           {workspace.name}
         </span>
+        <div className="tree-view-toggle" role="group" aria-label="文件显示方式">
+          <button
+            type="button"
+            className={view === 'tree' ? 'is-on' : ''}
+            aria-pressed={view === 'tree'}
+            title="树形显示（按文件夹逐层展开）"
+            onClick={() => onViewChange('tree')}
+          >
+            树
+          </button>
+          <button
+            type="button"
+            className={view === 'list' ? 'is-on' : ''}
+            aria-pressed={view === 'list'}
+            title="列表显示（全部文件按相对路径平铺）"
+            onClick={() => onViewChange('list')}
+          >
+            列表
+          </button>
+        </div>
         <button type="button" onClick={onToggle} aria-label="收起文件树" title="收起文件树">
           ‹
         </button>
@@ -430,28 +457,59 @@ export function FileTree({
           </div>
         </div>
 
-      <div
-        ref={(node) => {
-          treeRef.current = node
-          listRef.current = node
-        }}
-        className="file-tree-list"
-        role="tree"
-        aria-label="文件树"
-        onScroll={(event) => {
-          scrollTopRef.current = event.currentTarget.scrollTop
-        }}
-        onKeyDown={onTreeKeyDown}
-        onFocus={() => {
-          wasFocusedRef.current = true
-        }}
-      >
-        {nodes.length > 0 ? (
-          nodes.map((node) => renderRow({ node, level: 1 }))
-        ) : (
-          <p className="file-tree-empty">这个文件夹里没有 Markdown 文件</p>
-        )}
-      </div>
+      {view === 'list' ? (
+        <div className="file-tree-list file-list" aria-label="文件列表">
+          {flatFiles.length === 0 ? (
+            <p className="file-tree-empty">这个文件夹里没有 Markdown 文件</p>
+          ) : (
+            <ul className="file-list-rows">
+              {flatFiles.map((file) => {
+                const active = file.path === activePath
+                return (
+                  <li key={file.path}>
+                    <button
+                      type="button"
+                      className={`file-list-row${active ? ' is-active' : ''}`}
+                      aria-current={active ? 'true' : undefined}
+                      title={file.path}
+                      onClick={() => {
+                        wasFocusedRef.current = true
+                        onOpenFile(file)
+                      }}
+                    >
+                      <span className="file-list-name">{file.name}</span>
+                      <span className="file-list-path">{relativePath(file.path)}</span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div
+          ref={(node) => {
+            treeRef.current = node
+            listRef.current = node
+          }}
+          className="file-tree-list"
+          role="tree"
+          aria-label="文件树"
+          onScroll={(event) => {
+            scrollTopRef.current = event.currentTarget.scrollTop
+          }}
+          onKeyDown={onTreeKeyDown}
+          onFocus={() => {
+            wasFocusedRef.current = true
+          }}
+        >
+          {nodes.length > 0 ? (
+            nodes.map((node) => renderRow({ node, level: 1 }))
+          ) : (
+            <p className="file-tree-empty">这个文件夹里没有 Markdown 文件</p>
+          )}
+        </div>
+      )}
 
       <Suspense fallback={null}>
         <TreeActions

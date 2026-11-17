@@ -358,3 +358,12 @@ export function flattenFiles(node: WorkspaceNode | null): WorkspaceFileNode[] {
   if (node.kind === 'file') return [node]
   return node.children.flatMap((child) => flattenFiles(child))
 }
+
+/**
+ * 路径去掉首段（工作区名），给全局搜索结果行与列表态侧栏显示相对路径。
+ * 不在工作区里的路径（只有文件名）原样返回。
+ */
+export function relativePath(path: string): string {
+  const cut = path.indexOf('/')
+  return cut >= 0 ? path.slice(cut + 1) : path
+}
