@@ -133,3 +133,13 @@ test('TXT 导出保留 $latex$，块级保留 $$…$$', () => {
 test('TXT 导出剥掉标签、保留段落', () => {
   assert.equal(buildPlainText('<p>甲</p><p>乙</p>'), '甲\n乙')
 })
+
+test('导出 HTML 的打印块用浅底深字，且排在深色块之后', () => {
+  const html = buildHtmlDocument({ title: '打印.md', bodyHtml: '<p>正文</p>' })
+  const at = html.indexOf('@media print')
+  assert.ok(at > 0, '导出 HTML 里没有 @media print')
+  // 只看打印块内部：body 规则在文件前面就写着 color: #1d2023，全文件 includes 没有鉴别力
+  const printBlock = html.slice(at, at + 400)
+  assert.match(printBlock, /body\s*\{\s*color:\s*#1d2023/)
+  assert.ok(html.indexOf('prefers-color-scheme: dark') < at, '深色块必须在打印块之前')
+})

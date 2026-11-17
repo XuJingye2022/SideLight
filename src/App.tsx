@@ -74,6 +74,7 @@ import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontm
 import { serializeDocument } from './lib/serializeDocument.ts'
 import { repairHtml, escapeHtmlForParse } from './lib/html.ts'
 import { splitTableCellBreaks } from './lib/tableCellBreaks.ts'
+import { TaskListInput } from './lib/taskListInput.ts'
 import { protectMathPairs, repairMath } from './lib/math.ts'
 import { disableSingleTildeStrike, repairTildes } from './lib/tilde.ts'
 import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline.ts'
@@ -789,7 +790,11 @@ export default function App() {
       TableHeader,
       TableCell,
       TaskList,
-      TaskItem.configure({ nested: true }),
+      // 去掉 TaskItem 自带的 `[ ] ` 输入规则：它在 listItem 里恒失败（没有 group），却会在
+      // 普通段落里把字面 `[ ] ` 变成任务项（Typora 不会）。任务项改由 TaskListInput 在
+      // 无序列表里建，单打 `[ ] ` 保持字面。
+      TaskItem.extend({ addInputRules: () => [] }).configure({ nested: true }),
+      TaskListInput,
       Markdown.configure({ indentation: { style: 'space', size: 2 } }),
       AnnotationDecorations,
       MermaidPreview,
@@ -1370,12 +1375,12 @@ export default function App() {
   /* ---------- 批注 ---------- */
 
   const runAnalysis = useCallback(async () => {
-    if (!editor || analyzing) return
+    if (!editor || analyzing || viewMode !== 'edit') return
     const { from, to } = editor.state.selection
     const blocks = readBlocks(editor)
     const context = buildContext(blocks, from, to)
     if (!context.selection.trim()) {
-      show('先选中一段文字，再按 Ctrl + Enter。')
+      show('先写一句，或选中一段文字，再按 Ctrl + Enter。')
       return
     }
 
@@ -1556,7 +1561,7 @@ export default function App() {
       if (abortRef.current === controller) abortRef.current = null
       setAnalyzing(false)
     }
-  }, [editor, settings, analyzing, openRail])
+  }, [editor, settings, analyzing, openRail, viewMode])
 
   useEffect(() => {
     analyzeRef.current = runAnalysis
@@ -4520,8 +4525,16 @@ export default function App() {
           type="button"
           className="analyze-button"
           onClick={runAnalysis}
-          disabled={selection.chars === 0 || analyzing}
-          title={simulated ? '未配置 API Key：从本地生成模拟批注' : undefined}
+          disabled={viewMode !== 'edit' || selection.chars === 0 || analyzing}
+          title={
+            viewMode !== 'edit'
+              ? '只有编辑视图支持'
+              : selection.chars === 0
+                ? '先写一句，或选中一段要分析的文字'
+                : simulated
+                  ? '未配置 API Key：从本地生成模拟批注'
+                  : undefined
+          }
         >
           {analyzing
             ? '分析中…'
@@ -4644,6 +4657,11 @@ export default function App() {
             type="button"
             className={`menu-trigger${menuOpen ? ' is-open' : ''}`}
             disabled={viewMode !== 'edit'}
+            title={
+              viewMode === 'edit'
+                ? '插入：表格 / 代码块 / 引用 / 任务列表 / 分割线 / 图片 / 公式 / 公式块 / 链接'
+                : '只有编辑视图支持'
+            }
             onClick={() => setMenuOpen((value) => !value)}
             onPointerDown={() => void ensureKatex().catch(() => undefined)}
           >
@@ -4712,6 +4730,7 @@ export default function App() {
             className={heading1On ? 'is-on' : undefined}
             aria-pressed={heading1On}
             disabled={viewMode !== 'edit'}
+            title={viewMode === 'edit' ? '一级标题（Ctrl+1）' : '只有编辑视图支持'}
             onClick={() => run((chain) => chain.toggleHeading({ level: 1 }))}
           >
             H1
@@ -4721,6 +4740,7 @@ export default function App() {
             className={heading2On ? 'is-on' : undefined}
             aria-pressed={heading2On}
             disabled={viewMode !== 'edit'}
+            title={viewMode === 'edit' ? '二级标题（Ctrl+2）' : '只有编辑视图支持'}
             onClick={() => run((chain) => chain.toggleHeading({ level: 2 }))}
           >
             H2
@@ -4731,17 +4751,17 @@ export default function App() {
             aria-pressed={boldOn}
             disabled={viewMode !== 'edit'}
             onClick={() => run((chain) => chain.toggleBold())}
-            title="粗体"
+            title={viewMode === 'edit' ? '粗体（Ctrl+B）' : '只有编辑视图支持'}
           >
             B
           </button>
-          <button type="button" className={`italic${italicOn ? ' is-on' : ''}`} aria-pressed={italicOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleItalic())} title="斜体">
+          <button type="button" className={`italic${italicOn ? ' is-on' : ''}`} aria-pressed={italicOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleItalic())} title={viewMode === 'edit' ? '斜体（Ctrl+I）' : '只有编辑视图支持'}>
             I
           </button>
-          <button type="button" className={`strike${strikeOn ? ' is-on' : ''}`} aria-pressed={strikeOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleStrike())} title="删除线">
+          <button type="button" className={`strike${strikeOn ? ' is-on' : ''}`} aria-pressed={strikeOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleStrike())} title={viewMode === 'edit' ? '删除线（Ctrl+Shift+X）' : '只有编辑视图支持'}>
             S
           </button>
-          <button type="button" className={`mono${codeOn ? ' is-on' : ''}`} aria-pressed={codeOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleCode())} title="行内代码">
+          <button type="button" className={`mono${codeOn ? ' is-on' : ''}`} aria-pressed={codeOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleCode())} title={viewMode === 'edit' ? '行内代码' : '只有编辑视图支持'}>
             {'</>'}
           </button>
         </div>

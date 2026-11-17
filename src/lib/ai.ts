@@ -262,6 +262,9 @@ export function mockItems(context: ContextPayload): ParsedAnnotation[] {
   // 单句/短段落只给一条，避免同一 quote 重复出现
   if (pool.length === 1) {
     return [
+      // 单句也要给一条意图说明：goalSeen 只认 meta，缺了它收尾会误报
+      // 「模型没按约定格式回」，其实是模拟流自己少了一条（第 44 轮）。
+      { kind: 'meta', quote: '', note: '我判断这段的意图是：给一个观点补理由。' },
       {
         kind: 'evaluation',
         quote: clip(pool[0], 22),

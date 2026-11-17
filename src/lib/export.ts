@@ -125,6 +125,13 @@ const STYLES = `
     th { background: #22302e; }
     blockquote { color: #a8adaf; }
   }
+  @media print {
+    :root { color-scheme: light; }
+    body { color: #1d2023; background: #fff; }
+    code, th { background: #e8f0ed; }
+    pre, th, td, hr { border-color: #e4dfd4; }
+    blockquote, section.footnotes { color: #565c61; }
+  }
 `
 
 /** 公式 → MathML（自包含，不依赖 KaTeX 的 CSS 与字体）；解析失败退回 `$latex$` 原文 */

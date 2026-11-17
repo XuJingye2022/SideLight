@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { errorCopy, ModelRequestError } from './ai.ts'
+import { errorCopy, mockItems, ModelRequestError } from './ai.ts'
+import type { ContextPayload } from './context.ts'
+
+const payload = (selection: string): ContextPayload => ({
+  selection,
+  source: 'paragraph',
+  before: '',
+  after: '',
+  truncated: false,
+  charCount: selection.length,
+})
 
 const NEXT_STEP = '下一步'
 
@@ -48,4 +58,14 @@ test('未知错误给统一话术，不铺原始响应', () => {
 test('原始响应只进 detail，不进文案', () => {
   const copy = errorCopy(new ModelRequestError('server', '模型接口返回 502', 502, 'upstream said no'))
   assert.ok(!copy.text.includes('upstream said no'))
+})
+
+test('模拟分析：短段落也带一条意图说明（否则收尾误报格式错）', () => {
+  const items = mockItems(payload('这是一句用来触发模拟分析的短句。'))
+  assert.equal(items.filter((item) => item.kind === 'meta').length, 1)
+})
+
+test('模拟分析：多句分支的意图说明只有一条', () => {
+  const items = mockItems(payload('第一句用来做模拟分析。第二句也足够长，凑成两段。'))
+  assert.equal(items.filter((item) => item.kind === 'meta').length, 1)
 })

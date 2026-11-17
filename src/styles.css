@@ -1967,6 +1967,36 @@ button:disabled {
   .editor {
     max-width: none;
   }
+
+  /* 打印一律浅底深字：深色主题下 --ink 是浅色，Chromium 不打印背景色，会变白纸浅字。
+     这三个选择器分别是默认浅色、手动深色、跟随系统深色；打印块在 :root 与深色块之后，
+     同权重靠顺序胜出。变量值与 :root 的浅色档一致，仅三个纸色（--paper / --paper-raised /
+     --panel）用纯白：打印不必复制屏幕纸色，也省墨。 */
+  :root,
+  html[data-theme='dark'],
+  html:not([data-theme='light']):not([data-theme='dark']) {
+    color-scheme: light;
+    --paper: #fff;
+    --paper-raised: #fff;
+    --panel: #fff;
+    --ink: #1d2023;
+    --ink-soft: #565c61;
+    --ink-faint: #666c72;
+    --line: #e4dfd4;
+    --line-strong: #d5cdbd;
+    --accent: #2b6d64;
+    --accent-ink: #23544d;
+    --accent-wash: #e8f0ed;
+    --mark: #9a5b1c;
+    --mark-strong: #94682f;
+    --mark-wash: #f7ecdc;
+    --note: #2f6b86;
+    --note-wash: #e6eff4;
+    --warn: #a2452c;
+    --danger: #b4453a;
+    --on-accent: #ffffff;
+    --on-mark: #fffdf8;
+  }
 }
 
 /* ---------- 全局提示 ---------- */
