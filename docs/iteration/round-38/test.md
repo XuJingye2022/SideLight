@@ -3,7 +3,7 @@
 - 轮次：round=38；轮前 `startSha=bb52c6a23045042c18a08748547ef796f2e4890f`。
 - 只读输入：`round-38/plan.md`（revision=3）、`git diff`、`git status`、源码。**未读 `impl.md`**。
 - 执行方式：门禁全部本机实跑；E2E **由 tester 自写三份脚本**（不复用实施期脚本的断言），种子与判据独立。
-- 判定：**PASS**。
+- 判定：**PASS-WITH-UNVERIFIED**（计划三项全部做完并按验收标准复验通过；未验的是环境测不了的真机项，见 §6）。
 
 ## 0. 一句话结论
 
