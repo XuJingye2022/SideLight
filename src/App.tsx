@@ -330,10 +330,30 @@ const focusEditor = () => requestAnimationFrame(() => document.querySelector<HTM
 
 /**
  * 把焦点送进源码框：进源码后不聚焦，之后打的字全掉在 body 上（第 36 轮）。
- * 选择器与关查找条的 `textarea.source-editor` 一致；rAF 等 setViewMode 挂载完再聚焦
+ * 选择器与关查找条的 `textarea.source-editor` 一致；rAF 等 setViewMode 挂载完再聚焦。
+ * 第 37 轮：按比例落 caret——长文里 caret 停在 0 时，第一次击键会插到文首。
+ * ratio 缺省/非法时只聚焦、不动选区（关查找条走这条，一次 Esc 不能丢写作位置）。
  */
-const focusSourceEditor = () =>
-  requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea.source-editor')?.focus())
+const focusSourceEditor = (ratio?: number) =>
+  requestAnimationFrame(() => {
+    const box = document.querySelector<HTMLTextAreaElement>('textarea.source-editor')
+    if (!box) return
+    // 先落选区再 focus：这个顺序浏览器会把 caret 滚进视口（反序实测停在文首）
+    if (ratio === undefined || !Number.isFinite(ratio)) {
+      box.focus()
+      return
+    }
+    const at = Math.round(box.value.length * Math.min(1, Math.max(0, ratio)))
+    box.setSelectionRange(at, at)
+    box.focus()
+  })
+
+/** 富文本光标在正文里的相对位置：进源码时按同一比例落 caret（第 37 轮） */
+const caretRatioOf = (editor: Editor | null) => {
+  if (!editor) return undefined
+  const total = Math.max(1, editor.state.doc.content.size)
+  return Math.min(1, Math.max(0, editor.state.selection.from / total))
+}
 
 export default function App() {
   const [settings, setSettings] = useState<Settings>(() => loadSettings())
@@ -516,7 +536,7 @@ export default function App() {
   const sourceOriginalEntryRef = useRef(false)
 
   /** 进源码模式的唯一入口：seed 源码框与基线，再切视图（漏 seed 会让 Ctrl+S 写空文件） */
-  const enterSourceFor = useCallback((text: string, fromLoad = false) => {
+  const enterSourceFor = useCallback((text: string, fromLoad = false, caretRatio?: number) => {
     setSourceText(text)
     sourceBaselineRef.current = text
     sourceOriginalEntryRef.current = fromLoad
@@ -524,7 +544,7 @@ export default function App() {
     setFocusMode(false)
     setTypewriterMode(false)
     // 载入即源码不抢焦点；用户主动进源码才聚焦，否则之后的击键掉在 body 上（第 36 轮）
-    if (!fromLoad) focusSourceEditor()
+    if (!fromLoad) focusSourceEditor(caretRatio)
   }, [])
   /** 保存基线：当前正文与它不等才算脏；载入、保存成功、草稿恢复时更新 */
   const baselineRef = useRef<string | null>(null)
@@ -754,7 +774,8 @@ export default function App() {
           onClick: (_node, position) => mathEditRef.current(position),
         },
       }),
-      ReusableTable,
+      // 表头边界可拖拽改列宽（第 37 轮）：columnResizing 插件已在静态依赖里，JS 增量 0
+      ReusableTable.configure({ resizable: true }),
       TableRow,
       TableHeader,
       TableCell,
@@ -3792,7 +3813,8 @@ export default function App() {
       setViewMode(next)
       // 两个方向都要聚焦，否则键盘用户进源码打的字全丢（第 36 轮）。
       // 预览不是聚焦目标：PreviewPane 是 contentEditable=false 且无 tabindex
-      if (next === 'source') focusSourceEditor()
+      // 按富文本光标的比例落 caret：长文进源码不再把视野甩到文首或文末（第 37 轮）
+      if (next === 'source') focusSourceEditor(caretRatioOf(editor))
       else if (leavingSource && next === 'edit') focusEditor()
     },
     [editor, viewMode, sourceText, dirty, draftRestored, currentMarkdown, applySource],
@@ -3825,7 +3847,7 @@ export default function App() {
       setSourceConfirm('restore')
       return
     }
-    enterSourceFor(text)
+    enterSourceFor(text, false, caretRatioOf(editor))
   }, [editor, sourceMode, backToRich, dirty, originalText, enterSourceFor])
 
   const resolveSourceConfirm = useCallback(() => {
@@ -3833,11 +3855,11 @@ export default function App() {
     setSourceConfirm(null)
     if (action === 'restore') {
       const text = rawTextRef.current ?? originalText
-      if (text !== null) enterSourceFor(text)
+      if (text !== null) enterSourceFor(text, false, caretRatioOf(editor))
       return
     }
     if (action === 'exit') switchView('edit')
-  }, [sourceConfirm, originalText, enterSourceFor, switchView])
+  }, [sourceConfirm, originalText, enterSourceFor, switchView, editor])
 
   const togglePreview = useCallback(() => {
     switchView(previewMode ? 'edit' : 'preview')
@@ -4602,8 +4624,9 @@ export default function App() {
             onClose={() => {
               setFindOpen(false)
               if (sourceMode) {
-                // 源码模式里 .ProseMirror 不在 DOM：focusEditor() 是空操作，焦点会掉到 body，改回源码输入框
-                requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea.source-editor')?.focus())
+                // 源码模式里 .ProseMirror 不在 DOM：focusEditor() 是空操作，焦点会掉到 body，改回源码输入框。
+                // 不传 ratio：关查找条不动 caret，否则一次 Esc 就丢写作位置（第 37 轮）
+                focusSourceEditor()
               } else if (!previewMode) {
                 focusEditor()
               }

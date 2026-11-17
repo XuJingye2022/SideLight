@@ -687,6 +687,21 @@ button:disabled {
   margin: 1.2em 0;
 }
 
+/* 列宽拖拽（第 37 轮）：handle 是插在单元格里的 widget，没有定位祖先会跑位 */
+.editor .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.editor.resize-cursor {
+  cursor: col-resize;
+}
+
 .editor table {
   border-collapse: collapse;
   width: 100%;
@@ -701,6 +716,7 @@ button:disabled {
   padding: 6px 10px;
   text-align: left;
   vertical-align: top;
+  position: relative;
 }
 
 .editor th {

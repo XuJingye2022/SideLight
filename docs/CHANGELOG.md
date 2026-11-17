@@ -2,7 +2,7 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–36 轮，未发版）
+## Unreleased（第 29–37 轮，未发版）
 
 数据安全 + 大纲折叠；计划里的 T2（状态栏字数点击明细）**未做**，留待下一轮。第 30 轮补上字数明细、修删除撤销丢正文，并给安装器版本与发版流水线加门。
 
@@ -75,6 +75,17 @@
 - 文档：`README.md` 依赖从「两组」改「三组」并补 Mermaid 一行（`AGENTS.md` §4 要求）+ 首屏/安装包实测数字；`docs/typora-gap.md` 的 Mermaid 从「无」改「有（第 36 轮，惰性渲染）」；ADR-0017 补「第 36 轮实测」节，用真字节替换预估并明写四处偏离原方案。
 - 门禁：`npx tsc --noEmit`、`npm test`（**23 个文件 301 条**，新增 `src/lib/mermaidLazy.test.ts` 6 条）、`npm run roundtrip`（`docs/roundtrip-report.md` 无 diff，source 7/7 等值）、`npm run verify`、`npm run build` 全 exit 0；首屏 gzip **288,256 B**（+2,200 B，预算内部 310,000 / 硬线 320,000，距硬线余 31,744 B）；安装包 `-AssocDryRun` 实测 **1,299,777 B**（正式包预估 1,297,630 B，内部预算 1,800,000 / 硬线 2,000,000 内）。
 - UNVERIFIED：正式安装包字节（只跑 dry-run，跳过 2,000,000 硬判）；WebView2 宿主里的真实 mermaid 渲染（只用 CDP 浏览器）；HTML 导出与预览面板的图形（本轮不做，见 ADR-0017 已知限制）；中文输入法下的源码框聚焦（`keyboard.type` 只发 ASCII）；>1 MB 文档含 5+ 张图的滚动性能（只测 1 张图）；mermaid 各类图的真实报错文案（只测一个坏语法样本）。
+
+**第 37 轮（同一未发版区间）**
+
+本轮按计划 §3 的**单执行代理降级方案**执行：只做 T1 + T3 最小集，**T2（Mermaid 嵌套围栏 + SVG id 按实例唯一）整体顺延第 38 轮**（第 36 轮功能尚未发版，晚一轮没有对外影响；不压缩 E2E）。T4 零字节、四条正反例全过，提前收工后顺手做了。
+
+- **表格列宽可拖拽**：`ReusableTable` 改 `configure({ resizable: true })`，`columnResizing` 插件本就在静态依赖里（JS 增量 0 B，只加 CSS）。`styles.css` 新增 `.column-resize-handle` 竖线与 `.editor.resize-cursor` 光标，并给 `.editor th, .editor td` 补 `position: relative`（handle 是插在单元格里的 widget，没有定位祖先会跑位）。E2E 拖第一列表头右边界 +90 px：`handleSeen:true`、首列 192 → 278 px（+86）、`<col style="width: 278px">` 出现；拖前 `dirty=false`，拖后仍 `false`、`Ctrl+S` 后字节与拖前逐字节相同（列宽不进 Markdown）。
+- **修「进源码后首次击键插到文首」**：`focusSourceEditor(ratio?)` 按富文本光标的相对位置落 caret（`selectionStart = round(len × ratio)`），`Ctrl+/` 与横幅/确认框两条入口都传比例；关查找条那条路径**不传** ratio（一次 Esc 不能丢写作位置）。顺序改成「先 setSelectionRange 再 focus」——反序实测视野停在文首（本次实测 `scrollTop` 0 → 2640 / 5209）。E2E 用 120 段长文：`Ctrl+/` 后 `active=TEXTAREA.source-editor`、`selectionStart 1936 / 3857`（ratio 0.502）、`scrollTop 2640 < max 5209`、打 `ZZZ` 落在光标处（`selectionStart === before + 3`）；`Ctrl+F` → `Esc` 后 `selectionStart` 不变（1939 → 1939）。
+- **文档**：`docs/typora-gap.md` 全表复核——7 条已实现却仍写「无」的移进「已经有的」（自动配对括号与引号、智能标点、缩进与反缩进、大纲折叠、新建/重命名/删除文件、快速打开、最近文件），删掉重复的「行内 HTML 有保真」行（「缺的」里已有「保真但不渲染」），「字号与缩放」拆成「字号缩放（有，`Ctrl+Alt+0` 复位）」与「视图缩放（无）」，主题改「明 / 暗 / 跟随系统三档」，表格行列补「表头边界可拖拽改列宽」，新增「工作区相对路径图片显示」一条（`assets/a.png` 显示破图，P1）。计数按行重算：**已有 28 项、缺 12 项**（改前标题写 22/17，实际缺表本来就有 18 行）；`README.md:82` 与 `AGENTS.md` 的同一句同步；`README.md:50` 能力句补「表头边界可拖拽改列宽」，`:74` 补限制句「列宽不写进 Markdown，重开按内容重新均分」。
+- 门禁：`npx tsc --noEmit` exit 0；`npm test` **23 个文件 301 条**全过（T1 不加单测，与第 36 轮同）；`npm run roundtrip` rich 5/7、source 7/7（与第 36 轮同，`04-reference-links.md` 与 `06-task-list.md` 的既有差异不变）；`npm run build` exit 0；首屏 gzip **288,411 B**（+155 B，只多 T1 的 CSS；`files=3`，首屏集合无 `mermaid`/`lazy`/`katex`；内部预算 310,000 / 硬线 320,000，距硬线余 31,589 B）。
+- **T4（零字节，`scripts/measure-first-screen.mjs`）**：距硬线不足 5% 时打一行 `WARN 首屏距硬线 …`——预算余量从 21,744 B 掉到 0 之前不再静默（第 36 轮刚单轮 +2,200 B）。只提醒，不改参数、不改 exit 码。四条正反例按计划全过：默认 `headroom=31744` 无 WARN、`PASS`、exit 0；`--max 300000` 出 WARN（余 11,744 B）仍 `PASS`；`--max 288000` 仍 `FAIL` exit 1（WARN 不吞 FAIL）；`--target 280000` 不报 ENOENT、打「超过内部预算」、exit 0。
+- UNVERIFIED：WebView2 宿主里的表格拖拽与源码框 caret（本轮只用 CDP 浏览器）；拖过的表在 HTML 导出里会带出 `colwidth="278"`（DOM 已实测；没有 `<colgroup>`，宽度不生效）——本轮按计划不改，第 38 轮给 `TableCell`/`TableHeader` 的 `colwidth` 加 `renderHTML: () => null` 并用 E2E 断言导出片段；暗色主题与 150%/200% 缩放屏下的 handle/caret；真实中文 IME 下的源码框 caret。
 
 
 ## 0.32.1 — 2026-11-16

@@ -70,6 +70,11 @@ if (banned.length > 0) {
 if (totalGzip > target) {
   console.log(`WARN 首屏 gzip ${totalGzip} 超过内部预算 ${target}（越过 ${totalGzip - target} B），仍在硬线 ${max} 内`)
 }
+// 余量预警：距硬线不到 5% 时提醒下一轮先算体积（第 37 轮；只提醒，不改 exit 码）
+const headroom = max - totalGzip
+if (headroom > 0 && headroom < max * 0.05) {
+  console.log(`WARN 首屏距硬线 ${max} 只余 ${headroom} B（<5%），下一轮加静态代码前先算体积`)
+}
 if (totalGzip > max) {
   console.log(`FAIL 首屏 gzip ${totalGzip} 超过上限 ${max}`)
   process.exit(1)
