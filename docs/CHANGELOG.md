@@ -262,6 +262,14 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **297,719 B**（比第 55 轮 +63，内部 310,000 / 硬线 320,000，余 12,281）；`npm test` **37 个文件 467 条**全过；`npm run roundtrip` PASS（rich 6/8、source 8/8）。
 - UNVERIFIED（本轮）：真实 FSA/磁盘保存字节（e2e 用打桩 picker）、真实中文 IME 逐键、逐键 p95 的跨窗口可比性（不同窗口基线 66/252 与 50/234）、宿主 WebView2。
 
+**第 57 轮（同一未发版区间）**
+
+- **宿主 `/__asset` 图片端点**（B-004）：新增 `GET /__asset?path=…`，只回当前文档所在目录下的位图；`MimeMap` 补 `.jpg/.jpeg/.webp/.gif/.bmp`，另用白名单只发这六种（SVG 能在宿主 origin 跑脚本，不给）。`../`、`%2e%2e%2f`、绝对路径、反斜杠、盘符一律 403，非位图 404，无 CORS，响应统一 `no-store`。前端 `assetResolve.ts` 新增 `hostAssetUrl()`（越界口径与 FSA 路径一致），`App.tsx` 的图片解析器在宿主单文件文档（`hostDoc.ready`）下改走 `/__asset`，与工作区 FSA 解析器写在同一个 effect 互斥。新增 `assetResolve.test.ts` 5 条。
+- **暖纸弱文字对比度**（B-118）：`--ink-faint` `#7a6b54` → `#736349`（`src/styles.css:77` 与 `src/lib/themes.ts:24` 同改），对纸底 `#f4e8d2` **4.798:1**、侧栏 `#efe2c9` **4.541:1**（改前 4.267 / 4.039），且仍比 `--ink-soft` 浅。`themes.test.ts` +3 条（浅/深色档同口径回归、两个入口都吃 token）。
+- **设置面板页脚分隔线**（B-108）：`.dialog-actions` 加 `border-top: 1px solid var(--line)`，内容从 sticky 页脚下方划过时有可见边界；高度上限不动（`calc(100vh - 40px)`）。1440×900 页脚 822–859 / 框底 880，1000×620 页脚 542–579 / 框底 600，两档都完整在框内（距框底 21 px），滚到底最后一块内容不被页脚永久压住。
+- 门禁：`npm run verify` PASS，首屏 gzip **297,823 B**（比第 56 轮 +104，内部 310,000 / 硬线 320,000，余 12,177）；`npm test` **37 个文件 473 条**全过；`host/build.ps1` PASS，`--version` **0.32.1**；`theme-acceptance` 27/27（对比度矩阵 43/48 适用项全过）。
+- UNVERIFIED（本轮）：宿主 WebView2 窗口内的成品显示（本机会话 `CreateCoreWebView2ControllerAsync` 报 `0x8000FFFF`，见 `host/bin/host.log`），所以「单文件文档里相对图真的画出来」只有端点与纯函数证据；`/__asset` 的 HEAD 分支与 `Host` 头不匹配的 403 分支未单独测。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

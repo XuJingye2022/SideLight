@@ -6,6 +6,7 @@ import {
   getAssetDocPath,
   getAssetVersion,
   getResolvedAsset,
+  hostAssetUrl,
   isRelativeAsset,
   resolveAsset,
   resolveAssetSegments,
@@ -97,6 +98,34 @@ test('resolveAssetSegments：../、%20 与越界（第 39 轮）', () => {
   // 只有目录、没有文件名：段不为空就返回，交给目录句柄判成「打不开」
   assert.deepEqual(resolveAssetSegments([], 'assets/'), ['assets'])
   assert.equal(resolveAssetSegments([], ''), null)
+})
+
+test('hostAssetUrl：宿主 /__asset 只编码相对图（第 57 轮 B-004）', () => {
+  // 中文文件名与空格整段走 encodeURIComponent：`/` 也一起编掉，宿主自己解
+  assert.equal(hostAssetUrl('assets/图 1.jpg'), '/__asset?path=' + encodeURIComponent('assets/图 1.jpg'))
+  assert.equal(hostAssetUrl('./assets/a.png'), '/__asset?path=' + encodeURIComponent('assets/a.png'))
+  // 非相对地址与空值交给浏览器原样显示
+  assert.equal(hostAssetUrl('data:image/png;base64,AAA'), null)
+  assert.equal(hostAssetUrl('https://example.com/a.png'), null)
+  assert.equal(hostAssetUrl(''), null)
+  assert.equal(hostAssetUrl('   '), null)
+  assert.equal(hostAssetUrl(null), null)
+})
+
+test('hostAssetUrl：绝对路径与越界一律拒绝', () => {
+  assert.equal(hostAssetUrl('/abs.png'), null)
+  assert.equal(hostAssetUrl('../secret.txt'), null)
+  assert.equal(hostAssetUrl('%2e%2e%2fsecret.txt'), null)
+  assert.equal(hostAssetUrl('a/../../secret.txt'), null)
+  assert.equal(hostAssetUrl('assets\\a.png'), null)
+  assert.equal(hostAssetUrl('C:/a.png'), null)
+})
+
+test('hostAssetUrl：解码后才多出来的目录分隔也当越界', () => {
+  assert.equal(hostAssetUrl('assets%2F..%2Fsecret.txt'), null)
+  assert.equal(hostAssetUrl('a%2Fb.png'), null)
+  // 正常的 %20 仍解成空格再编码回去
+  assert.equal(hostAssetUrl('assets/图%201.jpg'), '/__asset?path=' + encodeURIComponent('assets/图 1.jpg'))
 })
 
 test('版本号只在解析成功/清缓存时 +1，缓存命中不加也不通知', async () => {

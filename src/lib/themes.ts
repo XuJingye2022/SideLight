@@ -21,7 +21,7 @@ export const BUILTIN_THEMES = [
       '--panel': '#efe2c9',
       '--ink': '#3a2f21',
       '--ink-soft': '#6b5d48',
-      '--ink-faint': '#7a6b54',
+      '--ink-faint': '#736349',
       '--line': '#ddcbaa',
       '--line-strong': '#cbb58e',
       '--accent': '#7a5a2a',

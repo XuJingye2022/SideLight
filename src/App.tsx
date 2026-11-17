@@ -108,7 +108,7 @@ import {
   type WorkspaceFileNode,
 } from './lib/workspace.ts'
 import { assetFileName, writeAsset } from './lib/asset.ts'
-import { clearAssetCache, resolveAsset, resolveAssetSegments, setAssetDocPath, setAssetResolver } from './lib/assetResolve.ts'
+import { clearAssetCache, hostAssetUrl, resolveAsset, resolveAssetSegments, setAssetDocPath, setAssetResolver } from './lib/assetResolve.ts'
 import { ResolvingImage } from './lib/assetImage.ts'
 import { getHostTransport } from './lib/hostBridge.ts'
 import { loadSession, permissionOf, restorePlan, saveSession } from './lib/session.ts'
@@ -4506,9 +4506,17 @@ export default function App() {
     insertImageRef.current = (file: File) => void insertImageFile(file)
   }, [insertImageFile])
 
-  // 工作区图片解析器（第 38 轮）：assets/xxx.png 按文档所在目录读成 blob URL
+  // 图片解析器：工作区文档走 FSA（第 38 轮），宿主单文件文档走 `/__asset`（第 57 轮 B-004）。
+  // 两条互斥，写在同一个 effect 里：分开写会按声明顺序互相覆盖。
   useEffect(() => {
     if (!editor) return
+    if (hostDoc?.ready) {
+      setAssetResolver(async (src) => hostAssetUrl(src))
+      return () => {
+        setAssetResolver(null)
+        clearAssetCache()
+      }
+    }
     setAssetResolver(async (src, docPath) => {
       const space = workspaceRef.current
       if (!space?.rootHandle) return null
@@ -4532,7 +4540,7 @@ export default function App() {
       setAssetResolver(null)
       clearAssetCache()
     }
-  }, [workspace, editor])
+  }, [workspace, editor, hostDoc])
 
   // 预热本篇的相对路径图片：订阅者晚到或缓存被清后，NodeView 靠订阅把 src 换回来
   useEffect(() => {

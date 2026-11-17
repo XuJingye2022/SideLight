@@ -74,7 +74,7 @@ html[data-theme='sepia'] {
   --panel: #efe2c9;
   --ink: #3a2f21;
   --ink-soft: #6b5d48;
-  --ink-faint: #7a6b54;
+  --ink-faint: #736349;
   --line: #ddcbaa;
   --line-strong: #cbb58e;
   --accent: #7a5a2a;
@@ -1319,6 +1319,8 @@ button:disabled {
   gap: 8px;
   margin-top: 4px;
   padding-top: 8px;
+  /* 第 57 轮 B-108：粘住时内容从下面划过，没有分隔线就像被硬切掉；细线把「页脚」画出来 */
+  border-top: 1px solid var(--line);
   background: var(--paper-raised);
 }
 

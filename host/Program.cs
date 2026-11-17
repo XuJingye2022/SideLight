@@ -211,8 +211,20 @@ static class Program
         map[".png"] = "image/png";
         map[".ico"] = "image/x-icon";
         map[".json"] = "application/json; charset=utf-8";
+        // `/__asset` 要回源的位图（第 57 轮 B-004）：不补这几种，单文件打开的 jpg/webp 只能 404
+        map[".jpg"] = "image/jpeg";
+        map[".jpeg"] = "image/jpeg";
+        map[".webp"] = "image/webp";
+        map[".gif"] = "image/gif";
+        map[".bmp"] = "image/bmp";
         return map;
     }
+
+    // `/__asset` 只发这几种位图：SVG 能在宿主 origin 里跑脚本，不给它开口子
+    static readonly HashSet<string> AssetImageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp",
+    };
 
     // 固定回环端口：origin 恒定，localStorage 才能跨启动保留；端口被占就失败，不换端口、不回退虚拟主机。
     static void StartLoopback(string wwwPath)
@@ -298,10 +310,17 @@ static class Program
                 }
 
                 int query = target.IndexOf('?');
+                string rawTarget = target;
                 if (query >= 0) target = target.Substring(0, query);
                 if (target == "/__doc")
                 {
                     HandleDocRequest(stream, method, host);
+                    return;
+                }
+                if (target == "/__asset")
+                {
+                    // 要原始 target：`path` 里的 `/` 已经过百分号编码，截掉 query 就拿不到
+                    HandleAssetRequest(stream, method, host, rawTarget);
                     return;
                 }
                 if (target == "/__draft")
@@ -598,6 +617,122 @@ static class Program
             body = BuildDocJson(currentMeta);
         }
         WriteResponse(stream, status, "application/json; charset=utf-8", body, false);
+    }
+
+    // 从原始请求目标里取查询参数：不做解码，交给调用方统一 UnescapeDataString
+    static string QueryParam(string target, string name)
+    {
+        int query = target.IndexOf('?');
+        if (query < 0) return null;
+        foreach (string pair in target.Substring(query + 1).Split('&'))
+        {
+            int eq = pair.IndexOf('=');
+            if (eq <= 0) continue;
+            if (!string.Equals(pair.Substring(0, eq), name, StringComparison.OrdinalIgnoreCase)) continue;
+            return pair.Substring(eq + 1);
+        }
+        return null;
+    }
+
+    // GET /__asset?path=assets%2F%E5%9B%BE%201.jpg：宿主单文件打开时没有目录句柄，
+    // 正文里的相对图由这里回源。只从「当前文档所在目录」往下取图，与 /__doc 同一套 Host 校验；
+    // 不加 CORS 头、不回完整路径、不缓存（WriteResponse 统一 no-store）。
+    static void HandleAssetRequest(NetworkStream stream, string method, string host, string rawTarget)
+    {
+        bool head = method == "HEAD";
+        if (method != "GET" && !head)
+        {
+            WriteResponse(stream, 405, null, null, head);
+            return;
+        }
+        if (!string.Equals(host, "127.0.0.1:" + port, StringComparison.OrdinalIgnoreCase))
+        {
+            Log("asset refused reason=host host=" + host);
+            WriteResponse(stream, 403, null, null, head);
+            return;
+        }
+        if (currentPath == null)
+        {
+            WriteResponse(stream, 404, null, null, head);
+            return;
+        }
+        string raw = QueryParam(rawTarget, "path");
+        if (raw == null)
+        {
+            Log("asset refused reason=no-path");
+            WriteResponse(stream, 400, null, null, head);
+            return;
+        }
+        string rel;
+        try { rel = Uri.UnescapeDataString(raw); }
+        catch (Exception)
+        {
+            Log("asset refused reason=bad-escape");
+            WriteResponse(stream, 400, null, null, head);
+            return;
+        }
+        string reason = null;
+        if (rel.Length == 0) reason = "empty";
+        else if (rel.StartsWith("/")) reason = "absolute";
+        else if (rel.IndexOf('\\') >= 0) reason = "backslash";
+        else if (rel.IndexOf("..", StringComparison.Ordinal) >= 0) reason = "dotdot";
+        else if (rel.IndexOf(':') >= 0) reason = "colon";
+        if (reason != null)
+        {
+            Log("asset refused path=" + raw + " reason=" + reason);
+            WriteResponse(stream, 403, null, null, head);
+            return;
+        }
+
+        string docDir;
+        try { docDir = Path.GetDirectoryName(Resolve(currentPath)); }
+        catch (Exception) { docDir = null; }
+        if (string.IsNullOrEmpty(docDir))
+        {
+            WriteResponse(stream, 404, null, null, head);
+            return;
+        }
+        string dirFull;
+        string full;
+        try
+        {
+            dirFull = Path.GetFullPath(docDir);
+            string relOs = rel.Replace('/', Path.DirectorySeparatorChar);
+            full = Path.GetFullPath(Path.Combine(dirFull, relOs));
+        }
+        catch (Exception)
+        {
+            Log("asset refused path=" + raw + " reason=bad-path");
+            WriteResponse(stream, 400, null, null, head);
+            return;
+        }
+        string prefix = dirFull.EndsWith(Path.DirectorySeparatorChar.ToString())
+            ? dirFull
+            : dirFull + Path.DirectorySeparatorChar;
+        if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            Log("asset refused path=" + raw + " reason=outside-doc-dir");
+            WriteResponse(stream, 403, null, null, head);
+            return;
+        }
+
+        string extension = Path.GetExtension(full);
+        string mime;
+        if (!AssetImageExtensions.Contains(extension) || !MimeMap.TryGetValue(extension, out mime))
+        {
+            Log("asset refused path=" + raw + " reason=extension");
+            WriteResponse(stream, 404, null, null, head);
+            return;
+        }
+        byte[] body;
+        try { body = File.ReadAllBytes(full); }
+        catch (Exception ex)
+        {
+            Log("asset miss path=" + raw + " " + ex.GetType().Name);
+            WriteResponse(stream, 404, null, null, head);
+            return;
+        }
+        WriteResponse(stream, 200, mime, body, head);
     }
 
     static void OnWebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)

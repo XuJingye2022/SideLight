@@ -65,6 +65,39 @@ export function resolveAssetSegments(docDirSegments: string[], src: string): str
   return stack.length > 0 ? stack : null
 }
 
+/** 宿主 `/__asset` 的查询前缀（第 57 轮 B-004） */
+const HOST_ASSET_PREFIX = '/__asset?path='
+
+/**
+ * 纯函数：单文件打开（宿主文档，没有目录句柄）时，相对图改走宿主 `/__asset`。
+ * 返回可放进 `<img src>` 的地址；`data:`/`blob:`/`http(s):` 与越界写法返回 null（交给浏览器原样显示）。
+ * 越界口径与 `resolveAssetSegments` 一致：绝对路径、反斜杠、盘符，以及解码后才出现的 `..` 一律拒绝。
+ */
+export function hostAssetUrl(src: unknown): string | null {
+  if (typeof src !== 'string') return null
+  const trimmed = src.trim()
+  if (!trimmed || !isRelativeAsset(trimmed)) return null
+  if (trimmed.startsWith('/') || trimmed.includes('\\') || trimmed.includes(':')) return null
+  const segments: string[] = []
+  for (const raw of trimmed.split('/')) {
+    if (raw === '' || raw === '.') continue
+    let segment = raw
+    try {
+      segment = decodeURIComponent(raw)
+    } catch {
+      // 非法编码（a%ZZ.png）保留原段：让宿主按文件名判 404，别在这里抛错
+      segment = raw
+    }
+    if (segment === '' || segment === '.') continue
+    // `..` 会带出文档目录：宿主只回文档目录下的图，前端先拒，省一次 403
+    if (segment === '..') return null
+    if (segment === '/' || segment.includes('/') || segment.includes('\\') || segment.includes(':')) return null
+    segments.push(segment)
+  }
+  if (segments.length === 0) return null
+  return HOST_ASSET_PREFIX + encodeURIComponent(segments.join('/'))
+}
+
 function revokeAll(): void {
   for (const url of cache.values()) {
     try {
