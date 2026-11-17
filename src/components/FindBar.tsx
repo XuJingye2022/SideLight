@@ -13,6 +13,11 @@ type Props = {
   onReplace: () => void
   onReplaceAll: () => void
   onClose: () => void
+  /** 区分大小写与整词：会话内的开关，跟 Typora 一样不落盘 */
+  caseSensitive: boolean
+  wholeWord: boolean
+  onToggleCaseSensitive: () => void
+  onToggleWholeWord: () => void
   /** 当前视图下查找/替换不可用时的说明（源码模式）：有值就整体锁住，不再假装成功 */
   unavailableReason?: string
 }
@@ -30,6 +35,10 @@ export function FindBar({
   onReplace,
   onReplaceAll,
   onClose,
+  caseSensitive,
+  wholeWord,
+  onToggleCaseSensitive,
+  onToggleWholeWord,
   unavailableReason,
 }: Props) {
   if (!open) return null
@@ -67,6 +76,24 @@ export function FindBar({
         <span className="find-count">
           {locked ? '' : query.trim() === '' ? '' : total === 0 ? '无结果' : `${position} / ${total}`}
         </span>
+        <button
+          type="button"
+          className={caseSensitive ? 'is-on' : undefined}
+          aria-pressed={caseSensitive}
+          title="区分大小写"
+          onClick={onToggleCaseSensitive}
+        >
+          Aa
+        </button>
+        <button
+          type="button"
+          className={wholeWord ? 'is-on' : undefined}
+          aria-pressed={wholeWord}
+          title="整词匹配（只认 ASCII 词边界，中文按原样匹配）"
+          onClick={onToggleWholeWord}
+        >
+          ab
+        </button>
         <button type="button" onClick={onPrev} disabled={disabled} title="上一处" aria-label="上一处">
           ↑
         </button>

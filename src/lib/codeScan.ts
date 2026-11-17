@@ -13,7 +13,7 @@ const BLOCK_MATH = /^\s*\$\$/
  */
 export function mapOutsideCode(
   markdown: string,
-  fn: (segment: string) => string,
+  fn: (segment: string, start: number) => string,
   protectMath = false,
 ): string {
   const lines = markdown.split('\n')
@@ -22,8 +22,12 @@ export function mapOutsideCode(
   // fenceMap 会把孤立的 \r 也当换行；行数对不上时退化成「不认围栏」
   const fenced = fences.length === lines.length ? fences.map((item) => item.fenced) : lines.map(() => false)
   let inBlockMath = false
+  // 行首的绝对偏移：三支（围栏/公式/普通）共用一个计数器，所以必须在本行最开头累加
+  let lineStart = 0
   return lines
     .map((line, index) => {
+      const at = lineStart
+      lineStart += line.length + 1
       if (fenced[index]) return line
       const text = stripped[index].trim()
       if (inBlockMath) {
@@ -34,12 +38,17 @@ export function mapOutsideCode(
         if (!text.slice(2).includes('$$')) inBlockMath = true
         return line
       }
-      return mapOutsideInlineSpans(line, fn, protectMath)
+      return mapOutsideInlineSpans(line, fn, protectMath, at)
     })
     .join('\n')
 }
 
-function mapOutsideInlineSpans(line: string, fn: (segment: string) => string, protectMath: boolean): string {
+function mapOutsideInlineSpans(
+  line: string,
+  fn: (segment: string, start: number) => string,
+  protectMath: boolean,
+  lineStart: number,
+): string {
   const spans: [number, number][] = []
   for (const match of line.matchAll(INLINE_CODE)) {
     const at = match.index ?? 0
@@ -57,8 +66,8 @@ function mapOutsideInlineSpans(line: string, fn: (segment: string) => string, pr
   let last = 0
   for (const [start, end] of spans) {
     if (start < last) continue
-    out += fn(line.slice(last, start)) + line.slice(start, end)
+    out += fn(line.slice(last, start), lineStart + last) + line.slice(start, end)
     last = end
   }
-  return out + fn(line.slice(last))
+  return out + fn(line.slice(last), lineStart + last)
 }

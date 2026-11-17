@@ -273,7 +273,7 @@ function htmlLosses(beforeText: string, afterText: string): Loss[] {
     losses.push({
       kind: 'html-comment',
       key: `comment:${comment.slice(0, 40)}`,
-      label: 'HTML 注释会被丢掉',
+      label: 'HTML 注释的写法会被改动',
       blocking: true,
       before: [comment.replace(/\s+/g, ' ').slice(0, 80)],
       after: [],

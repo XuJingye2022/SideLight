@@ -4,8 +4,10 @@ import test from 'node:test'
 import type { TextIndex } from './annotations.ts'
 import { findAll, findNext, findPrevious, type FindOptions, type Match } from './find.ts'
 
-const INSENSITIVE: FindOptions = { caseSensitive: false }
-const SENSITIVE: FindOptions = { caseSensitive: true }
+const INSENSITIVE: FindOptions = { caseSensitive: false, wholeWord: false }
+const SENSITIVE: FindOptions = { caseSensitive: true, wholeWord: false }
+const WHOLE: FindOptions = { caseSensitive: false, wholeWord: true }
+const WHOLE_SENSITIVE: FindOptions = { caseSensitive: true, wholeWord: true }
 
 /** 手写一个索引：每个字符的文档位置从 1 起逐个加一，模拟递增的文档位置 */
 function makeIndex(text: string): TextIndex {
@@ -108,6 +110,41 @@ test('from/to 用 positions 换算，不是正文下标', () => {
     { from: 101, to: 103 },
     { from: 105, to: 107 },
   ])
+})
+
+test('整词下 state 不命中 states', () => {
+  const index = makeIndex('State 与 state，还有 STATE 与 states。')
+  const quotes = findAll(index, 'state', WHOLE).map((match) => quoteAt(index, match))
+
+  assert.deepEqual(quotes, ['State', 'state', 'STATE'])
+})
+
+test('整词下 state 命中独立单词，两个开关能叠加', () => {
+  const index = makeIndex('State 与 state，还有 STATE 与 states。')
+
+  assert.deepEqual(
+    findAll(index, 'state', WHOLE).map((match) => [match.from, match.to]),
+    [
+      [1, 6],
+      [9, 14],
+      [18, 23],
+    ],
+  )
+  // 区分大小写 + 整词：只剩独立的小写 state
+  assert.deepEqual(findAll(index, 'state', WHOLE_SENSITIVE).map((match) => quoteAt(index, match)), ['state'])
+  // 只开区分大小写：states 里的 state 仍算命中（子串匹配，不做词边界）
+  assert.equal(findAll(index, 'state', SENSITIVE).length, 2)
+})
+
+test('中文查询在整词下与原行为一致', () => {
+  const index = makeIndex('第一段写得很平。\n第二段也写得很平。')
+  const expected = [
+    { from: 4, to: 8 },
+    { from: 14, to: 18 },
+  ]
+
+  assert.deepEqual(findAll(index, '写得很平', WHOLE), expected)
+  assert.deepEqual(findAll(index, '写得很平', WHOLE_SENSITIVE), expected)
 })
 
 /* ---------- 在命中之间移动 ---------- */

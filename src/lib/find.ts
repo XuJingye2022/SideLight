@@ -1,16 +1,25 @@
 import type { TextIndex } from './annotations.ts'
 
-export type FindOptions = { caseSensitive: boolean }
+export type FindOptions = { caseSensitive: boolean; wholeWord: boolean }
 
 /** 文档里的一处命中，from/to 是文档位置，可直接用作 ProseMirror 选区 */
 export type Match = { from: number; to: number }
 
 /** 块与块之间的分隔符，命中跨过它就不算 */
 const BLOCK_SEPARATOR = '\n'
+/** 整词判定只认 ASCII 词字符：中文没有词边界，整词开关对纯中文等于不生效 */
+const WORD_CHAR = /[A-Za-z0-9_]/
+
+function isWholeWord(haystack: string, start: number, length: number): boolean {
+  const before = start > 0 ? haystack[start - 1] : ''
+  const after = start + length < haystack.length ? haystack[start + length] : ''
+  return !WORD_CHAR.test(before) && !WORD_CHAR.test(after)
+}
 
 /**
  * 找出全文所有命中。查询为空或全是空白时没有命中。
  * 不区分大小写时两边都转小写再比，中文与其它非拉丁字符转小写后不变，等于按原样比。
+ * 整词开关只看命中两端的字符是不是 ASCII 词字符：`state` 不命中 `states`，中文不受影响。
  * 可重叠：每次命中后从下一个字符继续找，'aaa' 里查 'aa' 得到两处。
  * 命中区间带块分隔符的跳过，也从下一个字符继续找，引文就不会跨段误匹配。
  */
@@ -34,7 +43,7 @@ export function findAll(index: TextIndex, query: string, options: FindOptions): 
     if (from === undefined || last === undefined) break
 
     const candidate = haystack.slice(start, start + length)
-    if (!candidate.includes(BLOCK_SEPARATOR)) {
+    if (!candidate.includes(BLOCK_SEPARATOR) && (!options.wholeWord || isWholeWord(haystack, start, length))) {
       matches.push({ from, to: last + 1 })
     }
 

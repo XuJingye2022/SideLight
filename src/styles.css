@@ -1851,6 +1851,14 @@ button:disabled {
   font-size: 11.5px;
 }
 
+/* 区分大小写 / 整词：按下态与侧栏选中一致（第 41 轮） */
+.find-bar button.is-on {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
 .find-hit {
   background: color-mix(in srgb, var(--mark) 22%, transparent);
   border-radius: 2px;

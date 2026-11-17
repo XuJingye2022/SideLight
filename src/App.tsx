@@ -420,6 +420,9 @@ export default function App() {
   const [replacement, setReplacement] = useState('')
   const [matches, setMatches] = useState<Match[]>([])
   const [matchIndex, setMatchIndex] = useState(0)
+  /** 查找条的两个开关：会话内有效，不落盘（与 Typora 一致） */
+  const [findCaseSensitive, setFindCaseSensitive] = useState(false)
+  const [findWholeWord, setFindWholeWord] = useState(false)
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null)
   const eolRef = useRef<'lf' | 'crlf'>('lf')
   const [pendingSwitch, setPendingSwitch] = useState<{
@@ -612,6 +615,12 @@ export default function App() {
   const fileMtimeRef = useRef(0)
   /** onUpdate 里同步维护，自动保存定时器不读可能过期的 state */
   const dirtyRef = useRef(false)
+  /** 对话框/设置开着时自动保存不写盘；定时器拿的是调度那一刻的闭包，只能读 ref（第 41 轮） */
+  const pendingSwitchRef = useRef<typeof pendingSwitch>(null)
+  const pendingConfirmRef = useRef<typeof pendingConfirm>(null)
+  const closeRequestedRef = useRef(false)
+  const closeGuardOpenRef = useRef(false)
+  const settingsOpenRef = useRef(false)
   const railToggleRef = useRef<HTMLButtonElement | null>(null)
   /** 宿主文档模式：onUpdate 不再往 localStorage 写整篇正文（大文件会撑爆配额） */
   const hostModeRef = useRef(false)
@@ -1791,10 +1800,10 @@ export default function App() {
       return
     }
     const index = buildTextIndex(editor.state.doc)
-    const found = findAll(index, query, { caseSensitive: false })
+    const found = findAll(index, query, { caseSensitive: findCaseSensitive, wholeWord: findWholeWord })
     setMatches(found)
     setMatchIndex((current) => (found.length === 0 ? 0 : Math.min(current, found.length - 1)))
-  }, [editor, findOpen, query, tick])
+  }, [editor, findOpen, query, findCaseSensitive, findWholeWord, tick])
 
   useEffect(() => {
     if (editor) renderFind(editor, findOpen ? matches : [], matchIndex)
@@ -3153,9 +3162,8 @@ export default function App() {
     if (saving || pendingIdsRef.current.size > 0 || savingRef.current) return
     if (deletingRef.current || refreshingRef.current) return
     const generation = autoSaveGenerationRef.current
-    if (pendingConfirm !== null || pendingSwitch !== null || closeRequested || closeGuardOpen || settingsOpen) {
-      return
-    }
+    if (pendingConfirmRef.current !== null || pendingSwitchRef.current !== null) return
+    if (closeRequestedRef.current || closeGuardOpenRef.current || settingsOpenRef.current) return
     if (!dirtyRef.current) return
     // 新建后还没有任何基线（0 字节、没保存过）：首次手动保存前绝不自动写盘
     if (originalText === null && !hasSavedBaselineRef.current) return
@@ -3234,6 +3242,25 @@ export default function App() {
     cancelAutoSaveRef.current = cancelAutoSave
     clearHostDraftRef.current = clearHostDraft
   }, [scheduleAutoSave, cancelAutoSave, clearHostDraft])
+
+  // 五个开关先落进 ref：上面的定时器读 ref，不读可能过期的 state。一次赋完，少一个漏同步的口子
+  useEffect(() => {
+    pendingSwitchRef.current = pendingSwitch
+    pendingConfirmRef.current = pendingConfirm
+    closeRequestedRef.current = closeRequested
+    closeGuardOpenRef.current = closeGuardOpen
+    settingsOpenRef.current = settingsOpen
+  }, [pendingSwitch, pendingConfirm, closeRequested, closeGuardOpen, settingsOpen])
+
+  // 任一对开着：撤掉已排队的自动保存（用户正在做选择，别替他写盘）；全关掉还脏就重新排队
+  const saveBlockedByDialog = pendingSwitch !== null || pendingConfirm !== null || closeRequested || closeGuardOpen || settingsOpen
+  useEffect(() => {
+    if (saveBlockedByDialog) {
+      cancelAutoSaveRef.current()
+      return
+    }
+    if (dirtyRef.current) scheduleAutoSaveRef.current()
+  }, [saveBlockedByDialog])
 
   // 输入法组合：组合期间与结束后 400 ms 内都不写盘
   useEffect(() => {
@@ -4686,6 +4713,10 @@ export default function App() {
             onNext={nextMatch}
             onReplace={replaceCurrent}
             onReplaceAll={replaceEvery}
+            caseSensitive={findCaseSensitive}
+            wholeWord={findWholeWord}
+            onToggleCaseSensitive={() => setFindCaseSensitive((on) => !on)}
+            onToggleWholeWord={() => setFindWholeWord((on) => !on)}
             unavailableReason={
               sourceMode
                 ? '源码模式下不支持查找定位与替换：切回富文本（Ctrl+/）再查'

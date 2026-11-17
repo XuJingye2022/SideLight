@@ -118,6 +118,15 @@
 - 门禁：`npx tsc --noEmit` exit 0；`npm test` **27 个文件 345 条**全过（新增 `tilde.test.ts` 13 条 + `blankParagraphs.test.ts` 9 条 + `html.test.ts` +3 条）；`npm run roundtrip` rich 5/7、source 7/7；`.tmp/build-r40` + measure 首屏 gzip **290,723 B**（比第 39 轮 +702 B，`files=3`，内部 310,000 / 硬线 320,000，余 29,277 B，PASS）。
 - UNVERIFIED（本轮）：多行 HTML 注释（`<!--\n…\n-->`）仍还原不了；注释内含 `&` 的仍不还原；同一段文字既写成真注释又用同一段文字讲转义时，讲转义那段仍会被改成真注释；列表项里的围栏与代码内容含仿围栏行；公式里的 `~` 仍会被序列化器转义成 `\~`；宿主窗口标题（`host/Program.cs` 没有 `document.title → Form.Text`）；`scripts/host-save-acceptance.mjs` 改动后未跑（需连 CDP 9222 且会写 `shots/round-06/`）；深色主题下的预览排版与真机缩放；1 MB 文档的 `mapOutsideCode` 耗时。
 
+**第 41 轮（同一未发版区间）**
+
+- **打开→保存不再把正文与代码里的 `<` `>` `&` 写成实体**（P1，静默改字节且保存风险门看不见）。序列化器对非代码文本调 `encodeHtmlEntities`（`& → &amp;`、`< → &lt;`、`> → &gt;`），而 `repairHtml` 只认得「完整标签形状」，于是 `a < b`、`x<3`、`A & B`、`a > b`、围栏里的 `if (a<b)`、行内代码里的 `<kbd>` 全部被改写；反过来讲转义的段落 `写成 &lt;div&gt; 才是字面。` 被还原成真标签。修法：`escapeHtmlForParse` 改走 `mapOutsideCode`（围栏与行内代码不转义，围栏内容才能原样写回）；`repairHtml` 在围栏/行内代码之外做**单遍**实体解码，带三条守卫——① 原文里真的写过这条实体就整类保持（讲转义的段落一个字节不动）；② `&amp;` 只在解出来的 `&` 不会自成实体时才解（`&amp;lt;` 保持，否则作者写的字面 4 字符会变成 1 个 `<`）；③ `&gt;` 落在块首（含引用/列表标记之后）时保持，否则会变成引用块标记。标签还原加名字守卫：原文里没写过该标签名就保持实体（`&lt;div&gt;`、`&lt;/div&gt;` 不再变成真标签）。`mapOutsideCode` 的回调加第二参数 `start`（绝对偏移），`lineStart` 在每行最开头累加，三支共用（`src/lib/codeScan.ts`、`src/lib/html.ts`）。
+- **「还有没保存的改动」对话框开着时自动保存不写盘**（P1，用户点「不保存」内容仍留在盘上）。缺陷根因是 2 s 计时器捕获调度那一刻的 `runAutoSave` 闭包；只读 state 的守卫在对话框打开后仍看到旧值。改成五个条件全读 ref（`pendingSwitch` / `pendingConfirm` / `closeRequested` / `closeGuardOpen` / `settingsOpen`，一条 effect 统一同步），并加一条并集 effect：任一对开着就撤掉已排队的自动保存，全关掉且还脏就重新排队（`src/App.tsx`）。
+- **查找加「区分大小写 / 整词」两个开关**（P1，用户可见收益）：`FindOptions` 加 `wholeWord`，`findAll` 按命中两端的 ASCII 词字符过滤（`state` 不命中 `states`；中文没有词边界，整词对中文等于不生效，按钮 `title` 写明）；`FindBar` 第一行加 `Aa` / `ab` 两个按钮，带 `aria-pressed` 与按下态样式（复用 `.find-bar button`）。开关只在会话内有效，不落盘。
+- 风险门文案更正：`HTML 注释会被丢掉` → `HTML 注释的写法会被改动`（实际是写成实体，不是丢掉）。
+- 门禁：`npx tsc --noEmit` exit 0；`npm test` **28 个文件 362 条**全过（新增 `risk.test.ts` 3 条、`html.test.ts` 改写 1 条 + 新增 16 条口径、`find.test.ts` +3 条、`package.json` 的 `scripts.test` 追加一条）；`npm run roundtrip` rich 5/7、source 7/7；`.tmp/build-r41` + measure 首屏 gzip **291,317 B**（比第 40 轮 +594 B，`files=3`，内部 310,000 / 硬线 320,000，余 28,683 B，PASS）。
+- UNVERIFIED（本轮）：宿主 `close-request` 下的自动保存拦截（浏览器态没有 host，补测口径写进 `docs/iteration/round-41/impl.md`）；4 空格缩进代码块里的 `<` 仍会被转义（`mapOutsideCode` 只认围栏与行内代码，改前改后字节相同，不算回归）；「缩进 ≥4 的 ``` + 后面跟裸 HTML 行」这种混写文档会丢标签（改前保留实体文本，改后 `<div>` 被当 HTML 块，见 impl.md 已知限制）；多行/含 `&` 的注释与同一篇里既写实体又写裸 `&` 的混写文档；`scripts/data-safety-acceptance.mjs` 因 `.editor` 过期选择器在 148 行崩溃（AGENTS §8 已知的脚本问题，不是本轮回归，该套件记 UNVERIFIED）。独立验收证据见 `docs/iteration/round-41/test.md`（tester 自跑三个 E2E 脚本与全部门禁）。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。
