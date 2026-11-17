@@ -73,6 +73,7 @@ import { extractFootnotes, joinFootnotes, repairFootnoteRefs } from './lib/footn
 import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontmatter.ts'
 import { serializeDocument, serializeDocumentBody } from './lib/serializeDocument.ts'
 import { repairHtml, escapeHtmlForParse } from './lib/html.ts'
+import { splitTableCellBreaks } from './lib/tableCellBreaks.ts'
 import { protectMathPairs, repairMath } from './lib/math.ts'
 import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline.ts'
 import { clampFontSize, DEFAULT_SETTINGS } from './lib/settings.ts'
@@ -94,7 +95,7 @@ import {
   type WorkspaceFileNode,
 } from './lib/workspace.ts'
 import { assetFileName, writeAsset } from './lib/asset.ts'
-import { clearAssetCache, resolveAsset, setAssetDocPath, setAssetResolver } from './lib/assetResolve.ts'
+import { clearAssetCache, resolveAsset, resolveAssetSegments, setAssetDocPath, setAssetResolver } from './lib/assetResolve.ts'
 import { ResolvingImage } from './lib/assetImage.ts'
 import { getHostTransport } from './lib/hostBridge.ts'
 import { loadSession, permissionOf, restorePlan, saveSession } from './lib/session.ts'
@@ -981,12 +982,15 @@ export default function App() {
         return
       }
       const parsed = manager.parse(escapeHtmlForParse(protectMathPairs(body)))
-      const node = editor.schema.nodeFromJSON(parsed)
+      // 单元格里的 <br> 被 escapeHtmlForParse 转义成了文字：解析回 hardBreak，否则重开显示字面 <br>
+      const node = editor.schema.nodeFromJSON(splitTableCellBreaks(parsed))
+      if (import.meta.env.DEV) performance.mark('sl-parse-done')
       const transaction = editor.state.tr
         .replaceWith(0, editor.state.doc.content.size, node.content)
         .setMeta('addToHistory', false)
       editor.view.dispatch(transaction)
       editor.commands.setTextSelection(0)
+      if (import.meta.env.DEV) performance.mark('sl-dispatch-done')
     },
     [editor],
   )
@@ -1005,6 +1009,7 @@ export default function App() {
 
   useEffect(() => {
     if (!editor) return
+    if (import.meta.env.DEV) performance.mark('sl-load-start')
     setMarkdown(initial.text)
     // 保存基线取「序列化后的正文」而不是原始文本：撤销回初始内容时必须刚好等于基线
     baselineRef.current = serializeDocument(editor, {
@@ -1012,12 +1017,14 @@ export default function App() {
       footnotes: initial.footnotes,
       original: initial.text,
     }).replace(/\r\n/g, '\n')
+    if (import.meta.env.DEV) performance.mark('sl-serialize-done')
     saveTargetRef.current = null
     setDirty(false)
     const { from, to } = editor.state.selection
     const context = buildContext(readBlocks(editor), from, to)
     setSelection({ chars: context.selection.length, words: 0, from, to, source: context.source })
     syncDocInfo(editor)
+    if (import.meta.env.DEV) performance.mark('sl-sync-done')
   }, [editor, initial.text, setMarkdown, syncDocInfo])
 
   useDialogFocus(draftPrompt !== null, draftDialogRef)
@@ -2033,26 +2040,20 @@ export default function App() {
       // 切换文档时掐断正在跑的批注请求，结果不再落到新文档上
       abortRef.current?.abort()
       setAnalyzing(false)
+      if (import.meta.env.DEV) performance.mark('sl-load-start')
       setMarkdown(footnoteSplit.body)
       // 载入即存在的结构损失才算基线；之后只拦仍命中同一结构位置的
-      baselineLossesRef.current =
-        text.length > 0
-          ? baselineLosses(
-              text,
-              serializeDocument(editor, {
-                frontmatter: split.frontmatter,
-                footnotes: footnoteSplit.footnotes,
-                original: text,
-              }),
-            )
-          : []
-      setRisks(lossLabels(baselineLossesRef.current))
-      // 基线用序列化结果：撤销回到载入态时应当刚好等于它
-      baselineRef.current = serializeDocument(editor, {
+      // 一次全文序列化同时给下面两处用：原来是两次入参逐字相同的调用（1 MB 文档纯浪费）
+      const serialized = serializeDocument(editor, {
         frontmatter: split.frontmatter,
         footnotes: footnoteSplit.footnotes,
         original: text,
-      }).replace(/\r\n/g, '\n')
+      })
+      if (import.meta.env.DEV) performance.mark('sl-serialize-done')
+      baselineLossesRef.current = text.length > 0 ? baselineLosses(text, serialized) : []
+      setRisks(lossLabels(baselineLossesRef.current))
+      // 基线用序列化结果：撤销回到载入态时应当刚好等于它
+      baselineRef.current = serialized.replace(/\r\n/g, '\n')
       setDocName(name)
       setActiveFile(file)
       cancelAutoSaveRef.current()
@@ -2090,6 +2091,7 @@ export default function App() {
         // 大文件/配额满：内存里继续，别让载入失败
       }
       syncDocInfo(editor)
+      if (import.meta.env.DEV) performance.mark('sl-sync-done')
       annotationsHydratedRef.current = false
       void restoreAnnotationsFor(file).finally(() => {
         annotationsHydratedRef.current = true
@@ -4003,14 +4005,12 @@ export default function App() {
       // 否则会把别人的目录里的同名图显示成本篇的图
       if (!docPath || !docPath.startsWith(space.name + '/')) return null
       try {
-        const dir = await parentDirectory(space, docPath)
-        if (!dir) return null
-        const clean = src.startsWith('./') ? src.slice(2) : src
-        const parts = clean.split('/').filter(Boolean)
-        if (parts.length === 0) return null
-        let target = dir
-        for (const segment of parts.slice(0, -1)) target = await target.getDirectoryHandle(segment)
-        const handle = await target.getFileHandle(parts[parts.length - 1])
+        // 从工作区根走：../ 要先从文档目录弹一层，不能拿 parentDirectory 当起点
+        const parts = resolveAssetSegments(docPath.split('/').slice(1, -1), src)
+        if (!parts) return null
+        let dir = space.rootHandle
+        for (const segment of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(segment)
+        const handle = await dir.getFileHandle(parts[parts.length - 1])
         return URL.createObjectURL(await handle.getFile())
       } catch {
         // 文件不存在/无权限：返回 null 且不缓存，补上文件后还能重试
@@ -4682,6 +4682,11 @@ export default function App() {
             onNext={nextMatch}
             onReplace={replaceCurrent}
             onReplaceAll={replaceEvery}
+            unavailableReason={
+              sourceMode
+                ? '源码模式下不支持查找定位与替换：切回富文本（Ctrl+/）再查'
+                : undefined
+            }
             onClose={() => {
               setFindOpen(false)
               if (sourceMode) {

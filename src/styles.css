@@ -1783,6 +1783,19 @@ button:disabled {
   border: 1px solid var(--line);
 }
 
+/* 工作区相对图解析不到时的占位（第 39 轮）：不要破图图标，也不要静默 */
+.editor img[data-asset-missing] {
+  display: inline-block;
+  min-width: 96px;
+  min-height: 3em;
+  padding: 6px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  background: var(--accent-wash);
+  color: var(--ink-faint);
+  font-size: 0.8em;
+}
+
 /* ---------- 查找与替换 ---------- */
 
 .find-bar {
@@ -1824,6 +1837,13 @@ button:disabled {
   font-size: var(--text-xs);
   color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
+}
+
+/* 源码模式下查找/替换不可用的说明（第 39 轮）：不再用假计数骗人 */
+.find-note {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
 }
 
 .find-bar button {

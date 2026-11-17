@@ -2,7 +2,7 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–38 轮，未发版）
+## Unreleased（第 29–39 轮，未发版）
 
 数据安全 + 大纲折叠；计划里的 T2（状态栏字数点击明细）**未做**，留待下一轮。第 30 轮补上字数明细、修删除撤销丢正文，并给安装器版本与发版流水线加门。
 
@@ -97,6 +97,15 @@
 - 门禁：`npx tsc --noEmit` exit 0；`npm test` **24 个文件 311 条**全过；`npm run roundtrip` rich 5/7、source 7/7（不碰序列化）。
 - UNVERIFIED：真实文件夹句柄与权限三态（CDP 是假 FSA）；宿主（WebView2）单文件打开时的相对路径图片（宿主只有 `/__doc`，无目录句柄，按其路由要宿主轮）；插入图片后「立刻显示」（假盘 `createWritable().write()` 把 Blob 当文本写，PNG 会坏）；宿主内 NodeView 的图片选中/拖拽；真实中文 IME 下表格分隔行的输入；大量图片（>50 张）的 blob 内存与切文档撤销；暗色主题与 150%/200% 缩放屏下的图片与预览。
 
+**第 39 轮（同一未发版区间）**
+
+- **表格单元格里的 `<br>` 能读回来了**（P1，自产自读不一致）：单元格里 `Shift+Enter` 当场是真换行、`.md` 里也是 `<br>`，但载入时 `escapeHtmlForParse` 把 `<br>` 转成文字，重开就显示成字面 `3A<br>B`。新增纯函数 `src/lib/tableCellBreaks.ts`（只在 `tableCell`/`tableHeader` 内部把文本节点切成 text / hardBreak，无表文档返回同一对象不复制；带格式的文本不拆，避免 `**A<br>B**` 第一次保存变成 `**A**<br>**B**` 让这张表退出整块复用）与 `src/lib/tableCellBreaks.test.ts`（8 条），接进 `setMarkdown`。E2E：载入 `| A<br>B | c |` 后 `th/td br` 1 个、单元格文本不含字面 `<br>`、`Ctrl+S` 字节逐字节等于种子；另做真实路径（`Shift+Enter` → 源码含 `<br>` → 切回富文本仍读成换行）。
+- **相对路径图片支持 `../` 与 `%20`，解析失败给可见占位**（P1，静默失败）：原来把 `..` 当目录名、`%20` 不解码，两条都静默破图。`assetResolve.ts` 新增纯函数 `resolveAssetSegments`（逐段处理，空段与 `.` 跳过，`..` 从文档目录弹一层、弹出工作区根返回 `null`，非法编码保留原段），`App.tsx` 的解析器改为从工作区根走（保留「工作区名前缀」来源校验，单文件打开/宿主仍不解析）。`assetImage.ts` 改为**解析成功前不写 `src`**：真实目录下改前会先请求相对 URL（dev server 对破图回 SPA 回退 `200 text/html`），改后 `nope.png` 请求数 **1 → 0**（红绿两次输出见 `round-39/impl.md`）；解析不到时加 `data-asset-missing`、`alt`/`title` 写「图片未找到」，`styles.css` 给虚线占位。宿主/单文件（无文档路径）按原样直接显示，不标缺失。`assetResolve.test.ts` 新增 12 条断言。
+- **源码模式下查找替换不再假装成功**（P2，静默丢失）：源码态匹配来自隐藏的富文本实例，点「全部替换」计数清零、按钮变灰，但源码框、正文、保存字节都不变。`FindBar` 新增 `unavailableReason`，有值时四个按钮 `disabled`、`.find-count` 留空、渲染 `.find-note` 说明「源码模式下不支持查找定位与替换」；**查找框 `Enter`/`Shift+Enter` 与替换框 `Enter` 都 `preventDefault()` 后直接 return**（只把按钮 `disabled` 拦不住替换框 Enter）。E2E 有牙判据：替换框按 Enter 后 `localStorage['sidelight.doc.v1']` 与按前逐字节相同（改前实测 73 → 69），源码框与 `dirty` 不变；富文本路径不回归（`1 / 2`、全部替换落 2 处、`dirty:true`），`Esc` 一次只关查找。
+- **1 MB 载入去掉一次重复的全文序列化**（稳定性/测量诚信）：`loadIntoEditor` 原先对同一条正文调两次入参逐字相同的 `serializeDocument`，提出成一条 `serialized` 给 `baselineLosses` 与 `baselineRef` 共用（语义不变：同一字符串、`\r\n` 归一位置不变）。另加 **8 处行内 DEV 埋点**（`sl-load-start` / `sl-parse-done` / `sl-dispatch-done` / `sl-serialize-done` / `sl-sync-done`，写成 `if (import.meta.env.DEV) performance.mark(...)`，生产由压缩器整句删除）：源码 `performance.mark(` 8 行正向对照、`.tmp/build-r39` 产物 5 个标签 0 命中。本轮实测四段数字与口径见 `docs/iteration/round-39/impl.md`；**不要**把「去掉重复序列化」当成载入变快（1 MB/37,450 段里它只值 ≈64 ms）。
+- 体积护栏第二次放宽补记：安装包内部 **45,000,000 B** / 硬线 **50,000,000 B**（产品负责人 2026-11-17）；Mermaid 之后第 39 轮真实打包实测 setup **1,300,711 B**、portable zip **1,622,355 B**。第 35/36 轮条目里写的 1,800,000 / 2,000,000 是历史口径（第 39 轮前口径），保留原文。
+- 文档：`docs/typora-gap.md` 计数 **29/11 → 30/11**（新增「表格单元格内换行往返」，图片行补 `../`/`%20` 与占位）；`README.md` 图片句、查找替换句、体积数字与 `packaging/README.md` 体积段同步；测试计数按 `npm test` 实测更新。
+- 门禁：`npx tsc --noEmit` exit 0；`npm test` **25 个文件 320 条**全过（新增 `tableCellBreaks.test.ts` 8 条 + `assetResolve.test.ts` +12 条）；`npm run roundtrip` rich 5/7、source 7/7；`.tmp/build-r39` 里 5 个埋点标签 **0 命中**（源码正向对照 `performance.mark(` **8 行**）；首屏 gzip **290,021 B**（比第 38 轮 +591 B，`files=3`，预算内部 310,000 / 硬线 320,000，PASS）。
 
 ## 0.32.1 — 2026-11-16
 

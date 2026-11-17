@@ -8,6 +8,7 @@ import {
   getResolvedAsset,
   isRelativeAsset,
   resolveAsset,
+  resolveAssetSegments,
   setAssetDocPath,
   setAssetResolver,
   subscribeResolved,
@@ -71,6 +72,31 @@ test('同 src 并发只解析一次；换文档后在飞结果不写进新缓存
   release('blob:stale-c')
   assert.deepEqual(await Promise.all([first, second]), [null, null])
   assert.equal(getResolvedAsset('assets/c.png'), null)
+})
+
+test('resolveAssetSegments：../、%20 与越界（第 39 轮）', () => {
+  // 子目录文档里的 ../assets：从文档目录弹一层，回到工作区根
+  assert.deepEqual(resolveAssetSegments(['章节'], '../assets/a.png'), ['assets', 'a.png'])
+  // 根级文档：同目录写法不变
+  assert.deepEqual(resolveAssetSegments([], 'assets/a.png'), ['assets', 'a.png'])
+  // ./ 前缀
+  assert.deepEqual(resolveAssetSegments([], './assets/a.png'), ['assets', 'a.png'])
+  // 文件名里的 %20 解成空格
+  assert.deepEqual(resolveAssetSegments(['章节'], '../assets/my%20pic.png'), ['assets', 'my pic.png'])
+  // 同目录图（不带目录）仍带文档目录
+  assert.deepEqual(resolveAssetSegments(['章节'], '同.png'), ['章节', '同.png'])
+  // 多层弹层
+  assert.deepEqual(resolveAssetSegments(['a', 'b', 'c'], '../../../x.png'), ['x.png'])
+  // 弹到工作区根之外：null，绝不能显示根之外的图
+  assert.equal(resolveAssetSegments(['章节'], '../../a.png'), null)
+  assert.equal(resolveAssetSegments([], '../a.png'), null)
+  // 非法编码不抛错，保留原段
+  assert.deepEqual(resolveAssetSegments([], 'a%ZZ.png'), ['a%ZZ.png'])
+  // 解码后才变成 .. 的写法也拒绝
+  assert.equal(resolveAssetSegments(['章节'], '%2e%2e/a.png'), null)
+  // 只有目录、没有文件名：段不为空就返回，交给目录句柄判成「打不开」
+  assert.deepEqual(resolveAssetSegments([], 'assets/'), ['assets'])
+  assert.equal(resolveAssetSegments([], ''), null)
 })
 
 test('版本号只在解析成功/清缓存时 +1，缓存命中不加也不通知', async () => {

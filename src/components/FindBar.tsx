@@ -13,6 +13,8 @@ type Props = {
   onReplace: () => void
   onReplaceAll: () => void
   onClose: () => void
+  /** 当前视图下查找/替换不可用时的说明（源码模式）：有值就整体锁住，不再假装成功 */
+  unavailableReason?: string
 }
 
 export function FindBar({
@@ -28,11 +30,14 @@ export function FindBar({
   onReplace,
   onReplaceAll,
   onClose,
+  unavailableReason,
 }: Props) {
   if (!open) return null
 
   const total = matches.length
   const position = total === 0 ? 0 : activeIndex + 1
+  const locked = Boolean(unavailableReason)
+  const disabled = locked || total === 0
 
   return (
     <div className="find-bar">
@@ -45,7 +50,9 @@ export function FindBar({
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
+              // 锁住时也要吞掉事件：按钮 disabled 拦不住 Enter
               event.preventDefault()
+              if (locked) return
               if (event.shiftKey) onPrev()
               else onNext()
             }
@@ -58,12 +65,12 @@ export function FindBar({
           }}
         />
         <span className="find-count">
-          {query.trim() === '' ? '' : total === 0 ? '无结果' : `${position} / ${total}`}
+          {locked ? '' : query.trim() === '' ? '' : total === 0 ? '无结果' : `${position} / ${total}`}
         </span>
-        <button type="button" onClick={onPrev} disabled={total === 0} title="上一处" aria-label="上一处">
+        <button type="button" onClick={onPrev} disabled={disabled} title="上一处" aria-label="上一处">
           ↑
         </button>
-        <button type="button" onClick={onNext} disabled={total === 0} title="下一处" aria-label="下一处">
+        <button type="button" onClick={onNext} disabled={disabled} title="下一处" aria-label="下一处">
           ↓
         </button>
         <button type="button" onClick={onClose} title="关闭" aria-label="关闭查找">
@@ -79,7 +86,9 @@ export function FindBar({
           onChange={(event) => onReplacementChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
+              // 替换框的 Enter 直接调 onReplace()：只把按钮设成 disabled 拦不住它
               event.preventDefault()
+              if (locked) return
               onReplace()
             }
             if (event.key === 'Escape') {
@@ -89,13 +98,15 @@ export function FindBar({
             }
           }}
         />
-        <button type="button" onClick={onReplace} disabled={total === 0}>
+        <button type="button" onClick={onReplace} disabled={disabled}>
           替换
         </button>
-        <button type="button" onClick={onReplaceAll} disabled={total === 0}>
+        <button type="button" onClick={onReplaceAll} disabled={disabled}>
           全部替换
         </button>
       </div>
+
+      {locked && <p className="find-note">{unavailableReason}</p>}
     </div>
   )
 }

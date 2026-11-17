@@ -36,6 +36,35 @@ export function getAssetDocPath(): string {
   return currentDocPath
 }
 
+/**
+ * 纯函数：把「文档所在目录段」+「Markdown 里的相对 src」算成工作区根下的路径段（第 39 轮）。
+ * 支持 `../`（弹一层，弹到根之外返回 null）、`./`、空段与 `%20` 这类百分号编码。
+ * 返回至少 1 段（文件名）；越界或算不出文件名返回 null。
+ * 不做 I/O，单测能直接跑；`%2e%2e` 这种解码后才变成 `..` 的写法也按越界拒绝。
+ */
+export function resolveAssetSegments(docDirSegments: string[], src: string): string[] | null {
+  const stack = docDirSegments.filter((segment) => typeof segment === 'string' && segment.length > 0)
+  for (const raw of String(src).split('/')) {
+    if (raw === '' || raw === '.') continue
+    let segment = raw
+    try {
+      segment = decodeURIComponent(raw)
+    } catch {
+      // 非法编码（a%ZZ.png）保留原段：交给目录句柄去判，不让整篇图片解析抛错
+      segment = raw
+    }
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') {
+      // 编码后的 .. 也当越界：不能把它原样当目录名交给 getDirectoryHandle
+      if (raw !== '..' || stack.length === 0) return null
+      stack.pop()
+      continue
+    }
+    stack.push(segment)
+  }
+  return stack.length > 0 ? stack : null
+}
+
 function revokeAll(): void {
   for (const url of cache.values()) {
     try {
