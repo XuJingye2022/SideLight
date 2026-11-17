@@ -27,6 +27,10 @@
 | B-008 | fixed | 可访问性 | 视图模式四钮（专注/打字机/源码/预览）无 `aria-pressed`，开关状态读屏不可见（同排格式钮有） | `src/App.tsx:4956-4999`；`docs/iteration/round-51/findings-ui.md` F1 | 51 |
 | B-013 | fixed | 性能 | 1 MB 文档载入按节点数爆炸：约 2.4 万顶层节点要 110.9 s（300 段同类文件 1.7 s），载入期主线程全忙且无提示 | `.tmp/r51-bug-log4.txt`（parse 109,661 ms）；`.tmp/r51-bug-log3.txt`（79,858 ms）；`docs/iteration/round-51/findings-bug.md` F1 | 51 |
 | B-014 | open | 视图 | 整页缩放到 130% 起横向溢出：`#root` 布局宽缩成 1440/zoom，`.app` 的 `min-width:1120px` 不让，顶栏与工具栏右侧出屏、出现横向滚动条（130% 26 px / 150% 250 / 180% 586 / 200% 810） | `.tmp/r52-delta-zoom.log`；`shots/round-52/delta-zoom-200.png`；`src/styles.css:115-118`、`src/styles.css:132` | 52 |
+| B-112 | open | 文档 | 差距表 `docs/typora-gap.md:56-57` 仍把整页缩放/全屏记成缺（B-001/B-002 已 `fixed`），`32 项有 / 9 项缺` 的计数尚未复核 | `docs/iteration/round-53/findings-typora.md` | 53 |
+| B-113 | open | 视图 | 键盘缩放（`Ctrl+=` / `Ctrl+-` / `Ctrl+滚轮`）全程静默：无当前比例显示、无重置确认，用户不知道缩放生效在哪一层 | `docs/iteration/round-53/findings-typora.md` | 53 |
+| B-115 | open | 性能 | 1 MB 文档切源码冻结：进源码 p50 9.9 s / 退 2.1 s；第 53 轮返修（源码态只 hidden 不卸载编辑器）压到进 1.1 s / 退 0.3 s，但「进 ≤300 ms、无 >500 ms long task」门槛未达，按规则回滚未 commit。1 MB 文本进 `<textarea>` 的原生排版本身 0.5–1.7 s（同一文本 `<pre>` 只 153 ms），要达标须换源码显示方式 | `docs/iteration/round-53/test.md`；`.tmp/r53-a1-before.json`、`.tmp/r53-a1-tester-v2.json` | 53 |
+| B-116 | open | 性能 | 1 MB 逐键 p50 126 / p95 149 ms（第 53 轮 A 轮只测未修；门槛与改法待定） | `docs/iteration/round-53/plan.md` | 53 |
 
 ## P2（路线图，open）
 
