@@ -556,7 +556,7 @@ button:disabled {
 
 /* ---------- 正文 ---------- */
 
-.editor {
+.doc-body {
   font-family: var(--font-read);
   font-size: var(--editor-size, 17px);
   line-height: 1.95;
@@ -564,11 +564,11 @@ button:disabled {
   caret-color: var(--accent);
 }
 
-.editor > *:first-child {
+.doc-body > *:first-child {
   margin-top: 0;
 }
 
-.editor h1 {
+.doc-body h1 {
   font-size: 1.85em;
   line-height: 1.35;
   font-weight: 600;
@@ -576,44 +576,44 @@ button:disabled {
   margin: 1.1em 0 0.55em;
 }
 
-.editor h2 {
+.doc-body h2 {
   font-size: 1.32em;
   font-weight: 600;
   margin: 1.45em 0 0.5em;
 }
 
-.editor h3 {
+.doc-body h3 {
   font-size: 1.1em;
   font-weight: 600;
   margin: 1.3em 0 0.4em;
 }
 
-.editor p {
+.doc-body p {
   margin: 0 0 1em;
 }
 
-.editor ul,
-.editor ol {
+.doc-body ul,
+.doc-body ol {
   padding-left: 1.35em;
   margin: 0 0 1em;
 }
 
-.editor li {
+.doc-body li {
   margin: 0.18em 0;
 }
 
-.editor li > p {
+.doc-body li > p {
   margin: 0;
 }
 
-.editor blockquote {
+.doc-body blockquote {
   margin: 1.2em 0;
   padding: 2px 0 2px 16px;
   border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--line));
   color: var(--ink-soft);
 }
 
-.editor code {
+.doc-body code {
   font-family: var(--font-mono);
   font-size: 0.87em;
   background: var(--accent-wash);
@@ -621,7 +621,7 @@ button:disabled {
   border-radius: 4px;
 }
 
-.editor pre {
+.doc-body pre {
   background: var(--paper-raised);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -631,7 +631,7 @@ button:disabled {
   line-height: 1.7;
 }
 
-.editor pre code {
+.doc-body pre code {
   background: none;
   padding: 0;
 }
@@ -666,29 +666,29 @@ button:disabled {
   color: #a45050;
 }
 
-.editor hr {
+.doc-body hr {
   border: 0;
   border-top: 1px solid var(--line);
   margin: 2em 0;
 }
 
-.editor a {
+.doc-body a {
   color: var(--accent);
   text-decoration: none;
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
-.editor ::selection {
+.doc-body ::selection {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
-.editor .tableWrapper {
+.doc-body .tableWrapper {
   overflow-x: auto;
   margin: 1.2em 0;
 }
 
 /* 列宽拖拽（第 37 轮）：handle 是插在单元格里的 widget，没有定位祖先会跑位 */
-.editor .column-resize-handle {
+.doc-body .column-resize-handle {
   position: absolute;
   right: -2px;
   top: 0;
@@ -698,11 +698,11 @@ button:disabled {
   pointer-events: none;
 }
 
-.editor.resize-cursor {
+.doc-body.resize-cursor {
   cursor: col-resize;
 }
 
-.editor table {
+.doc-body table {
   border-collapse: collapse;
   width: 100%;
   font-family: var(--font-ui);
@@ -710,8 +710,8 @@ button:disabled {
   line-height: 1.6;
 }
 
-.editor th,
-.editor td {
+.doc-body th,
+.doc-body td {
   border: 1px solid var(--line);
   padding: 6px 10px;
   text-align: left;
@@ -719,37 +719,37 @@ button:disabled {
   position: relative;
 }
 
-.editor th {
+.doc-body th {
   background: var(--accent-wash);
   font-weight: 600;
 }
 
-.editor th > p,
-.editor td > p {
+.doc-body th > p,
+.doc-body td > p {
   margin: 0;
 }
 
-.editor ul[data-type="taskList"] {
+.doc-body ul[data-type="taskList"] {
   list-style: none;
   padding-left: 0.2em;
 }
 
-.editor ul[data-type="taskList"] li {
+.doc-body ul[data-type="taskList"] li {
   display: flex;
   align-items: flex-start;
   gap: 8px;
 }
 
-.editor ul[data-type="taskList"] li > label {
+.doc-body ul[data-type="taskList"] li > label {
   flex: none;
   margin-top: 7px;
 }
 
-.editor ul[data-type="taskList"] li > div {
+.doc-body ul[data-type="taskList"] li > div {
   flex: 1;
 }
 
-.editor ul[data-type="taskList"] input[type="checkbox"] {
+.doc-body ul[data-type="taskList"] input[type="checkbox"] {
   accent-color: var(--accent);
   width: 14px;
   height: 14px;
@@ -1777,14 +1777,14 @@ button:disabled {
   border-color: var(--line-strong);
 }
 
-.editor img {
+.doc-body img {
   max-width: 100%;
   border-radius: 8px;
   border: 1px solid var(--line);
 }
 
 /* 工作区相对图解析不到时的占位（第 39 轮）：不要破图图标，也不要静默 */
-.editor img[data-asset-missing] {
+.doc-body img[data-asset-missing] {
   display: inline-block;
   min-width: 96px;
   min-height: 3em;
@@ -2314,6 +2314,15 @@ button:disabled {
 
 .preview-column {
   padding-bottom: 80px;
+}
+
+/* 两个类写：小视口的 @media .doc-layout 是单层类，同权重会盖掉单层写法 */
+.doc-layout.preview-layout {
+  grid-template-columns: minmax(0, 36rem);
+}
+
+.preview-layout .preview-column {
+  padding-bottom: 0;
 }
 
 .preview-pane {

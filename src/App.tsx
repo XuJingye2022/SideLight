@@ -75,6 +75,7 @@ import { serializeDocument, serializeDocumentBody } from './lib/serializeDocumen
 import { repairHtml, escapeHtmlForParse } from './lib/html.ts'
 import { splitTableCellBreaks } from './lib/tableCellBreaks.ts'
 import { protectMathPairs, repairMath } from './lib/math.ts'
+import { disableSingleTildeStrike, repairTildes } from './lib/tilde.ts'
 import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline.ts'
 import { clampFontSize, DEFAULT_SETTINGS } from './lib/settings.ts'
 import { searchWeb } from './lib/search.ts'
@@ -715,10 +716,14 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', settings.theme)
   }, [settings.theme, settingsOpen])
 
-  // 宿主文档：窗口标题显示文件名（转发/另存为后会跟着变）
+  // 标题只在这里写：宿主文档、切换、改名、另存为都改 docName，标题跟着它
+  useEffect(() => {
+    document.title = `${docName} — Sidelight`
+  }, [docName])
+
+  // 宿主文档：只留引用，标题由上面那个 effect 统一跟 docName
   useEffect(() => {
     hostDocRef.current = hostDoc
-    document.title = hostDoc?.ready ? `${hostDoc.fileName} — Sidelight` : 'Sidelight'
   }, [hostDoc])
 
   useEffect(() => {
@@ -795,7 +800,7 @@ export default function App() {
     content: '',
     contentType: 'markdown',
     editorProps: {
-      attributes: { class: 'editor', spellcheck: 'false', 'aria-label': '正文编辑器' },
+      attributes: { class: 'editor doc-body', spellcheck: 'false', 'aria-label': '正文编辑器' },
       handleKeyDown: (view, event) => {
         let inTable = false
         for (let depth = view.state.selection.$from.depth; depth > 0; depth -= 1) {
@@ -897,8 +902,10 @@ export default function App() {
       if (deriveTimerRef.current) clearTimeout(deriveTimerRef.current)
       deriveTimerRef.current = setTimeout(() => {
         deriveTimerRef.current = null
-        const body = repairCalloutMarkers(repairHtml(repairMath(repairFootnoteRefs(current.getMarkdown()))))
         const original = rawTextRef.current
+        const body = repairCalloutMarkers(
+          repairHtml(repairMath(repairTildes(repairFootnoteRefs(current.getMarkdown()))), original),
+        )
         const draft = joinFrontmatter(
           frontmatterRef.current,
           joinFootnotes(body, footnotesRef.current),
@@ -981,6 +988,8 @@ export default function App() {
         editor.commands.setContent(body, { contentType: 'markdown' })
         return
       }
+      // 必须在 parse 之前：GFM 默认把单个 ~ 当删除线（H~2~O → strike → 存成 ~~2~~）
+      disableSingleTildeStrike(manager)
       const parsed = manager.parse(escapeHtmlForParse(protectMathPairs(body)))
       // 单元格里的 <br> 被 escapeHtmlForParse 转义成了文字：解析回 hardBreak，否则重开显示字面 <br>
       const node = editor.schema.nodeFromJSON(splitTableCellBreaks(parsed))
@@ -1081,7 +1090,6 @@ export default function App() {
       setDirty(false)
       setSaveError(null)
       setHostError(null)
-      document.title = `${data.fileName ?? '未命名.md'} — Sidelight`
       // 旧版本把 readOnly 写进草稿；清掉这个字段，避免下次又当成只读
       try {
         const raw = localStorage.getItem(DOC_KEY)
@@ -1133,7 +1141,6 @@ export default function App() {
       setRisks([])
       setDirty(false)
       setSaveError(null)
-      document.title = 'Sidelight'
     }
 
     const applySession = async (session: import('./lib/session.ts').LastSession) => {
@@ -2330,7 +2337,6 @@ export default function App() {
         docNameRef.current = newName
         setDocName(newName)
         saveTargetRef.current = renamed.handle ? { handle: renamed.handle, name: newName } : null
-        document.title = `${newName} — Sidelight`
         try {
           const raw = localStorage.getItem(DOC_KEY)
           if (raw) {
@@ -2510,7 +2516,6 @@ export default function App() {
       saveTargetRef.current = { handle, name }
       await refreshTree({ mode: 'adopt', activePath: path })
       show(`已新建 ${name}`)
-      show(`已新建 ${name}`)
       focusEditor()
     } catch (error) {
       setNotice({ text: `新建失败：${reasonOf(error)}。`, kind: 'error' })
@@ -2611,7 +2616,6 @@ export default function App() {
         host?.postMessage({ v: 1, type: 'forget' })
         hostModeRef.current = false
         setHostDoc(null)
-        document.title = `${name} — Sidelight`
       }
       autoFailCountRef.current = 0
       setAutoSaveState('idle')

@@ -246,7 +246,7 @@ if (only !== 'host') {
   const info = await stateOf(page)
   check('404：不显示宿主错误横幅', !info.hostBanner, info.hostBanner ?? 'none')
   check('404：恢复 localStorage 草稿', (info.editor ?? '').includes('无宿主时的草稿'), (info.editor ?? '').slice(0, 12))
-  check('404：标题是 Sidelight', info.title === 'Sidelight', info.title)
+  check('404：标题跟随当前文档名', info.title === `${info.docName} — Sidelight`, info.title)
   check('404：没有「保存到」状态', !(info.status ?? '').includes('保存到'), info.status)
   await page.keyboard.press('Control+s')
   await page.waitForTimeout(500)
@@ -269,7 +269,7 @@ if (only !== 'host') {
   const info = await stateOf(page)
   check('超过 6 MB：显示「文件过大」横幅', (info.hostBanner ?? '').includes('文件过大'), info.hostBanner ?? 'none')
   check('超过 6 MB：横幅写明上限 6 MB', (info.hostBanner ?? '').includes('上限 6 MB'), info.hostBanner ?? 'none')
-  check('超过 6 MB：标题回到 Sidelight', info.title === 'Sidelight', info.title)
+  check('超过 6 MB：标题跟随当前文档名', info.title === `${info.docName} — Sidelight`, info.title)
   await page.screenshot({ path: `${OUT}/t1-too-large.png` })
   await context.close()
 }
@@ -357,7 +357,7 @@ if (only !== 'host') {
   check('保存中切文档：新文档正文为空', (afterSwitch.editor ?? '') === '', (afterSwitch.editor ?? '').slice(0, 10))
   check('保存中切文档：新文档 dirty=false', (await dirty(page)) === false)
   check('保存中切文档：不显示旧文档的「已保存到」', !(afterSwitch.toast ?? '').includes('已保存到'), afterSwitch.toast ?? 'none')
-  check('保存中切文档：标题回到 Sidelight', afterSwitch.title === 'Sidelight', `${afterSwitch.title} / ${afterSwitch.docName} / ${afterSwitch.status}`)
+  check('保存中切文档：标题跟随当前文档名', afterSwitch.title === `${afterSwitch.docName} — Sidelight`, `${afterSwitch.title} / ${afterSwitch.docName} / ${afterSwitch.status}`)
   await context.close()
 }
 }

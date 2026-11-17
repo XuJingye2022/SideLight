@@ -1,8 +1,10 @@
 import { joinFootnotes, repairFootnoteRefs } from './footnotes.ts'
+import { collapseBlankParagraphs } from './blankParagraphs.ts'
 import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './frontmatter.ts'
 import { repairHtml } from './html.ts'
 import { repairMath } from './math.ts'
 import { repairCalloutMarkers } from './escapes.ts'
+import { repairTildes } from './tilde.ts'
 import { reuseTables } from './tableReuse.ts'
 
 /** 只需要能吐出编辑器 Markdown 的对象：App 的 Editor 与 roundtrip 的 MarkdownManager 都能满足 */
@@ -35,7 +37,7 @@ export function applyTrailingNewlines(output: string, original: string | null): 
   return trimmed + eol.repeat(want)
 }
 
-/** 只要编辑器正文（frontmatter / 脚注由调用方拼） */
+/** 只要编辑器正文（frontmatter / 脚注由调用方拼）；空段落只在正文这一侧收（第 40 轮） */
 export function serializeDocumentBody(editor: MarkdownSource, original?: string | null): string {
   return serializeDocument(editor, { original: original ?? null })
 }
@@ -49,9 +51,11 @@ export function serializeDocument(editor: MarkdownSource, options: SerializeOpti
   const frontmatter = options.frontmatter ?? ''
   const footnotes = options.footnotes ?? ''
   const raw = editor.getMarkdown()
-  const repaired = repairCalloutMarkers(repairHtml(repairMath(repairFootnoteRefs(raw))))
+  const repaired = repairCalloutMarkers(
+    repairHtml(repairMath(repairTildes(repairFootnoteRefs(raw))), options.original ?? null),
+  )
   const reused = reuseTables(options.original ?? null, repaired)
-  const body = joinFootnotes(reused, footnotes)
+  const body = joinFootnotes(collapseBlankParagraphs(reused), footnotes)
   const leading =
     options.leading ??
     (options.original ? leadingNewlines(splitFrontmatter(options.original).body) : undefined)

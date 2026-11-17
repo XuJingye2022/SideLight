@@ -56,3 +56,20 @@ test('转义后再修复能回到原文', () => {
   const serialized = escaped.replace(/>/g, '&gt;')
   assert.equal(repairHtml(serialized), original)
 })
+
+test('围栏里的字面实体原样：原文别处有真注释也不能动它', () => {
+  assert.equal(repairHtml('```\n&lt;!-- 备注 --&gt;\n```\n', '<!-- 备注 -->\n'), '```\n&lt;!-- 备注 --&gt;\n```\n')
+})
+
+test('正文里的字面实体原样（讲转义的段落不变成真注释）', () => {
+  const source = '写成 &lt;!-- 备注 --&gt; 才不会变注释。\n'
+  assert.equal(repairHtml(source, source), source)
+})
+
+test('真注释与 DOCTYPE 在原文里有同一条时还原', () => {
+  assert.equal(
+    repairHtml('&lt;!-- 给编辑看的备注 --&gt;\n', '<!-- 给编辑看的备注 -->\n'),
+    '<!-- 给编辑看的备注 -->\n',
+  )
+  assert.equal(repairHtml('&lt;!DOCTYPE html&gt;\n', '<!DOCTYPE html>\n'), '<!DOCTYPE html>\n')
+})

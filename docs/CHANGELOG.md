@@ -2,7 +2,7 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–39 轮，未发版）
+## Unreleased（第 29–40 轮，未发版）
 
 数据安全 + 大纲折叠；计划里的 T2（状态栏字数点击明细）**未做**，留待下一轮。第 30 轮补上字数明细、修删除撤销丢正文，并给安装器版本与发版流水线加门。
 
@@ -106,6 +106,17 @@
 - 体积护栏第二次放宽补记：安装包内部 **45,000,000 B** / 硬线 **50,000,000 B**（产品负责人 2026-11-17）；Mermaid 之后第 39 轮真实打包实测 setup **1,300,711 B**、portable zip **1,622,355 B**。第 35/36 轮条目里写的 1,800,000 / 2,000,000 是历史口径（第 39 轮前口径），保留原文。
 - 文档：`docs/typora-gap.md` 计数 **29/11 → 30/11**（新增「表格单元格内换行往返」，图片行补 `../`/`%20` 与占位）；`README.md` 图片句、查找替换句、体积数字与 `packaging/README.md` 体积段同步；测试计数按 `npm test` 实测更新。
 - 门禁：`npx tsc --noEmit` exit 0；`npm test` **25 个文件 320 条**全过（新增 `tableCellBreaks.test.ts` 8 条 + `assetResolve.test.ts` +12 条）；`npm run roundtrip` rich 5/7、source 7/7；`.tmp/build-r39` 里 5 个埋点标签 **0 命中**（源码正向对照 `performance.mark(` **8 行**）；首屏 gzip **290,021 B**（比第 38 轮 +591 B，`files=3`，预算内部 310,000 / 硬线 320,000，PASS）。
+
+**第 40 轮（同一未发版区间）**
+
+- **打开→保存不再改写 `H~2~O`（单波浪号）与 `<!-- -->`**（P1，两处保存字节损坏）：GFM 默认把单个 `~` 当删除线，`H~2~O` 解析成 strike 后写回 `H~~2~~O`；`repairHtml` 的字符类不认 `!`，注释被存成 `&lt;!-- --&gt;`。`src/lib/tilde.ts` 注册 marked 行内扩展，只把「不成对的单个 `~`」当文本（`return false` 是空操作——marked 的 `use()` 会落回基础 GFM 规则，实测无效）；`src/lib/html.ts` 的字符类加 `!`，且**只在原文真有同一条未转义片段时**还原注释（避免把讲转义的段落、代码样例改成真标签）。两条 repair 共用新模块 `src/lib/codeScan.ts` 的 `mapOutsideCode`：围栏（含 `> ```` 引用块围栏）、行内代码不参与改写；`repairTildes` 另跳过行内 `$…$` 与 `$$` 块公式。`~~删除线~~` 仍是删除线；E2E 保存字节逐字节等于种子（`H~2~O`、`<!-- 给编辑看的备注 -->` 原样，0 处 `&lt;!--`、0 处 `~~2~~`）。
+- **正文里手写的 `\~` 会还原成 `~`**（语义等价，`\~` 在 Markdown 里本就渲染为 `~`）：代码、行内代码、引用块围栏、公式里的 `\~` 一个字节都不动。
+- **只读预览恢复正文排版**（P1，连续 3 轮顺延）：预览原来没有排版容器——标题无衬线 32px、正文 16px 无行高、表格无边框、引用无边线。正文排版选择器由 `.editor` 改 `.doc-body`（编辑态同时带两个类），`PreviewPane` 包上 `.doc-layout.preview-layout > .doc-column.preview-column`，预览与编辑同一套排版：Source Han Serif 17px/1.95、36rem 限宽（实测 `576 px`）、表格边框与表头底色、引用左边线 2px（1024 视口也不横向溢出）。顺带修字数明细面板 941px：`maxWidth 360px` + `overflow-wrap: anywhere`（实测 360×285）。
+- **连续空段落不再往 `.md` 写 `&nbsp;`**（P2，字节污染）：在标题前或正文中间连按两次 Enter 再保存会多一行字面 `&nbsp;`。新增纯函数 `src/lib/blankParagraphs.ts`，只对正文调用（`joinFootnotes(collapseBlankParagraphs(reused), footnotes)`），规则只收「含整行 `&nbsp;` 的空行段」：围栏内、脚注块、用户手写的 `&nbsp;` 段落、只按一次 Enter 的字节都不动。E2E：文首双击 Enter → 保存 `"\n\n# 标题\n\n正文。\n"`（0 处 `&nbsp;`）、二次保存字节不变；围栏 4 个空行与脚注块 `\n\n\n` 逐字节原样。
+- **窗口/标签标题始终跟随当前文档**（P2，身份错）：改过一次文件名后，浏览器标签一直停在改名前那篇的新名字。`document.title` 收成单一来源（`useEffect` 跟 `docName`），删掉 5 处手写标题；`scripts/host-save-acceptance.mjs` 三条断言同步改成与同一次读取的 `docName` 比对。E2E：打开 `键.md` → 改名 `键改.md` → 打开 `乙.md`，标题依次是 `键.md — Sidelight` / `键改.md — Sidelight` / `乙.md — Sidelight`。
+- 同时删掉 `Ctrl+N` 新建路径里两行完全重复的「已新建 …」提示。
+- 门禁：`npx tsc --noEmit` exit 0；`npm test` **27 个文件 345 条**全过（新增 `tilde.test.ts` 13 条 + `blankParagraphs.test.ts` 9 条 + `html.test.ts` +3 条）；`npm run roundtrip` rich 5/7、source 7/7；`.tmp/build-r40` + measure 首屏 gzip **290,723 B**（比第 39 轮 +702 B，`files=3`，内部 310,000 / 硬线 320,000，余 29,277 B，PASS）。
+- UNVERIFIED（本轮）：多行 HTML 注释（`<!--\n…\n-->`）仍还原不了；注释内含 `&` 的仍不还原；同一段文字既写成真注释又用同一段文字讲转义时，讲转义那段仍会被改成真注释；列表项里的围栏与代码内容含仿围栏行；公式里的 `~` 仍会被序列化器转义成 `\~`；宿主窗口标题（`host/Program.cs` 没有 `document.title → Form.Text`）；`scripts/host-save-acceptance.mjs` 改动后未跑（需连 CDP 9222 且会写 `shots/round-06/`）；深色主题下的预览排版与真机缩放；1 MB 文档的 `mapOutsideCode` 耗时。
 
 ## 0.32.1 — 2026-11-16
 

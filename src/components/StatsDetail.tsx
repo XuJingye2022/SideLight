@@ -21,6 +21,7 @@ const panelStyle: CSSProperties = {
   bottom: '40px',
   zIndex: 40,
   minWidth: '240px',
+  maxWidth: '360px',
   padding: '12px 14px',
   borderRadius: '10px',
   background: 'var(--paper-raised)',
@@ -116,7 +117,7 @@ export function StatsDetail({ text, selection, paragraphs, onClose }: Props) {
           {selected ? `${number(selected.cjk + selected.words)} 字 / ${number(selected.chars)} 字符 / ${number(countSentences(selection))} 句` : '未选中文本'}
         </dd>
       </dl>
-      <p style={{ ...termStyle, margin: '8px 0 0', fontSize: '12px' }}>合计 = 中日韩字 + 拉丁词，与状态栏一致；字符数不含空白；阅读时间按 300 字/分钟估算。{paragraphs !== undefined && ' 段按正文文本块计：段落与列表项各算 1，标题与表格不计，代码块整块算 1。'}</p>
+      <p style={{ ...termStyle, margin: '8px 0 0', fontSize: '12px', overflowWrap: 'anywhere' }}>合计 = 中日韩字 + 拉丁词，与状态栏一致；字符数不含空白；阅读时间按 300 字/分钟估算。{paragraphs !== undefined && ' 段按正文文本块计：段落与列表项各算 1，标题与表格不计，代码块整块算 1。'}</p>
     </div>
   )
 }

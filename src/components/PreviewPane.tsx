@@ -57,20 +57,24 @@ export function PreviewPane({ bodyHtml, frontmatter, footnotes }: Props) {
 
   if (hasMath && !ready) {
     return (
-      <div className="doc-column preview-column">
-        <p className="math-pending-note">公式预览加载中…</p>
+      <div className="doc-layout preview-layout">
+        <div className="doc-column preview-column">
+          <p className="math-pending-note">公式预览加载中…</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="doc-column preview-column">
-      <article
-        className="ProseMirror preview-pane"
-        contentEditable={false}
-        // 内容来自当前文档的编辑器序列化，与导出的 HTML 同源
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+    <div className="doc-layout preview-layout">
+      <div className="doc-column preview-column">
+        <article
+          className="ProseMirror doc-body preview-pane"
+          contentEditable={false}
+          // 内容来自当前文档的编辑器序列化，与导出的 HTML 同源
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      </div>
     </div>
   )
 }
