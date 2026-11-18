@@ -1,6 +1,9 @@
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
+
 import katex from './katexLazy.ts'
 
 import { mathToPlainText, replaceMathHtml } from './math.ts'
+import { isTocMarkerText, tocEntries, tocParagraphPositions, tocShouldRender } from './toc.ts'
 
 const ESCAPES: Record<string, string> = {
   '&': '&amp;',
@@ -12,6 +15,116 @@ const ESCAPES: Record<string, string> = {
 
 export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (character) => ESCAPES[character] ?? character)
+}
+
+/**
+ * 第 76 轮 B-134：导出目录。编辑视图里的目录是 `Decoration.widget`，`getHTML()` 看不到，
+ * `[TOC]` 段落只会按字面 `<p>[TOC]</p>` 写进导出文件。这里不靠 DOM：先按文档算出条目与
+ * 锚点 id，再当纯函数插进 HTML 串（App 里只有导出时才加载这个模块）。
+ */
+export type ExportToc = {
+  /** 顶层标题的锚点 id，顺序与文档一致；下标 k 对应第 k 个顶层 `<h1–h6>` */
+  ids: string[]
+  /** 要替掉 `[TOC]` 段落的 `<nav>` 片段 */
+  nav: string
+}
+
+/** 文档口径的目录：没有标题、没有 `[TOC]` 段落、或原文里标记行全被转义时 null（导出保留字面） */
+export function buildExportToc(doc: ProseMirrorNode, original?: string | null): ExportToc | null {
+  const entries = tocEntries(doc)
+  if (entries.length === 0) return null
+  if (!tocShouldRender(tocParagraphPositions(doc).length, entries.length, original)) return null
+  const ids = entries.map((_entry, index) => `sl-toc-${index}`)
+  const items = entries.map(
+    (entry, index) =>
+      `<a class="sl-toc-item" data-level="${entry.level}" data-toc-index="${index}" href="#${ids[index]}">${escapeHtml(entry.text)}</a>`,
+  )
+  return { ids, nav: `<nav class="sl-toc" aria-label="目录">${items.join('')}</nav>` }
+}
+
+const VOID_ELEMENTS = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'param',
+  'source',
+  'track',
+  'wbr',
+])
+
+type HtmlSpan = { start: number; end: number }
+
+/**
+ * 扫一遍正文 HTML，取顶层标题开标签与顶层 `[TOC]` 段落的区间。
+ * 深度 0 才算顶层：引用块里的 `<h2>` 不是章节起点（与 `extractOutline` 同口径）；
+ * 空元素（`<br>` / `<img>` 等）不增深度，否则 `</p>` 一收深度就错，后面的标题全被判成嵌套。
+ */
+function scanTopLevelBlocks(bodyHtml: string): { headings: HtmlSpan[]; markers: HtmlSpan[] } {
+  const headings: HtmlSpan[] = []
+  const markers: HtmlSpan[] = []
+  const tokens = /<[^>]*>|[^<]+/g
+  let depth = 0
+  let paragraph: { start: number; textStart: number } | null = null
+  let match: RegExpExecArray | null
+  while ((match = tokens.exec(bodyHtml)) !== null) {
+    const token = match[0]
+    if (!token.startsWith('<')) continue
+    const start = match.index
+    if (token.startsWith('<!')) continue // 注释与 doctype 不参与深度
+    const closing = /^<\/([A-Za-z][A-Za-z0-9-]*)\s*>$/.exec(token)
+    if (closing) {
+      if (depth > 0) {
+        depth -= 1
+        if (depth === 0 && paragraph !== null) {
+          const text = bodyHtml.slice(paragraph.textStart, start).replace(/<[^>]*>/g, '')
+          if (isTocMarkerText(text)) markers.push({ start: paragraph.start, end: start + token.length })
+          paragraph = null
+        }
+      }
+      continue
+    }
+    const opening = /^<([A-Za-z][A-Za-z0-9-]*)([^>]*)>$/.exec(token)
+    if (!opening) continue
+    const name = opening[1].toLowerCase()
+    const selfClosing = /\/\s*$/.test(opening[2]) || VOID_ELEMENTS.has(name)
+    if (depth === 0) {
+      if (/^h[1-6]$/.test(name)) headings.push({ start, end: start + token.length })
+      if (name === 'p') paragraph = { start, textStart: start + token.length }
+    }
+    if (!selfClosing) depth += 1
+  }
+  return { headings, markers }
+}
+
+/**
+ * 把目录插进导出正文：第 k 个顶层标题加 `id="sl-toc-k"`，`[TOC]` 段落整块换成 `<nav>`。
+ * 顶层标题数与目录条目数不等时原样返回（半套锚点比没有目录更坏）。
+ */
+export function applyExportTocHtml(bodyHtml: string, toc: ExportToc | null): string {
+  if (!toc || toc.ids.length === 0) return bodyHtml
+  const { headings, markers } = scanTopLevelBlocks(bodyHtml)
+  if (headings.length !== toc.ids.length) return bodyHtml
+  const edits: Array<HtmlSpan & { html: string }> = headings.map((span, index) => ({
+    ...span,
+    html: `${bodyHtml.slice(span.start, span.end - 1)} id="${toc.ids[index]}">`,
+  }))
+  for (const span of markers) edits.push({ ...span, html: toc.nav })
+  edits.sort((a, b) => a.start - b.start)
+  let result = ''
+  let cursor = 0
+  for (const edit of edits) {
+    if (edit.start < cursor) continue
+    result += bodyHtml.slice(cursor, edit.start) + edit.html
+    cursor = edit.end
+  }
+  return result + bodyHtml.slice(cursor)
 }
 
 export type HtmlExportOptions = {
@@ -142,12 +255,33 @@ const STYLES = `
   }
   section.footnotes h2 { font-size: 0.9em; letter-spacing: 0.1em; color: #8b9096; }
   section.footnotes ol { padding-left: 1.4em; }
+  nav.sl-toc {
+    margin: 1.4em 0;
+    padding: 10px 14px;
+    border: 1px solid #e4dfd4;
+    border-radius: 8px;
+    font-size: 0.92em;
+    line-height: 1.7;
+  }
+  nav.sl-toc a.sl-toc-item {
+    display: block;
+    padding: 2px 0;
+    color: #2b6d64;
+    text-decoration: none;
+  }
+  nav.sl-toc a.sl-toc-item[data-level="2"] { padding-left: 1.4em; }
+  nav.sl-toc a.sl-toc-item[data-level="3"] { padding-left: 2.4em; }
+  nav.sl-toc a.sl-toc-item[data-level="4"],
+  nav.sl-toc a.sl-toc-item[data-level="5"],
+  nav.sl-toc a.sl-toc-item[data-level="6"] { padding-left: 3.4em; }
   @media (prefers-color-scheme: dark) {
     body { color: #e9e6e0; background: #15171a; }
     code { background: #22302e; }
     pre, th, td, hr { border-color: #2a2e33; }
     th { background: #22302e; }
     blockquote { color: #a8adaf; }
+    nav.sl-toc { border-color: #2a2e33; }
+    nav.sl-toc a.sl-toc-item { color: #8ec5bb; }
   }
   @media print {
     :root { color-scheme: light; }
@@ -155,6 +289,8 @@ const STYLES = `
     code, th { background: #e8f0ed; }
     pre, th, td, hr { border-color: #e4dfd4; }
     blockquote, section.footnotes { color: #565c61; }
+    nav.sl-toc { border-color: #e4dfd4; }
+    nav.sl-toc a.sl-toc-item { color: #2b6d64; }
   }
 `
 

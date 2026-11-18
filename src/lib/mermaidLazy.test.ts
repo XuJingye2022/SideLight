@@ -12,11 +12,13 @@ import {
   fallbackHint,
   isMermaidLanguage,
   listMermaidBlocks,
+  mermaidConfig,
   mermaidHash,
   removeMermaidContainer,
   renderDiagram,
   resolveMermaidTheme,
 } from './mermaidLazy.ts'
+import { contrastRatio, themeById } from './themes.ts'
 
 const schema = getSchema([StarterKit])
 
@@ -211,5 +213,76 @@ test('mermaid：清理只认自己那个容器，找不到时不抛', async () =
   removeMermaidContainer('mermaid-preview-2', doc)
   removeMermaidContainer('mermaid-preview-1', null)
   assert.deepEqual(removed, ['dmermaid-preview-1'])
+})
+
+/* ---------- 第 76 轮 A2（B-122）：暖纸主题下 Mermaid 用暖色配色 ---------- */
+
+test('mermaid 主题：data-theme=sepia 恒为 sepia，系统深色也不改', () => {
+  assert.equal(resolveMermaidTheme('sepia', false), 'sepia')
+  assert.equal(resolveMermaidTheme('sepia', true), 'sepia')
+  // 对照：其它三档口径不变
+  assert.equal(resolveMermaidTheme('system', true), 'dark')
+})
+
+test('mermaid 配置：default/dark 只带 theme，不带 themeVariables', () => {
+  assert.deepEqual(mermaidConfig('default'), { theme: 'default' })
+  assert.deepEqual(mermaidConfig('dark'), { theme: 'dark' })
+  assert.equal('themeVariables' in mermaidConfig('dark'), false)
+  assert.equal('themeVariables' in mermaidConfig('default'), false)
+})
+
+test('mermaid 配置：sepia 走 base，颜色与内置暖纸主题逐项相同', () => {
+  const sepia = themeById('sepia')
+  assert.ok(sepia)
+  const config = mermaidConfig('sepia')
+  assert.equal(config.theme, 'base')
+  const vars = config.themeVariables as Record<string, string>
+  const pairs: Array<[string, string]> = [
+    ['background', '--paper'],
+    ['primaryColor', '--paper-raised'],
+    ['mainBkg', '--paper-raised'],
+    ['edgeLabelBackground', '--paper-raised'],
+    ['primaryBorderColor', '--line-strong'],
+    ['nodeBorder', '--line-strong'],
+    ['clusterBorder', '--line-strong'],
+    ['primaryTextColor', '--ink'],
+    ['textColor', '--ink'],
+    ['lineColor', '--ink-soft'],
+    ['clusterBkg', '--panel'],
+  ]
+  for (const [mermaidKey, cssVar] of pairs) {
+    assert.equal(vars[mermaidKey], sepia.vars[cssVar as keyof typeof sepia.vars], `${mermaidKey} 与 ${cssVar} 不一致`)
+  }
+  assert.equal(Object.keys(vars).length, pairs.length)
+})
+
+test('mermaid 配置：暖纸图表文字对节点底色对比度 ≥4.5', () => {
+  const vars = mermaidConfig('sepia').themeVariables as Record<string, string>
+  assert.ok(contrastRatio(vars.textColor, vars.primaryColor) >= 4.5, 'textColor 对 primaryColor 不足 4.5:1')
+  assert.ok(contrastRatio(vars.primaryTextColor, vars.mainBkg) >= 4.5, 'primaryTextColor 对 mainBkg 不足 4.5:1')
+  assert.ok(contrastRatio(vars.primaryBorderColor, vars.primaryColor) >= 1, '描边与填充同色就看不见了')
+})
+
+test('mermaid：sepia 渲染拿到 base + 暖色变量，同主题不重复 initialize、切回 default 重来', async () => {
+  const fake = fakeMermaid()
+  __setLoaderForTest(async () => fake.module)
+  const sepiaVars = mermaidConfig('sepia').themeVariables as Record<string, string>
+  await renderDiagram('graph TD; A-->B', 'sepia')
+  assert.equal(fake.inits.length, 1)
+  assert.equal(fake.inits[0].theme, 'base')
+  assert.deepEqual(fake.inits[0].themeVariables, sepiaVars)
+  // 同主题第二张图：不重复 initialize
+  await renderDiagram('graph LR; C-->D', 'sepia')
+  assert.equal(fake.inits.length, 1)
+  // 切回 default：重新 initialize，且不再带 themeVariables
+  await renderDiagram('graph TD; E-->F', 'default')
+  assert.equal(fake.inits.length, 2)
+  assert.equal(fake.inits[1].theme, 'default')
+  assert.equal('themeVariables' in fake.inits[1], false)
+  // 生产调用点不传主题：Node 里没有 document，仍按 default 初始化
+  const plain = fakeMermaid()
+  __setLoaderForTest(async () => plain.module)
+  await renderDiagram('graph TD; G-->H')
+  assert.equal(plain.inits[0].theme, 'default')
 })
 

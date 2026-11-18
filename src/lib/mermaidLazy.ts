@@ -1,5 +1,7 @@
 import type { Node as PMNode } from '@tiptap/pm/model'
 
+import { themeById } from './themes.ts'
+
 /**
  * Mermaid 惰性加载与渲染（第 36 轮，ADR-0017）。
  * 首屏不含 mermaid：只有正文里出现 ```mermaid 块时才动态下载。
@@ -28,7 +30,7 @@ let loading: Promise<MermaidModule | null> | null = null
 let lastError: unknown = null
 let initialized = false
 /** 上一次 initialize 用的主题：同主题不重复 initialize，切主题才重跑 */
-let appliedTheme: 'dark' | 'default' | null = null
+let appliedTheme: MermaidTheme | null = null
 let renderSeq = 0
 const svgCache = new Map<string, string>()
 
@@ -50,18 +52,24 @@ export function fallbackHint(): string {
   return '图表没渲染出来，代码块内容仍是原文，可以继续编辑。'
 }
 
+/** mermaid 的三档主题：深色 / 浅色默认 / 暖纸（第 76 轮 B-122 起走 base + 暖色变量） */
+export type MermaidTheme = 'dark' | 'default' | 'sepia'
+
 /**
  * data-theme 属性 + 系统偏好 → mermaid 主题。纯函数：Node 测试直接调，不碰 document/matchMedia。
  * `system`/未设置跟随系统，与 styles.css 里 `@media (prefers-color-scheme: dark)` 的分支一致。
+ * `sepia`（暖纸，第 55 轮内置主题）自成一档：mermaid 没有米黄配色，用 `theme: 'base'` +
+ * 暖色 themeVariables 自绘（见 `mermaidConfig`）。
  */
-export function resolveMermaidTheme(attr: string | null, prefersDark: boolean): 'dark' | 'default' {
+export function resolveMermaidTheme(attr: string | null, prefersDark: boolean): MermaidTheme {
+  if (attr === 'sepia') return 'sepia'
   if (attr === 'dark') return 'dark'
   if (attr === 'light') return 'default'
   return prefersDark ? 'dark' : 'default'
 }
 
 /** 当前应该用的 mermaid 主题（第 46 轮 T3：system 也跟随系统，不再恒按浅色渲染） */
-export function mermaidTheme(): 'dark' | 'default' {
+export function mermaidTheme(): MermaidTheme {
   // node 测试里没有 document：不守卫会直接炸（katexLazy 没这个问题）
   if (typeof document === 'undefined') return 'default'
   const attr = document.documentElement.getAttribute('data-theme')
@@ -69,14 +77,47 @@ export function mermaidTheme(): 'dark' | 'default' {
   return resolveMermaidTheme(attr, prefersDark)
 }
 
-function configure(module: MermaidModule): void {
-  const theme = mermaidTheme()
+/**
+ * 暖纸配色：颜色全取内置主题清单（`themes.ts` 的 sepia 变量），清单改了图表跟着改，
+ * 不在两处各写一份十六进制。mermaid 11 的 base 主题认这些键。
+ */
+function sepiaThemeVariables(vars: Record<string, string>): Record<string, string> {
+  return {
+    background: vars['--paper'],
+    primaryColor: vars['--paper-raised'],
+    mainBkg: vars['--paper-raised'],
+    edgeLabelBackground: vars['--paper-raised'],
+    primaryBorderColor: vars['--line-strong'],
+    nodeBorder: vars['--line-strong'],
+    clusterBorder: vars['--line-strong'],
+    primaryTextColor: vars['--ink'],
+    textColor: vars['--ink'],
+    lineColor: vars['--ink-soft'],
+    clusterBkg: vars['--panel'],
+  }
+}
+
+/** 纯函数：主题 → `initialize` 的配置。dark/default 只传 theme，sepia 走 base + 暖色变量 */
+export function mermaidConfig(theme: MermaidTheme): Record<string, unknown> {
+  if (theme !== 'sepia') return { theme }
+  const vars = themeById('sepia')?.vars
+  // 清单里没有 sepia（被删/改名）时退回 mermaid 自带浅色，别传一个库不认识的主题名
+  if (!vars) return { theme: 'default' }
+  return { theme: 'base', themeVariables: sepiaThemeVariables(vars as Record<string, string>) }
+}
+
+function configure(module: MermaidModule, theme: MermaidTheme = mermaidTheme()): void {
   if (initialized && appliedTheme === theme) return
   appliedTheme = theme
   initialized = true
   try {
     // suppressErrorRendering：语法错误时不让库把「Syntax error」错误图塞进 body（第 47 轮 T3）
-    module.initialize({ startOnLoad: false, securityLevel: 'strict', theme, suppressErrorRendering: true })
+    module.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      ...mermaidConfig(theme),
+      suppressErrorRendering: true,
+    })
   } catch (error) {
     lastError = error
   }
@@ -93,11 +134,11 @@ export function removeMermaidContainer(
 }
 
 /** 惰性加载 Mermaid 并初始化；并发调用共用同一个 promise。主题变了要重新 initialize */
-export function ensureMermaid(): Promise<void> {
+export function ensureMermaid(theme: MermaidTheme = mermaidTheme()): Promise<void> {
   if (mermaid) {
     // 早退分支也必须过一遍 configure()：唯一调用点在下方首次加载分支，
     // 不给这里加路径的话，切主题后 initialize 永不重跑（第 46 轮 R1，整条任务的隐藏前提）
-    configure(mermaid)
+    configure(mermaid, theme)
     return Promise.resolve()
   }
   if (loading) return loading.then(() => undefined)
@@ -106,7 +147,7 @@ export function ensureMermaid(): Promise<void> {
     try {
       const module = await loader()
       mermaid = module.mermaid
-      configure(mermaid)
+      configure(mermaid, theme)
       return mermaid
     } catch (error) {
       lastError = error
@@ -119,17 +160,17 @@ export function ensureMermaid(): Promise<void> {
 }
 
 /** 渲染一段 Mermaid 源码；成功返回 svg，失败返回一句话，永不抛错 */
-export async function renderDiagram(code: string): Promise<{ svg: string } | { error: string }> {
+export async function renderDiagram(
+  code: string,
+  theme: MermaidTheme = mermaidTheme(),
+): Promise<{ svg: string } | { error: string }> {
   const hash = mermaidHash(code)
-  // 入口取一次主题供命中查询；await 之后再取一次算写键——两处现取会在 await 期间切主题时
-  // 把浅色 SVG 存进深色键（同一键再也不失效，第 46 轮 R3）
-  const themeAtEntry = mermaidTheme()
-  const cached = svgCache.get(`${themeAtEntry}|${hash}`)
+  // 主题在入口定下来，缓存键与 initialize 用同一份（第 76 轮 A2）：显式传主题时不再中途现取
+  const cached = svgCache.get(`${theme}|${hash}`)
   if (cached !== undefined) return { svg: cached }
   try {
-    await ensureMermaid() // 里面 configure() 同步应用「此刻」的主题
+    await ensureMermaid(theme) // 里面 configure() 同步应用这个主题
     if (!mermaid) return { error: fallbackHint() }
-    const theme = mermaidTheme() // 与 configure() 同一次读法；写缓存必须用它
     const key = `${theme}|${hash}`
     const hit = svgCache.get(key)
     if (hit !== undefined) return { svg: hit }

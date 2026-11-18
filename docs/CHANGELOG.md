@@ -4,6 +4,13 @@
 
 ## Unreleased（第 29–74 轮，未发版）
 
+**第 76 轮（同一未发版区间）**
+
+- HTML 导出带目录与锚点（A1，B-134）：`buildExportToc` / `applyExportTocHtml` 纯函数（`src/lib/export.ts`，不新建模块、不碰 DOM），第 k 个顶层标题插 `id="sl-toc-k"`、`[TOC]` 段换 `<nav class="sl-toc">`，`STYLES` 加 `nav.sl-toc`；无标记/无标题/原文全转义时保字面；`export.test.ts` +6。
+- 暖纸 Mermaid 暖色（A2，B-122）：`MermaidTheme` 加 `'sepia'`，`mermaidConfig` 用 `theme:'base'` + 11 项暖色 `themeVariables`（全取 `themes.ts` 的暖纸变量），`renderDiagram` 收可选主题；切回浅/深仍整表切主题；`mermaidLazy.test.ts` +5。
+- 差距表补导出格式差距（A3，B-111）：`docs/typora-gap.md:30` 记 Word/Epub/LaTeX/图片 4 种差距、新增 `### 导出（1）`、表头 `缺的（5）→（6）`；`README.md:102`、`AGENTS.md:74` 同口径。
+- 门禁：首屏 gzip **303,664 B**（余 6,336）；`npm test` **43 文件 559 条**（静态 `^test(` 536 → 547）。UNVERIFIED：CDP 9222–9226 无监听，真实导出的锚点跳转与外观、暖纸 Mermaid 真机颜色均未验（见 `docs/iteration/round-76/test.md`）。
+
 **第 75 轮（同一未发版区间）**
 
 - 点公式编辑后取消不再露 `$…$` 源码（A1，B-157）：新增 `mathInputSelection` / `closeMathEditTransaction`（`src/lib/mathInput.ts`），`src/App.tsx` 的三条关闭出口并为 `finishMathEdit`（提交换内容、空内容保留、取消删新建），单测 5 条 + `src/lib/mathInput.test.ts`。

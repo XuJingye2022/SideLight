@@ -2,9 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import katexReal from 'katex'
+import { Schema } from '@tiptap/pm/model'
 
 import { __setLoaderForTest, ensureKatex } from './katexLazy.ts'
 import {
+  applyExportTocHtml,
+  buildExportToc,
   buildHtmlDocument,
   buildPlainText,
   escapeHtml,
@@ -168,4 +171,92 @@ test('导出 HTML 的打印块用浅底深字，且排在深色块之后', () =>
   const printBlock = html.slice(at, at + 400)
   assert.match(printBlock, /body\s*\{\s*color:\s*#1d2023/)
   assert.ok(html.indexOf('prefers-color-scheme: dark') < at, '深色块必须在打印块之前')
+})
+
+/* ---------- 第 76 轮 A1（B-134）：HTML 导出带目录、去掉字面 [TOC] ---------- */
+
+const tocSchema = new Schema({
+  nodes: {
+    doc: { content: 'block+' },
+    paragraph: { content: 'inline*', group: 'block' },
+    heading: { attrs: { level: { default: 1 } }, content: 'inline*', group: 'block' },
+    blockquote: { content: 'block+', group: 'block' },
+    text: { group: 'inline' },
+  },
+})
+
+const tocPara = (text: string) => tocSchema.node('paragraph', null, text ? [tocSchema.text(text)] : [])
+const tocHeading = (level: number, text: string) =>
+  tocSchema.node('heading', { level }, text ? [tocSchema.text(text)] : [])
+
+test('导出目录：多标题得到锚点 id、nav 与可跳转的 href', () => {
+  const doc = tocSchema.node('doc', null, [tocHeading(1, '一'), tocPara('[TOC]'), tocHeading(2, '二')])
+  const toc = buildExportToc(doc)
+  assert.ok(toc)
+  assert.deepEqual(toc.ids, ['sl-toc-0', 'sl-toc-1'])
+  assert.ok(toc.nav.startsWith('<nav class="sl-toc"'))
+  assert.ok(toc.nav.includes('href="#sl-toc-0"'))
+  assert.ok(toc.nav.includes('data-level="2"'))
+  const out = applyExportTocHtml('<h1>一</h1><p>[TOC]</p><h2>二</h2>', toc)
+  assert.ok(out.includes('<h1 id="sl-toc-0">一</h1>'))
+  assert.ok(out.includes('<h2 id="sl-toc-1">二</h2>'))
+  assert.ok(!out.includes('[TOC]'))
+  assert.ok(out.includes(toc.nav))
+  // nav 落在原来标记段的位置：标题一之后、标题二之前
+  assert.ok(out.indexOf('id="sl-toc-0"') < out.indexOf('<nav'))
+  assert.ok(out.indexOf('<nav') < out.indexOf('id="sl-toc-1"'))
+})
+
+test('导出目录：没有标题时不生成目录', () => {
+  const doc = tocSchema.node('doc', null, [tocPara('正文'), tocPara('[TOC]')])
+  assert.equal(buildExportToc(doc), null)
+  assert.equal(applyExportTocHtml('<p>[TOC]</p>', null), '<p>[TOC]</p>')
+})
+
+test('导出目录：没有 [TOC] 标记时返回 null，标题不加 id', () => {
+  const doc = tocSchema.node('doc', null, [tocHeading(1, '一'), tocPara('正文')])
+  assert.equal(buildExportToc(doc), null)
+  const body = '<h1>一</h1><p>正文</p>'
+  const out = applyExportTocHtml(body, null)
+  assert.equal(out, body)
+  assert.ok(!out.includes('id="sl-toc-0"'))
+})
+
+test('导出目录：原文里标记行全被转义时不出目录，字面保留', () => {
+  const doc = tocSchema.node('doc', null, [tocHeading(1, '一'), tocPara('[TOC]')])
+  assert.equal(buildExportToc(doc, '\\[TOC\\]\n'), null)
+  const body = '<h1>一</h1><p>[TOC]</p>'
+  const out = applyExportTocHtml(body, null)
+  assert.equal(out, body)
+  assert.ok(out.includes('<p>[TOC]</p>'))
+  // 对照：原文里是未转义标记时照常生成
+  assert.ok(buildExportToc(doc, '[TOC]\n'))
+})
+
+test('导出目录：引用块里的标题不计入，标题前的 <br> 段落不挡 id', () => {
+  const doc = tocSchema.node('doc', null, [
+    tocPara('[TOC]'),
+    tocSchema.node('blockquote', null, [tocHeading(2, '引用里的标题')]),
+    tocHeading(1, '真章节'),
+  ])
+  const toc = buildExportToc(doc)
+  assert.ok(toc)
+  assert.equal(toc.ids.length, 1)
+  const body = '<p>[TOC]</p><blockquote><h2>引用里的标题</h2></blockquote><p>甲<br>乙</p><h1>真章节</h1>'
+  const out = applyExportTocHtml(body, toc)
+  assert.ok(out.includes('<h1 id="sl-toc-0">真章节</h1>'))
+  assert.ok(!out.includes('id="sl-toc-1"'))
+  assert.ok(out.includes('<blockquote><h2>引用里的标题</h2></blockquote>'))
+  assert.ok(!out.includes('[TOC]'))
+})
+
+test('导出目录：标题文字里的 <b> 与 & 已转义，小写 [toc] 也换成 nav', () => {
+  const doc = tocSchema.node('doc', null, [tocHeading(1, 'A<b>&C'), tocPara('[toc]')])
+  const toc = buildExportToc(doc)
+  assert.ok(toc)
+  assert.ok(toc.nav.includes('A&lt;b&gt;&amp;C'))
+  const out = applyExportTocHtml('<h1>A&lt;b&gt;&amp;C</h1><p> [toc] </p>', toc)
+  assert.ok(out.includes('<h1 id="sl-toc-0">A&lt;b&gt;&amp;C</h1>'))
+  assert.ok(out.includes(toc.nav))
+  assert.ok(!out.includes('[toc]'))
 })

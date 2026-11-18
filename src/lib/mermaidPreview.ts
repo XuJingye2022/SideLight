@@ -3,7 +3,15 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
 
-import { ensureMermaid, fallbackHint, listMermaidBlocks, mermaidTheme, renderDiagram, type MermaidBlock } from './mermaidLazy.ts'
+import {
+  ensureMermaid,
+  fallbackHint,
+  listMermaidBlocks,
+  mermaidTheme,
+  renderDiagram,
+  type MermaidBlock,
+  type MermaidTheme,
+} from './mermaidLazy.ts'
 
 /**
  * 在 ```mermaid 代码块下面挂一个预览 widget（第 36 轮，ADR-0017）。
@@ -17,7 +25,7 @@ const DEBOUNCE_MS = 400
 const THEME_META = 'sidelightMermaidTheme'
 
 /** 上一次 build 用的主题；变了就清缓存（主题只在这里读一次，避免同一帧两套键） */
-let renderedTheme: 'dark' | 'default' | null = null
+let renderedTheme: MermaidTheme | null = null
 
 const svgCache = new Map<string, string>()
 const errorCache = new Map<string, string>()

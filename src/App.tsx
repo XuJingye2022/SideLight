@@ -4787,7 +4787,9 @@ export default function App() {
       setExportOpen(false)
       try {
         // 导出只在用到时加载：首屏不背 fmt/导出模板的字节
-        const { buildHtmlDocument, buildPlainText, exportName } = await import('./lib/export.ts')
+        const { applyExportTocHtml, buildExportToc, buildHtmlDocument, buildPlainText, exportName } = await import(
+          './lib/export.ts'
+        )
         // 导出 HTML 需要 KaTeX 的 MathML；无条件等一下，已就绪时是一次微任务
         await ensureKatex().catch(() => undefined)
         // 源码里刚改的内容还没进编辑器；先写回，否则导出的 HTML / TXT 会丢最新改动
@@ -4815,9 +4817,10 @@ export default function App() {
         }
         if (kind === 'html') {
           const bodyHtml = editor.getHTML()
+          // 第 76 轮 B-134：目录是 Decoration.widget，getHTML() 里没有；按文档重建目录与锚点
           const html = buildHtmlDocument({
             title: docName,
-            bodyHtml,
+            bodyHtml: applyExportTocHtml(bodyHtml, buildExportToc(editor.state.doc, originalText)),
             fontSize: settings.fontSize,
             frontmatter: frontmatterRef.current,
             footnotes: footnotesRef.current,
