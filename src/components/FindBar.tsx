@@ -1,3 +1,4 @@
+import { FIND_NOTE_ID, findBarControls } from '../lib/findBarState.ts'
 import type { Match } from '../lib/find.ts'
 
 type Props = {
@@ -45,8 +46,8 @@ export function FindBar({
 
   const total = matches.length
   const position = total === 0 ? 0 : activeIndex + 1
-  const locked = Boolean(unavailableReason)
-  const disabled = locked || total === 0
+  const controls = findBarControls(unavailableReason, total)
+  const locked = controls.locked
 
   return (
     <div className="find-bar">
@@ -54,8 +55,10 @@ export function FindBar({
         <input
           className="find-input"
           value={query}
-          placeholder="查找"
+          placeholder={locked ? '（此视图不可用）' : '查找'}
           autoFocus
+          readOnly={controls.inputsReadOnly}
+          aria-describedby={locked ? FIND_NOTE_ID : undefined}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -81,6 +84,7 @@ export function FindBar({
           className={caseSensitive ? 'is-on' : undefined}
           aria-pressed={caseSensitive}
           title="区分大小写"
+          disabled={controls.togglesDisabled}
           onClick={onToggleCaseSensitive}
         >
           Aa
@@ -90,14 +94,15 @@ export function FindBar({
           className={wholeWord ? 'is-on' : undefined}
           aria-pressed={wholeWord}
           title="整词匹配（只认 ASCII 词边界，中文按原样匹配）"
+          disabled={controls.togglesDisabled}
           onClick={onToggleWholeWord}
         >
           ab
         </button>
-        <button type="button" onClick={onPrev} disabled={disabled} title="上一处" aria-label="上一处">
+        <button type="button" onClick={onPrev} disabled={controls.actionsDisabled} title="上一处" aria-label="上一处">
           ↑
         </button>
-        <button type="button" onClick={onNext} disabled={disabled} title="下一处" aria-label="下一处">
+        <button type="button" onClick={onNext} disabled={controls.actionsDisabled} title="下一处" aria-label="下一处">
           ↓
         </button>
         <button type="button" onClick={onClose} title="关闭" aria-label="关闭查找">
@@ -109,7 +114,9 @@ export function FindBar({
         <input
           className="find-input"
           value={replacement}
-          placeholder="替换为"
+          placeholder={locked ? '（此视图不可用）' : '替换为'}
+          readOnly={controls.inputsReadOnly}
+          aria-describedby={locked ? FIND_NOTE_ID : undefined}
           onChange={(event) => onReplacementChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -125,15 +132,19 @@ export function FindBar({
             }
           }}
         />
-        <button type="button" onClick={onReplace} disabled={disabled}>
+        <button type="button" onClick={onReplace} disabled={controls.actionsDisabled}>
           替换
         </button>
-        <button type="button" onClick={onReplaceAll} disabled={disabled}>
+        <button type="button" onClick={onReplaceAll} disabled={controls.actionsDisabled}>
           全部替换
         </button>
       </div>
 
-      {locked && <p className="find-note">{unavailableReason}</p>}
+      {locked && (
+        <p className="find-note" id={FIND_NOTE_ID}>
+          {unavailableReason}
+        </p>
+      )}
     </div>
   )
 }

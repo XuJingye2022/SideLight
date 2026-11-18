@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useEffect, useRef, type CSSProperties, type KeyboardEvent } from 'react'
 
 import { countSentences, countText } from '../lib/wordcount.ts'
 
@@ -78,6 +78,15 @@ export function StatsDetail({ text, selection, paragraphs, onClose }: Props) {
 
   const total = stats.cjk + stats.words
   const selected = selection.length > 0 ? countText(selection) : null
+  // 面板里没有可聚焦子节点：Tab 会掉到 BODY、面板还开着（第 70 轮实测，B-151）。
+  // Tab / Shift+Tab 都改成「关面板并把焦点还给触发钮」，与 App 的 Esc 分支同一落点。
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return
+    event.preventDefault()
+    const trigger = document.querySelector<HTMLElement>('.stats-trigger')
+    onClose()
+    trigger?.focus()
+  }
   // 中日韩字与拉丁词是两个口径，合计才是状态栏那个数：不能再让两行显示同一个值
   const rows: Array<[string, string, string]> = [
     ['中日韩字', number(stats.cjk), '汉字、日文假名、韩文谚文，逐字计，不含标点'],
@@ -97,6 +106,7 @@ export function StatsDetail({ text, selection, paragraphs, onClose }: Props) {
       aria-label="字数明细"
       ref={panelRef}
       tabIndex={-1}
+      onKeyDown={onKeyDown}
       style={panelStyle}
     >
       <p style={headingStyle}>字数明细</p>

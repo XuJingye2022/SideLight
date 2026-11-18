@@ -1,9 +1,23 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
 import { DEFAULT_USER_PROMPT } from '../lib/prompt.ts'
+import { nextRadioIndex, rovingTabIndex } from '../lib/radioGroup.ts'
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, type Settings } from '../lib/settings.ts'
-import { BUILTIN_THEMES } from '../lib/themes.ts'
+import { BUILTIN_THEMES, type ThemeChoice } from '../lib/themes.ts'
 import { useDialogFocus } from './useDialogFocus.ts'
+
+type ThemeChoiceItem = { value: ThemeChoice; label: string; themeId?: string }
+
+/**
+ * 主题单选组：三档模式 + 内置主题清单（第 55 轮 B-105），数组序 = DOM 序 = 方向键索引。
+ * 合成一段渲染是为了 roving tabindex 只维护一个索引（B-109）：两段 map 各算各的会串位。
+ */
+const THEME_CHOICES: readonly ThemeChoiceItem[] = [
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+  { value: 'system', label: '跟随系统' },
+  ...BUILTIN_THEMES.map((theme) => ({ value: theme.id, label: theme.name, themeId: theme.id })),
+]
 
 type Props = {
   open: boolean
@@ -16,6 +30,7 @@ type Props = {
 export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcuts }: Props) {
   const [draft, setDraft] = useState<Settings>(settings)
   const dialogRef = useRef<HTMLDivElement | null>(null)
+  const themeOptionsRef = useRef<HTMLDivElement | null>(null)
   useDialogFocus(open, dialogRef)
 
   // 对话框常驻，每次打开都把草稿同步成当前设置，避免保存时把刚改的值盖回去
@@ -26,6 +41,21 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
   if (!open) return null
 
   const update = (patch: Partial<Settings>) => setDraft((current) => ({ ...current, ...patch }))
+
+  const selectedTheme = THEME_CHOICES.findIndex((choice) => choice.value === draft.theme)
+  // 改选与预览合成一条路径：键盘与鼠标走同一处，取消时 App 仍按已保存主题还原
+  const chooseTheme = (value: ThemeChoice) => {
+    update({ theme: value })
+    document.documentElement.setAttribute('data-theme', value)
+  }
+  const onThemeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const next = nextRadioIndex(event.key, selectedTheme, THEME_CHOICES.length)
+    if (next === null) return
+    event.preventDefault()
+    chooseTheme(THEME_CHOICES[next].value)
+    // 只在组内取下一项：将来出现第二组 [role=radio] 也不会串到别的组
+    themeOptionsRef.current?.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus()
+  }
 
   return (
     <div className="overlay" role="presentation" onMouseDown={onClose}>
@@ -43,44 +73,19 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
 
         <div className="field theme-field" role="radiogroup" aria-label="主题">
           <span>主题</span>
-          <div className="theme-options">
-            {(
-              [
-                ['light', '浅色'],
-                ['dark', '深色'],
-                ['system', '跟随系统'],
-              ] as const
-            ).map(([mode, label]) => (
+          <div className="theme-options" ref={themeOptionsRef} onKeyDown={onThemeKeyDown}>
+            {THEME_CHOICES.map((choice, index) => (
               <button
-                key={mode}
+                key={choice.value}
                 type="button"
                 role="radio"
-                aria-checked={draft.theme === mode}
-                className={draft.theme === mode ? 'is-on' : ''}
-                onClick={() => {
-                  update({ theme: mode })
-                  // 先预览，取消时由 App 还原到已保存的主题
-                  document.documentElement.setAttribute('data-theme', mode)
-                }}
+                aria-checked={draft.theme === choice.value}
+                className={draft.theme === choice.value ? 'is-on' : ''}
+                data-theme-id={choice.themeId}
+                tabIndex={rovingTabIndex(index, selectedTheme)}
+                onClick={() => chooseTheme(choice.value)}
               >
-                {label}
-              </button>
-            ))}
-            {/* 内置主题清单（第 55 轮 B-105）：加一套主题 = themes.ts 加一项 + styles.css 加一段 */}
-            {BUILTIN_THEMES.map((theme) => (
-              <button
-                key={theme.id}
-                type="button"
-                role="radio"
-                aria-checked={draft.theme === theme.id}
-                className={draft.theme === theme.id ? 'is-on' : ''}
-                data-theme-id={theme.id}
-                onClick={() => {
-                  update({ theme: theme.id })
-                  document.documentElement.setAttribute('data-theme', theme.id)
-                }}
-              >
-                {theme.name}
+                {choice.label}
               </button>
             ))}
           </div>

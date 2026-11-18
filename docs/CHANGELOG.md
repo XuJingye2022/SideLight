@@ -4,6 +4,13 @@
 
 ## Unreleased（第 29–74 轮，未发版）
 
+**第 77 轮（同一未发版区间）**
+
+- 主题单选组键盘模型（A1，B-109）：`src/lib/radioGroup.ts`（`nextRadioIndex` 右/下 +1、左/上 −1、Home/End、未知键 null；`rovingTabIndex` 三态）+ 单测 10 条；`SettingsDialog.tsx` 两段 map 合成 `THEME_CHOICES` 一段渲染，按钮 roving tabindex，`.theme-options` 的 `onKeyDown` 命中键后改主题并组内移焦。
+- 只读视图查找条锁死（A2，B-136）：`src/lib/findBarState.ts`（`findBarControls`）+ 单测 7 条；`FindBar.tsx` 预览/源码态两输入 `readOnly` + `aria-describedby`、Aa/ab `disabled`、占位「（此视图不可用）」，Enter 二道闸保留。
+- 字数明细面板 Tab 关闭（A3，B-151）：`StatsDetail.tsx` 的 `onKeyDown` 认 Tab/Shift+Tab → `preventDefault` + 关面板 + 焦点回 `.stats-trigger`，与 App 的 Esc 分支同落点。
+- 门禁：首屏 gzip **303,667 B**（余 6,333）；`npm test` **45 文件 576 条 0 fail**（基线 43/559）。tester 用 ego-browser 真机页复跑浏览器断言（CDP 9222–9226 无监听）：方向键/End/Home 与主题切换、预览态查找锁、Tab/Shift+Tab/Esc 落点全过；UNVERIFIED：0 console 错误未采、交付脚本未按 CDP 执行（见 `docs/iteration/round-77/test.md`）。
+
 **第 76 轮（同一未发版区间）**
 
 - HTML 导出带目录与锚点（A1，B-134）：`buildExportToc` / `applyExportTocHtml` 纯函数（`src/lib/export.ts`，不新建模块、不碰 DOM），第 k 个顶层标题插 `id="sl-toc-k"`、`[TOC]` 段换 `<nav class="sl-toc">`，`STYLES` 加 `nav.sl-toc`；无标记/无标题/原文全转义时保字面；`export.test.ts` +6。
