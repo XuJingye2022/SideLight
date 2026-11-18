@@ -116,7 +116,15 @@ import {
   type WorkspaceFileNode,
 } from './lib/workspace.ts'
 import { assetFileName, writeAsset } from './lib/asset.ts'
-import { clearAssetCache, hostAssetUrl, resolveAsset, resolveAssetSegments, setAssetDocPath, setAssetResolver } from './lib/assetResolve.ts'
+import {
+  clearAssetCache,
+  hostAssetUrl,
+  resolveAsset,
+  resolveAssetSegments,
+  setAssetDocPath,
+  setAssetResolver,
+  setHostAssetMode,
+} from './lib/assetResolve.ts'
 import { ResolvingImage } from './lib/assetImage.ts'
 import { getHostTransport } from './lib/hostBridge.ts'
 import { loadSession, permissionOf, restorePlan, saveSession } from './lib/session.ts'
@@ -1217,6 +1225,42 @@ export default function App() {
     setActiveOutline(activeOutlineId(items, current.state.selection.from))
   }, [])
 
+  /**
+   * 宿主文档模式开关：一个地方同时写 ref 与资产模块的标志（第 82 轮 B-121）。
+   * 两个值必须同进同退，否则相对图会在宿主流派漏掉「等 `/__asset` 再写 src」的保护。
+   */
+  const markHostMode = useCallback((next: boolean) => {
+    hostModeRef.current = next
+    setHostAssetMode(next)
+  }, [])
+
+  /**
+   * 图片解析器：工作区文档走 FSA（第 38 轮），宿主单文件文档走 `/__asset`（第 57 轮 B-004）。
+   * 抽成稳定回调，是为了让载入路径能在 setMarkdown 之前就把对应的解析器装上——
+   * NodeView 是在 dispatch 里同步创建的，那时现读 resolver（第 82 轮 B-121）。
+   */
+  const hostResolver = useCallback(async (src: string) => hostAssetUrl(src), [])
+
+  const workspaceResolver = useCallback(async (src: string, docPath: string) => {
+    const space = workspaceRef.current
+    if (!space?.rootHandle) return null
+    // 来源校验：宿主（空串）与单文件打开的裸名（图.md）都不许按工作区根解析，
+    // 否则会把别人的目录里的同名图显示成本篇的图
+    if (!docPath || !docPath.startsWith(space.name + '/')) return null
+    try {
+      // 从工作区根走：../ 要先从文档目录弹一层，不能拿 parentDirectory 当起点
+      const parts = resolveAssetSegments(docPath.split('/').slice(1, -1), src)
+      if (!parts) return null
+      let dir = space.rootHandle
+      for (const segment of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(segment)
+      const handle = await dir.getFileHandle(parts[parts.length - 1])
+      return URL.createObjectURL(await handle.getFile())
+    } catch {
+      // 文件不存在/无权限：返回 null 且不缓存，补上文件后还能重试
+      return null
+    }
+  }, [])
+
   useEffect(() => {
     if (!editor) return
     if (import.meta.env.DEV) performance.mark('sl-load-start')
@@ -1253,7 +1297,9 @@ export default function App() {
       // 宿主只有 /__doc，没有目录句柄：清掉上一篇工作区文档的路径，图片一律不解析
       setAssetDocPath('')
       const writable = data.readOnly !== true
-      hostModeRef.current = true
+      // 早于下面的 setMarkdown：NodeView 在 dispatch 里同步创建，宿主流派要现成能拿到 /__asset
+      markHostMode(true)
+      setAssetResolver(hostResolver)
       setDocNotes([])
       const split = splitFrontmatter(data.text)
       const footnoteSplit = extractFootnotes(split.body)
@@ -1321,7 +1367,7 @@ export default function App() {
       const context = buildContext(readBlocks(editor), from, to)
       setSelection({ chars: context.selection.length, words: 0, from, to, source: context.source })
     },
-    [editor, enterSourceFor, setMarkdown, syncDocInfo, rememberDisk],
+    [editor, enterSourceFor, setMarkdown, syncDocInfo, rememberDisk, markHostMode, hostResolver],
   )
 
   /**
@@ -1335,7 +1381,8 @@ export default function App() {
     /** 宿主信息取不到：显示错误、清空正文，绝不回退到 localStorage 旧草稿 */
     const hostUnavailable = (message: string) => {
       if (cancelled) return
-      hostModeRef.current = true
+      // 宿主信息取不到也仍处在宿主页：相对图不许按裸路径请求（第 82 轮 B-121）
+      markHostMode(true)
       setAssetDocPath('')
       setHostError(message)
       setHostDoc(null)
@@ -1575,7 +1622,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [editor, applyHostPayload, setMarkdown, syncDocInfo])
+  }, [editor, applyHostPayload, setMarkdown, syncDocInfo, markHostMode])
 
   /* ---------- 批注 ---------- */
 
@@ -2373,6 +2420,9 @@ export default function App() {
       // 必须早于下面的 setMarkdown：它同步 dispatch 建 NodeView，图片解析现读这个路径
       // 读 workspaceRef 而不是 workspace：本函数的 deps 里没有 workspace，闭包会一直看到 null
       setAssetDocPath(file?.path ?? (workspaceRef.current ? `${workspaceRef.current.name}/${name}` : ''))
+      // 换成普通文档：宿主流派结束，解析器与「等解析再写 src」的保护都切回工作区那套
+      markHostMode(false)
+      setAssetResolver(workspaceResolver)
       const split = splitFrontmatter(text)
       const footnoteSplit = extractFootnotes(split.body)
       eolRef.current = text.includes('\r\n') ? 'crlf' : 'lf'
@@ -2422,9 +2472,8 @@ export default function App() {
         clearTimeout(draftTimerRef.current)
         draftTimerRef.current = null
       }
-      // 换成普通文档：宿主模式结束，之后保存不再写回 argv 文件
+      // 换成普通文档：宿主模式结束，之后保存不再写回 argv 文件（模式标志已在本函数入口置 false）
       setHostDoc(null)
-      hostModeRef.current = false
       setSaveError(null)
       setReadOnly(false)
       setAnnotations([])
@@ -2501,7 +2550,7 @@ export default function App() {
         })()
       }
     },
-    [editor, enterSourceFor, setMarkdown, restoreAnnotationsFor, syncDocInfo, rememberDisk],
+    [editor, enterSourceFor, setMarkdown, restoreAnnotationsFor, syncDocInfo, rememberDisk, markHostMode, workspaceResolver],
   )
 
   // 切换文档前先拦住未保存的改动。
@@ -3020,10 +3069,11 @@ export default function App() {
   const keepDraft = useCallback(() => {
     setDraftPrompt(null)
     hostPayloadRef.current = null
-    hostModeRef.current = false
+    // 不再代表宿主文件：相对图回到「浏览器里没有可解析的图」那套（第 82 轮 B-121）
+    markHostMode(false)
     setHostDoc(null)
     setNotice({ text: '已保留本地草稿；宿主文件没有载入，保存会走「另存为」。', kind: 'info', persist: true })
-  }, [])
+  }, [markHostMode])
 
   /** 冷启动草稿确认：继续打开 → 载入宿主正文 */
   const openHostAnyway = useCallback(() => {
@@ -3120,7 +3170,8 @@ export default function App() {
       if (hostDoc) {
         void clearHostDraftRef.current()
         host?.postMessage({ v: 1, type: 'forget' })
-        hostModeRef.current = false
+        // 有了新落点就不再是宿主文档（相对图随之退出 /__asset 那套，第 82 轮 B-121）
+        markHostMode(false)
         setHostDoc(null)
       }
       autoFailCountRef.current = 0
@@ -3140,7 +3191,7 @@ export default function App() {
       void discardDraftFor(name, oldName)
       return true
     },
-    [discardDraftFor, hostDoc, rememberDisk],
+    [discardDraftFor, hostDoc, rememberDisk, markHostMode],
   )
 
   /** 真正写盘：有句柄写句柄，没有就弹保存位置；调用前已经过差异门 */
@@ -4946,39 +4997,15 @@ export default function App() {
 
   // 图片解析器：工作区文档走 FSA（第 38 轮），宿主单文件文档走 `/__asset`（第 57 轮 B-004）。
   // 两条互斥，写在同一个 effect 里：分开写会按声明顺序互相覆盖。
+  // 解析器本体是两个稳定 useCallback，载入路径能在 setMarkdown 之前抢先装好（第 82 轮 B-121）。
   useEffect(() => {
     if (!editor) return
-    if (hostDoc?.ready) {
-      setAssetResolver(async (src) => hostAssetUrl(src))
-      return () => {
-        setAssetResolver(null)
-        clearAssetCache()
-      }
-    }
-    setAssetResolver(async (src, docPath) => {
-      const space = workspaceRef.current
-      if (!space?.rootHandle) return null
-      // 来源校验：宿主（空串）与单文件打开的裸名（图.md）都不许按工作区根解析，
-      // 否则会把别人的目录里的同名图显示成本篇的图
-      if (!docPath || !docPath.startsWith(space.name + '/')) return null
-      try {
-        // 从工作区根走：../ 要先从文档目录弹一层，不能拿 parentDirectory 当起点
-        const parts = resolveAssetSegments(docPath.split('/').slice(1, -1), src)
-        if (!parts) return null
-        let dir = space.rootHandle
-        for (const segment of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(segment)
-        const handle = await dir.getFileHandle(parts[parts.length - 1])
-        return URL.createObjectURL(await handle.getFile())
-      } catch {
-        // 文件不存在/无权限：返回 null 且不缓存，补上文件后还能重试
-        return null
-      }
-    })
+    setAssetResolver(hostDoc?.ready ? hostResolver : workspaceResolver)
     return () => {
       setAssetResolver(null)
       clearAssetCache()
     }
-  }, [workspace, editor, hostDoc])
+  }, [workspace, editor, hostDoc, hostResolver, workspaceResolver])
 
   // 预热本篇的相对路径图片：订阅者晚到或缓存被清后，NodeView 靠订阅把 src 换回来
   useEffect(() => {

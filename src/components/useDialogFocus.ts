@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 
+import { firstTabbableIndex, lastTabbableIndex } from '../lib/dialogFocus.ts'
+
 const FOCUSABLE = [
   'a[href]',
   'button:not([disabled])',
@@ -32,7 +34,22 @@ export function useDialogFocus(
 
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const focusables = () => Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))
-    focusables()[0]?.focus()
+    /**
+     * Tab 序只算 tabIndex ≥ 0 的项（第 82 轮 B-109）：主题单选组是 roving tabindex，组内只有选中项
+     * 进 Tab 序；拿 −1 项当初始落点或环边界，会让焦点落在未选中项、Shift+Tab 还会直接跑出对话框。
+     * 首/末都取 tabIndex ≥ 0 的项，中间夹着的 −1 项一并剔掉。
+     */
+    const tabbables = () => {
+      const items = focusables()
+      const tabs = items.map((element) => element.tabIndex)
+      const from = firstTabbableIndex(tabs)
+      const to = lastTabbableIndex(tabs)
+      if (from < 0 || to < 0) return []
+      return items.slice(from, to + 1).filter((element) => element.tabIndex >= 0)
+    }
+    // 一项可 Tab 的都没有时退回老行为（仍然送焦，不把用户留在对话框外）
+    const initial = tabbables()[0] ?? focusables()[0]
+    initial?.focus()
 
     const overlay = dialog.closest(overlaySelector)
     const backdrop: HTMLElement[] = []
@@ -47,7 +64,9 @@ export function useDialogFocus(
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Tab') return
-      const items = focusables()
+      // 环的边界用 Tab 序；全组都不可 Tab 时退回全部可聚焦项，焦点一样不许跑出对话框
+      const usable = tabbables()
+      const items = usable.length > 0 ? usable : focusables()
       if (items.length === 0) return
       const first = items[0]
       const last = items[items.length - 1]

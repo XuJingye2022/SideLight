@@ -19,6 +19,9 @@ type Resolver = (src: string, docPath: string) => Promise<string | null>
 
 // 当前文档路径（带工作区名前缀）；resolver 调用时现读，不在 effect 里闭包捕获
 let currentDocPath = ''
+// 宿主单文件模式（第 82 轮 B-121）：`/__doc` 载入的文档没有目录句柄，docPath 恒为空串，
+// 但相对图仍要走宿主 `/__asset`——不能把「空路径」当成「浏览器里没有可解析的图」。
+let hostAssetMode = false
 // 代际：换文档/清缓存都会 +1，在飞的结果回来先比它
 let epoch = 0
 let resolver: Resolver | null = null
@@ -34,6 +37,29 @@ export function setAssetResolver(next: Resolver | null): void {
 
 export function getAssetDocPath(): string {
   return currentDocPath
+}
+
+/**
+ * 宿主单文件模式开关（第 82 轮 B-121）：宿主文档没有目录句柄，docPath 是空串，
+ * 但相对图要等 `/__asset` 解析出来再写 src，否则浏览器先按裸相对路径请求一次（宿主下 404）。
+ * 由 App 在宿主正文载入/结束的每个出口成对设置，和 `hostModeRef` 同进同退。
+ */
+export function setHostAssetMode(next: boolean): void {
+  hostAssetMode = next === true
+}
+
+export function isHostAssetMode(): boolean {
+  return hostAssetMode
+}
+
+/**
+ * 纯函数：这张图的 src 要不要等解析成功再写（第 82 轮 B-121）。
+ * 工作区文档（docPath 非空）与宿主单文件文档（hostMode）都要等；`data:`/`blob:`/`https(?:)`/
+ * 空值交给浏览器直接显示。参数显式传入，单测不用碰模块状态。
+ */
+export function shouldWaitAssetPaint(src: unknown, docPath: string, hostMode: boolean): boolean {
+  if (!isRelativeAsset(src)) return false
+  return docPath !== '' || hostMode === true
 }
 
 /**

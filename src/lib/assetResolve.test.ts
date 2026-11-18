@@ -7,11 +7,14 @@ import {
   getAssetVersion,
   getResolvedAsset,
   hostAssetUrl,
+  isHostAssetMode,
   isRelativeAsset,
   resolveAsset,
   resolveAssetSegments,
   setAssetDocPath,
   setAssetResolver,
+  setHostAssetMode,
+  shouldWaitAssetPaint,
   subscribeResolved,
 } from './assetResolve.ts'
 
@@ -165,4 +168,49 @@ test('版本号只在解析成功/清缓存时 +1，缓存命中不加也不通�
   assert.equal(notified, 2)
   assert.equal(getResolvedAsset('assets/v.png'), null)
   offAgain()
+})
+
+test('shouldWaitAssetPaint：工作区文档的相对图要等解析（第 82 轮 B-121）', () => {
+  assert.equal(shouldWaitAssetPaint('assets/a.png', '示例文集/笔记.md', false), true)
+  assert.equal(shouldWaitAssetPaint('./assets/a.png', '笔记.md', false), true)
+  assert.equal(shouldWaitAssetPaint('sub/图 1.png', '示例文集/a/b.md', false), true)
+})
+
+test('shouldWaitAssetPaint：宿主单文件文档（docPath 恒空）也要等 /__asset', () => {
+  assert.equal(shouldWaitAssetPaint('assets/a.png', '', true), true)
+  assert.equal(shouldWaitAssetPaint('../a.png', '', true), true)
+})
+
+test('shouldWaitAssetPaint：既没有文档路径也不在宿主模式 → 不等（交给浏览器）', () => {
+  assert.equal(shouldWaitAssetPaint('assets/a.png', '', false), false)
+})
+
+test('shouldWaitAssetPaint：data:/blob:/http(s) 一律不等', () => {
+  assert.equal(shouldWaitAssetPaint('data:image/png;base64,AAA', '示例文集/笔记.md', false), false)
+  assert.equal(shouldWaitAssetPaint('data:image/png;base64,AAA', '', true), false)
+  assert.equal(shouldWaitAssetPaint('blob:http://localhost/abc', '', true), false)
+  assert.equal(shouldWaitAssetPaint('https://example.com/a.png', '示例文集/笔记.md', true), false)
+  assert.equal(shouldWaitAssetPaint('http://example.com/a.png', '', true), false)
+})
+
+test('shouldWaitAssetPaint：空值与空白一律不等', () => {
+  assert.equal(shouldWaitAssetPaint('', '示例文集/笔记.md', true), false)
+  assert.equal(shouldWaitAssetPaint('   ', '', true), false)
+  assert.equal(shouldWaitAssetPaint(null, '示例文集/笔记.md', true), false)
+  assert.equal(shouldWaitAssetPaint(undefined, '', true), false)
+})
+
+test('宿主单文件模式开关：默认关，置真后 isHostAssetMode 为真，关掉后回到假', () => {
+  setHostAssetMode(false)
+  assert.equal(isHostAssetMode(), false)
+  setHostAssetMode(true)
+  assert.equal(isHostAssetMode(), true)
+  // 开关本身不改文档路径：宿主模式仍靠 setAssetDocPath('') 表达「没有目录句柄」
+  setAssetDocPath('示例文集/开关.md')
+  assert.equal(getAssetDocPath(), '示例文集/开关.md')
+  // 关掉后同一张相对图不再等解析：这就是「宿主 → 普通文档」切换后该有的行为
+  assert.equal(shouldWaitAssetPaint('assets/a.png', '', isHostAssetMode()), true)
+  setHostAssetMode(false)
+  assert.equal(isHostAssetMode(), false)
+  assert.equal(shouldWaitAssetPaint('assets/a.png', '', isHostAssetMode()), false)
 })

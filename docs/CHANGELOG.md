@@ -4,6 +4,13 @@
 
 ## Unreleased（第 29–74 轮，未发版）
 
+**第 82 轮（同一未发版区间）**
+
+- 宿主单文件文档的相对图不再先发一次裸路径请求（A1，B-121）：`assetResolve.ts` 加 `setHostAssetMode`/`isHostAssetMode` 与纯函数 `shouldWaitAssetPaint(src, docPath, hostMode)`（宿主 `docPath` 恒空但仍要等 `/__asset`），`assetImage.ts:51` 改用它；App 抽 `markHostMode`/`hostResolver`/`workspaceResolver`，在宿主正文载入（`setMarkdown` 之前）、`hostUnavailable`、`keepDraft`、`performCommit`、`loadIntoEditor` 各出口成对置位（`src/App.tsx:1232,1301,1385,2424,3073,3174`）。真机（ego CDP 54280，stub `/__doc`+`/__asset`）：宿主流派裸 `/assets/a.png` 请求 **0**（改前 1）、`/__asset` 1、`img[src]`=`/__asset?path=…`、`naturalWidth` 1；反向工作区 `blob:` 1、裸 0；`assetResolve.test.ts` 9→**15**。
+- 设置主题单选组的初始焦点与 Tab 环收口（A2，B-109）：新 `src/lib/dialogFocus.ts`（`firstTabbableIndex`/`lastTabbableIndex`），`useDialogFocus` 的初始落点与 Tab 环只算 `tabIndex >= 0` 的项、全 −1 时退回原行为（`src/components/useDialogFocus.ts:42-52,68-69`），`dialogFocus.test.ts` 5 条。真机：重开设置 **32 ms** 落 `aria-checked` radio（改前「浅色」`tabIndex=−1`）、Shift+Tab 落「保存」（改前落 BODY）、「保存」Tab 环回选中项；tester 独立换选第 4 项「暖纸」复跑同组断言 + `?`/Esc 焦点还原回归 6/6。
+- 工具栏窄钮与状态栏字数钮补齐 24×24（A3，B-110）：`.toolbar-group > button` 与 `.stats-trigger` 各加 `min-width: 24px`（`src/styles.css:1616`、`:1949`）。真机两档：1440×900 空文档 11 枚按钮最小 **24×24**（改前斜体 **21.2×24**）、`.stats-trigger` **24×24**（改前 **21.77×24**）、1000×620 同且 `scrollWidth-clientWidth` 0；r79 批注卡脚本 7/7（54/42/66×24）；截图 `shots/round-82/toolbar-1000x620.png`。
+- 门禁：首屏 gzip **304,307 B**（余 5,693 / 15,693）；`npm test` **46 文件 591 条 0 fail**；未动编辑器/序列化不跑 roundtrip。tester 独立验收（未读 `impl.md`；CDP 9222–9226 无监听 → ego-browser CDP 54280 真机页，自写 `.tmp/e2e-r82-tester-{indep,reg}.mjs`）：A1 13/13、A2 9/9 + 独立 16/17（唯一 FAIL 为 tester 断言写错：`Ctrl+/` 是源码模式键位）、A3 8/8 + 7/7、回归 6/6，0 pageerror。UNVERIFIED：真宿主 WebView2 内 `/__asset` 渲染（本机 INIT-FAIL，用 stub 端点验）、真实 FSA/IME/原生打印，见 `docs/iteration/round-82/test.md`。
+
 **第 81 轮（同一未发版区间）**
 
 - 1 MB 源码态逐键不再算全篇字数（A1，B-139）：`sourceStats` state + 300 ms 防抖 effect（`src/App.tsx:598,686-688,3806-3831`），进源码态先算 1 次、≤20 KB 立即算、退出复位；状态栏取值改 `sourceMode ? (sourceStats ?? stats) : stats`（`:6094`）。真机 1 MB（ego CDP 54280，before/after 各跑一遍）：`sl-source-stats` 标记 10 键期间 **0**、+600 ms **+1**、+800 ms 不再增；每键 longTask p50 **85 → 56 ms**、600 ms 状态栏读值与改前逐字符同（`333,337 字 · 阅读约 1260 分钟`）、`value.length` +10、`sl-parse-done` 3→3、0 错误。

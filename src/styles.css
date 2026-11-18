@@ -1611,6 +1611,9 @@ button:disabled {
  */
 .toolbar-group > button {
   height: 24px;
+  /* 第 82 轮 B-110：最窄的钮（斜体 I）实测 21.2×24，达不到 24×24；只补最小宽度，
+     宽度靠 padding 自然撑开的钮不受影响，`.menu button` 仍按原样 */
+  min-width: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1942,6 +1945,8 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
+  /* 第 82 轮 B-110：空文档只显示「0 字」时实测 21.77×24，补最小宽度到 24；文字仍靠左 */
+  min-width: 24px;
 }
 
 .stats-trigger:focus-visible {

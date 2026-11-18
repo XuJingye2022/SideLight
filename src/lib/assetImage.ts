@@ -1,12 +1,6 @@
 import { Image } from '@tiptap/extension-image'
 
-import {
-  getAssetDocPath,
-  getResolvedAsset,
-  isRelativeAsset,
-  resolveAsset,
-  subscribeResolved,
-} from './assetResolve.ts'
+import * as assets from './assetResolve.ts'
 
 /** 属性照抄到 img 上；正文节点里仍是相对路径，只有 DOM 的 src 被换掉 */
 function paintAttributes(img: HTMLImageElement, attrs: Record<string, unknown>): void {
@@ -50,10 +44,10 @@ export const ResolvingImage = Image.extend({
         unsubscribe?.()
         unsubscribe = null
         rawSrc = src
-        // 有工作区文档路径时，相对图在解析成功前不写 src：否则浏览器立刻去请求那个相对 URL，
-        // 事后再移除 src 已经晚了（解析失败本来就该一个请求都不发）。
-        // 宿主/单文件（没有文档路径）与 data:/blob:/http(s) 保持原样：它们本来就该直接显示。
-        const waitResolve = isRelativeAsset(src) && getAssetDocPath() !== ''
+        // 有工作区文档路径、或宿主单文件文档（docPath 恒空但走 /__asset）时，相对图在解析成功前
+        // 不写 src：否则浏览器立刻去请求那个相对 URL（宿主下 404），事后再移除 src 已经晚了
+        // （解析失败本来就该一个请求都不发）。data:/blob:/http(s) 保持原样：它们本来就该直接显示。
+        const waitResolve = assets.shouldWaitAssetPaint(src, assets.getAssetDocPath(), assets.isHostAssetMode())
         if (waitResolve) {
           img.removeAttribute('src')
           img.removeAttribute('data-asset-missing')
@@ -61,15 +55,15 @@ export const ResolvingImage = Image.extend({
         } else {
           paint(src)
         }
-        if (!isRelativeAsset(src)) return
-        void resolveAsset(src).then((url) => {
+        if (!assets.isRelativeAsset(src)) return
+        void assets.resolveAsset(src).then((url) => {
           if (rawSrc !== src) return
           if (url) paint(url)
           else if (waitResolve) markMissing()
         })
         // 缓存晚到只能靠订阅回填：PM 对未变更的节点不调 update()
-        unsubscribe = subscribeResolved(() => {
-          const next = getResolvedAsset(src)
+        unsubscribe = assets.subscribeResolved(() => {
+          const next = assets.getResolvedAsset(src)
           if (next && next !== shown) paint(next)
         })
       }
