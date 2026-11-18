@@ -79,6 +79,8 @@ npm run roundtrip  # 只在改动编辑器或 markdown 序列化时跑
 
 收工改三处：README 的「现在能做什么」与「现在不能做什么」、CHANGELOG 当次条目、被推翻的 ADR；轮次结束由根代理更新 `docs/iteration/STATE.md`。做不到的事写清楚原因，别留给下一个人猜。
 
+发现池在 `docs/iteration/BACKLOG.md`（P0/P1/P2/deferred）。P2 可以之后一点点完善，不阻塞停止。
+
 ## 8. 踩过的坑（改之前先看这里）
 
 - **PowerShell 脚本必须带 UTF-8 BOM**：`host/build.ps1`、`packaging/*.ps1` 含中文；Windows PowerShell 5.1 按 ANSI 读无 BOM 文件，会报 `TerminatorExpectedAtEndOfString` 之类假语法错误。用 `[IO.File]::WriteAllText(path, text, New-Object Text.UTF8Encoding($true))` 保存。
