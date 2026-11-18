@@ -300,6 +300,14 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **300,727 B**（比第 60 轮 +968，内部 310,000 / 硬线 320,000，余 9,273）；`npm test` **40 个文件 508 条**全过；`npm run roundtrip` 富文本 6/8、源码 8/8（与第 58 轮基线相同，报告未变）；`theme-acceptance` 27/27；`tree-acceptance` 54/56（2 条既有过期断言，与第 58/59 轮相同）。
 - UNVERIFIED（本轮）：B1 的 1 MB 相对 p50 门槛（改前差 0，60% 不可达）与 100 KB median-of-3 差未达（残值 +3/+4 ms 只记，机制由单测坐实）；HTML 导出 / 打印是否带目录；真宿主 WebView2、真实 FSA 句柄与磁盘写回、中文 IME。
 
+**第 62 轮（同一未发版区间）**
+
+- **软换行段落不再整段当目录标记**（B-132，findings-bug F1）：`toc.ts` 新增 `isTocMarkerText`（`/^[ \t]*\[toc\][ \t]*$/i`，无 `m`），`isTocParagraph`、`tocRender.ts` 的逐键判定与 `PreviewPane.tsx` 的段落判定改用它，`hasTocMarker`（带 `im`）只留给原文与粘贴片段。`第一行文字\n[TOC]\n第三行文字` 这类软换行段落的其余文字不再被编辑视图 `display:none` 收起、也不再被预览整段换成 `<nav>`；保存字节只差新增字。单测 +2（软换行不算标记、无标记段位置）。
+- **手打 `[TOC]` 立即生效**（B-133，findings-typora F1）：`toc.ts` 加 `escapedTocLineCount`（围栏代码块与 `$$` 段跳过）与 `tocShouldRender` / `hasTocSource`，转义守卫改为「原文里这些标记行全被转义才不挂」；`tocRender.ts:131` 与 `App.tsx:5586` 改用文档口径（`editor.state.doc`）。已打开的文档末尾手打 `[TOC]` 当场出目录、标记段高 0、`Ctrl+S` 仍写单行 `[TOC]`、重开与只读预览各 1 份；`\[TOC\]` 文档两边留字面、保存字节不变；混合文档当场两份目录、保存整篇转义、重开 0（既有规则）。单测 +3。
+- **差距表补代码块高亮行**（B-135 文档面）：`docs/typora-gap.md` 缺表 4→**5**、「编辑与格式」1→2、TOC 行改「导出/打印不带（B-134 实测，打印同实现）」；README / AGENTS 同步 39/4→**39/5**；BACKLOG 清残留并补 B-134 / B-136。
+- 门禁：`npm run verify` PASS，首屏 gzip **300,834 B**（比第 61 轮 +107，内部 310,000 / 硬线 320,000，余 19,166）；`npm test` **40 个文件 513 条**全过；`npm run roundtrip` 富文本 6/8、源码 8/8、firstSaveBlocked 1/8（与第 58 轮基线同）。
+- UNVERIFIED（本轮）：打印 / 另存 PDF 是否带目录（按同一 `getHTML()` 实现推断，B-134 只实测 HTML 导出）；真实 FSA 磁盘写回与中文 IME 沿用假 workspace。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

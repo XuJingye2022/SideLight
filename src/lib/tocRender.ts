@@ -5,7 +5,7 @@ import type { EditorView } from '@tiptap/pm/view'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 import type { OutlineItem } from './outline.ts'
-import { hasTocMarker, isTocParagraph, tocEntries } from './toc.ts'
+import { hasTocMarker, isTocMarkerText, isTocParagraph, tocEntries, tocShouldRender } from './toc.ts'
 
 /**
  * 第 58 轮 B-106：`[TOC]` 段落的渲染。
@@ -128,12 +128,12 @@ export function buildTocDecorations(doc: ProseMirrorNode, options: TocBuildOptio
   })
   if (sources.length === 0) return emptyState()
   const original = options.original ?? null
-  if (typeof original === 'string' && original.length > 0 && !hasTocMarker(original)) {
+  const entries = tocEntries(doc)
+  // 第 62 轮 B-133：只有「原文里这些标记行全被转义」才不挂；手打的标记当场生效。
+  if (!tocShouldRender(sources.length, entries.length, original)) {
     // 原文是转义的 \[TOC\]：不挂目录，也不隐藏那一行（隐藏了字面文本就看不见了）
     return emptyState()
   }
-  const entries = tocEntries(doc)
-  if (entries.length === 0) return emptyState()
   const headings: TocRange[] = []
   doc.forEach((node, offset) => {
     if (node.type.name === 'heading') headings.push({ from: offset, to: offset + node.nodeSize })
@@ -165,7 +165,8 @@ export function buildTocDecorations(doc: ProseMirrorNode, options: TocBuildOptio
 /** 这次事务有没有可能造出 `[TOC]` 段落：只看光标所在段落和插入片段，不全篇扫 */
 function maybeTocTouched(transaction: Transaction): boolean {
   const parent = transaction.selection.$from.parent
-  if (parent.isTextblock && hasTocMarker(parent.textContent)) return true
+  // 段落按整段判定：软换行段落里夹的 `[TOC]` 不重建（第 62 轮 B-132）
+  if (parent.isTextblock && isTocMarkerText(parent.textContent)) return true
   for (const step of transaction.steps) {
     const slice = (step as { slice?: { content: Fragment } }).slice
     if (!slice || slice.content.size === 0) continue

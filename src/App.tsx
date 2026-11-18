@@ -75,7 +75,7 @@ import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDe
 import { ensureKatex } from './lib/katexLazy.ts'
 import { MermaidPreview } from './lib/mermaidPreview.ts'
 import { createToc } from './lib/tocRender.ts'
-import { hasTocMarker } from './lib/toc.ts'
+import { hasTocSource } from './lib/toc.ts'
 import { findAll, type Match } from './lib/find.ts'
 import type { SearchHit } from './lib/globalSearch.ts'
 import { applyReplacements, type ReplaceRange } from './lib/replaceRanges.ts'
@@ -5583,7 +5583,7 @@ export default function App() {
                   bodyHtml={bodyHtml}
                   frontmatter={frontmatter}
                   footnotes={footnotes}
-                  tocActive={hasTocMarker(rawTextRef.current ?? bodyHtml)}
+                  tocActive={editor ? hasTocSource(editor.state.doc, rawTextRef.current) : false}
                 />
               )
             })()

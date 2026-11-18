@@ -4,7 +4,7 @@ import katex from '../lib/katexLazy.ts'
 import { ensureKatex, isKatexReady, subscribe } from '../lib/katexLazy.ts'
 import { getAssetVersion, getResolvedAsset, isRelativeAsset, resolveAsset, subscribeResolved } from '../lib/assetResolve.ts'
 import { renderFootnotes, renderFrontmatter } from '../lib/export.ts'
-import { hasTocMarker } from '../lib/toc.ts'
+import { isTocMarkerText } from '../lib/toc.ts'
 
 type Props = {
   bodyHtml: string
@@ -21,26 +21,31 @@ type Props = {
  * 只读预览里的目录：只收顶层标题（引用块、列表里的标题不算章节），
  * 把文字正好是 `[TOC]` 的顶层段落换成一个 `<nav class="sl-toc">`。
  * 与编辑视图的目录 widget 同一套类名与点击跳转口径。
+ * 段落按整段判定：软换行段落里夹的 `[TOC]` 保留字面（第 62 轮 B-132）。
  */
 function renderPreviewToc(doc: Document): void {
   const children = [...doc.body.children]
   const headings = children.filter((element) => /^H[1-6]$/.test(element.tagName))
   if (headings.length === 0) return
-  const marker = children.find((element) => element.tagName === 'P' && hasTocMarker(element.textContent ?? ''))
-  if (!marker) return
-  const nav = doc.createElement('nav')
-  nav.className = 'sl-toc preview-toc'
-  nav.setAttribute('aria-label', '目录')
-  headings.forEach((heading, index) => {
-    const button = doc.createElement('button')
-    button.type = 'button'
-    button.className = 'sl-toc-item'
-    button.dataset.level = heading.tagName.slice(1)
-    button.dataset.tocIndex = String(index)
-    button.textContent = heading.textContent?.trim() ?? ''
-    nav.append(button)
+  const markers = children.filter(
+    (element) => element.tagName === 'P' && isTocMarkerText(element.textContent ?? ''),
+  )
+  if (markers.length === 0) return
+  markers.forEach((marker) => {
+    const nav = doc.createElement('nav')
+    nav.className = 'sl-toc preview-toc'
+    nav.setAttribute('aria-label', '目录')
+    headings.forEach((heading, index) => {
+      const button = doc.createElement('button')
+      button.type = 'button'
+      button.className = 'sl-toc-item'
+      button.dataset.level = heading.tagName.slice(1)
+      button.dataset.tocIndex = String(index)
+      button.textContent = heading.textContent?.trim() ?? ''
+      nav.append(button)
+    })
+    marker.replaceWith(nav)
   })
-  marker.replaceWith(nav)
 }
 
 /** 编辑器序列化出来的公式只有 latex，没有渲染结果；预览里补上 KaTeX */

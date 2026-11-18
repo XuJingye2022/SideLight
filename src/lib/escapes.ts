@@ -11,7 +11,7 @@ export function repairCalloutMarkers(markdown: string): string {
 }
 
 /** 整行只是一个被转义的 `\[TOC\]`（前导空白与 CR 允许；行尾空格也吃掉） */
-const TOC_ESCAPED_LINE = /^([ \t]*)\\\[toc\\\]([ \t]*)(\r?)$/i
+export const TOC_ESCAPED_LINE = /^([ \t]*)\\\[toc\\\]([ \t]*)(\r?)$/i
 /** 原文里出现过被转义的 `\[TOC\]`：说明作者是故意写成字面标记，整篇不还原 */
 const TOC_ESCAPED_SOURCE = /\\\[toc\\\]/i
 

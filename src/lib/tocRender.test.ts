@@ -59,6 +59,12 @@ test('原文只有转义写法 \\[TOC\\] 时不挂目录（plan-review R2）', (
   assert.equal(buildTocDecorations(doc, { original: '[TOC]\n' }).active, true)
   // 新建文档没有原文：照常挂
   assert.equal(buildTocDecorations(doc, { original: null }).active, true)
+  // 第 62 轮 B-133：原文没有 `[TOC]`、手打的标记照样当场挂
+  assert.equal(buildTocDecorations(doc, { original: '# 一\n\n正文\n' }).active, true)
+  // 第 62 轮 B-132：软换行段落里夹的 `[TOC]` 不算标记段
+  const soft = buildTocDecorations(schema.node('doc', null, [heading(1, '一'), para('a\n[TOC]\nb')]))
+  assert.equal(soft.active, false)
+  assert.equal(soft.sources.length, 0)
 })
 
 test('没有 [TOC] 段落或没有标题时不挂', () => {
