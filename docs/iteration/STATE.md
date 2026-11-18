@@ -162,6 +162,7 @@
 | 70 | B-152 删除后切换不被读不出的文件中断 | round-70/plan.md | PASS-WITH-UNVERIFIED：fallbackTargets + 撤销入口；真实 FSA 未验 | 612e370 |
 | 71 | B-152 delta 回归与跨目录/列表态补测 | workflow 直接下发 | PASS-WITH-UNVERIFIED：无代码改动；delta 0；真实 FSA 未验 | 4cccb03 |
 | 72 | **停止确认**：5 路 0 个新 P0/P1 | round-72/plan.md | NO-P0P1：5 份 findings 全 P2；BACKLOG 无 open P0/P1 → 按 v3 规则停止 | 无（只侦察） |
+| 73 | B-154 待办行高/复选框对齐 + B-155 TOC 相邻即露 + B-156 公式选中露源码 | round-73/plan.md（A 轮三任务；B 轮未做） | PASS-WITH-UNVERIFIED：tester 独立验收（未读 `impl.md`，重跑 A1/A2/A3 脚本 + `.tmp/e2e-r63-delta-toc.mjs`）——A1 li 50.14→**33.14**、连行距 53.19→**36.19**、`p` margin **0/0**、中心差 7.5→**0.06**、勾选写回 `- [x] `、截图 `shots/round-73/tasklist-fixed.png`；A2 载入 0/0、尾段 0/0、↑ 到正文甲 **1/33.14**、再 ↑ anchor 进 `.toc-source`、隔一块 0、`Shift+Home`+`Backspace` 后假 FSA 读回无 `[TOC]`，单测 `withToc('一')`→0、`withToc('一','二')`→−1；A3 单测 5 条（10 次换选区同一 `DecorationSet`）、行内/块级 `::after` 各含 `$\alpha$`/`$$\beta$$`、移开 0、`Ctrl+S` 字节同；门禁 verify 首屏 **302,787 B**（余 17,213）、test **41 文件 532 条**、roundtrip rich 6/8 source 8/8（报告无 diff）；偏差：A2 验收的「再 ↓」几何不可达，改第二次 ↑ 证键盘进入；问题 2 调研由 tester 补写 `round-73/typora-mechanism.md`（B1 未交付）。UNVERIFIED：Typora 主题 CSS 的 `.md-meta` 选择器、B1/B2/B3、真实 IME/FSA/WebView2。未发版 | 见 `git rev-parse HEAD` |
 
 ## 待办池（finder 优先从这里挑，也可自己发现）
 

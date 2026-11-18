@@ -78,10 +78,30 @@ function makeToc(entries: OutlineItem[], onJump: ((item: OutlineItem) => void) |
   return nav
 }
 
-/** 光标是否落在某个区间里（`[TOC]` 段落显隐用） */
-function revealedIndex(sources: TocRange[], from: number): number {
+/**
+ * 光标是否落在某个区间里、或紧挨着它（`[TOC]` 段落显隐用）。
+ * 第 73 轮 B-155：相邻也露出——标记段被 `display:none` 收起时，方向键从上下两段移进来
+ * 没有可见落点，光标会跳过它（第 61 轮只判「落在段内」，用户按 ↑/↓ 永远进不去）。
+ * 相邻按顶层块判：光标所在顶层块的末尾等于标记段开头（前一块），或开头等于标记段末尾（后一块）。
+ * 嵌套内容用 `$from.after(1)/before(1)` 取顶层边界，块内任意偏移都算。
+ */
+function revealedIndex(doc: ProseMirrorNode, sources: TocRange[], from: number, to: number = from): number {
+  if (sources.length === 0) return -1
+  const clamp = (pos: number) => Math.max(0, Math.min(pos, doc.content.size))
+  const $from = doc.resolve(clamp(from))
+  const $to = doc.resolve(clamp(to))
   for (let index = 0; index < sources.length; index += 1) {
-    if (from >= sources[index].from && from <= sources[index].to) return index
+    const source = sources[index]
+    // 落段内（含两端）仍算
+    if (from >= source.from && from <= source.to) return index
+    if ($from.depth >= 1 && $from.after(1) === source.from) return index
+    if ($to.depth >= 1 && $to.before(1) === source.to) return index
+  }
+  // 整篇选区（`Ctrl+A`）落在 doc 层（depth 0）：只认贴边
+  if ($from.depth === 0 || $to.depth === 0) {
+    for (let index = 0; index < sources.length; index += 1) {
+      if (from === sources[index].from || to === sources[index].to) return index
+    }
   }
   return -1
 }
@@ -148,7 +168,7 @@ export function buildTocDecorations(doc: ProseMirrorNode, options: TocBuildOptio
     }),
   )
   const widgetSet = DecorationSet.create(doc, widgets)
-  const reveal = options.selection ? revealedIndex(sources, options.selection.from) : -1
+  const reveal = options.selection ? revealedIndex(doc, sources, options.selection.from, options.selection.to) : -1
   return {
     set: composeSet(doc, widgetSet, sources, reveal),
     active: true,
@@ -228,7 +248,7 @@ function mapState(previous: TocDecorations, transaction: Transaction): TocDecora
     return { ...entry, pos, id: `h-${pos}` }
   })
   const widgetSet = previous.widgetSet.map(transaction.mapping, transaction.doc)
-  const revealed = revealedIndex(sources, transaction.selection.from)
+  const revealed = revealedIndex(transaction.doc, sources, transaction.selection.from, transaction.selection.to)
   const stale = stepsReachHeading(transaction)
   if (revealed === previous.revealed) {
     return {
@@ -264,8 +284,13 @@ export function createTocPlugin(options: TocOptions): Plugin<TocDecorations> {
         // (1) 停笔 300 ms 的 resync：没有 docChanged 也要重建（第 60 轮 plan-review R2）
         if (transaction.getMeta(tocKey)?.resync) return rebuild(transaction.doc, transaction.selection, previous)
         if (!transaction.docChanged) {
-          // 只换了选区：只更新「光标在 [TOC] 段里」的显隐，不重扫全篇（B2）
-          const revealed = revealedIndex(previous.sources, transaction.selection.from)
+          // 只换了选区：只更新「光标在 [TOC] 段里或紧邻」的显隐，不重扫全篇（B2 / 第 73 轮 B-155）
+          const revealed = revealedIndex(
+            transaction.doc,
+            previous.sources,
+            transaction.selection.from,
+            transaction.selection.to,
+          )
           if (revealed === previous.revealed) return previous
           return {
             ...previous,

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { Schema } from '@tiptap/pm/model'
-import { EditorState } from '@tiptap/pm/state'
+import { EditorState, TextSelection } from '@tiptap/pm/state'
 
 import { buildTocDecorations, createTocPlugin } from './tocRender.ts'
 
@@ -72,16 +72,44 @@ test('没有 [TOC] 段落或没有标题时不挂', () => {
   assert.equal(buildTocDecorations(schema.node('doc', null, [para('[TOC]')])).active, false)
 })
 
-test('标记段挂 toc-source 节点装饰，光标在段内才加 is-revealed（第 61 轮 B2）', () => {
+test('标记段挂 toc-source 节点装饰，光标在段内或紧邻才加 is-revealed（第 61/73 轮）', () => {
   const doc = withToc('一')
   // 段落位置 3..10（heading 3 + paragraph 7）
   const away = buildTocDecorations(doc)
   assert.deepEqual(away.sources, [{ from: 3, to: 10 }])
   assert.equal(away.revealed, -1)
   const near = buildTocDecorations(doc, { selection: EditorState.create({ schema, doc }).selection })
-  // 默认选区在文首（heading 里），不在标记段
-  assert.equal(near.revealed, -1)
+  // 默认选区在文首（唯一的标题里）：它正是标记段的前一块，按第 73 轮 B-155 的「相邻即露」算露出
+  assert.equal(near.revealed, 0)
 })
+
+// ---------- 第 73 轮 B-155：相邻即露 ----------
+
+test('中间隔一个块就不露（光标不在标记段相邻块里）', () => {
+  // heading(3) + heading2(3) + [TOC]：光标在第一个标题里，后一块是标题二而不是标记段
+  const doc = withToc('一', '二')
+  const state = EditorState.create({ schema, doc })
+  const result = buildTocDecorations(doc, { selection: state.selection })
+  assert.deepEqual(result.sources, [{ from: 6, to: 13 }])
+  assert.equal(result.revealed, -1)
+})
+
+test('选区在标记段下一块（段落开头）也露：后一块按 before(1) 判', () => {
+  const doc = schema.node('doc', null, [heading(1, '一'), para('[TOC]'), para('尾段')])
+  // 标记段 3..10；尾段内容从 11 起
+  const selection = TextSelection.create(doc, 11)
+  assert.equal(buildTocDecorations(doc, { selection }).revealed, 0)
+  // 尾段末尾也算相邻（块内任意偏移）
+  assert.equal(buildTocDecorations(doc, { selection: TextSelection.create(doc, 13) }).revealed, 0)
+})
+
+test('光标落进标记段里仍然算露出（改不了就删不掉的旧行为不回退）', () => {
+  const doc = withToc('一')
+  const selection = TextSelection.create(doc, 5)
+  assert.equal(buildTocDecorations(doc, { selection }).revealed, 0)
+})
+
+
 
 // ---------- 第 61 轮 B1：逐键按事务判定重建 ----------
 

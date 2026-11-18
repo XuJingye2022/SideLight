@@ -75,6 +75,7 @@ import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDe
 import { ensureKatex } from './lib/katexLazy.ts'
 import { MermaidPreview } from './lib/mermaidPreview.ts'
 import { createToc } from './lib/tocRender.ts'
+import { mathReveal } from './lib/mathReveal.ts'
 import { hasTocSource } from './lib/toc.ts'
 import { findAll, type Match } from './lib/find.ts'
 import type { SearchHit } from './lib/globalSearch.ts'
@@ -969,6 +970,8 @@ export default function App() {
           onClick: (_node, position) => mathEditRef.current(position),
         },
       }),
+      // 公式 atom 被选中时露出 `$…$` / `$$…$$` 源码（第 73 轮 B-156）：装饰只挂编辑视图
+      mathReveal(),
       // 表头边界可拖拽改列宽（第 37 轮）：columnResizing 插件已在静态依赖里，JS 增量 0
       ReusableTable.configure({ resizable: true }),
       TableRow,

@@ -1037,9 +1037,17 @@ button:disabled {
   gap: 8px;
 }
 
+/* 第 73 轮 B-154：任务项里的段落还带着 `.doc-body p` 的 1em 下边距，把 li 撑到 50 px。
+   去掉后 li 高回到一行（33.15）；复选框用与行高同高的 flex 盒垂直居中，中心线与首行文字齐平。 */
+.doc-body ul[data-type="taskList"] li > div > p {
+  margin: 0;
+}
+
 .doc-body ul[data-type="taskList"] li > label {
   flex: none;
-  margin-top: 7px;
+  display: flex;
+  align-items: center;
+  height: 1.95em;
 }
 
 .doc-body ul[data-type="taskList"] li > div {
@@ -2079,6 +2087,33 @@ button:disabled {
   display: block;
   margin: 1em 0;
   text-align: center;
+}
+
+/* 第 73 轮 B-156：公式 atom 被选中（方向键移进来）时露出 Markdown 源码。
+   伪元素用 NodeView 外层上的 data-latex 还原分隔符与 TeX 原文，同时收起 KaTeX 成品，
+   避免「α + $\alpha$」双显；移开选区后类撤掉，成品回来。 */
+.doc-body .tiptap-mathematics-render.sl-math-reveal {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--accent-ink);
+  white-space: pre-wrap;
+}
+
+.doc-body .tiptap-mathematics-render.sl-math-reveal[data-type='inline-math']::after {
+  content: '$' attr(data-latex) '$';
+}
+
+.doc-body .tiptap-mathematics-render.sl-math-reveal[data-type='block-math'] {
+  text-align: left;
+}
+
+.doc-body .tiptap-mathematics-render.sl-math-reveal[data-type='block-math']::after {
+  content: '$$' attr(data-latex) '$$';
+}
+
+.doc-body .tiptap-mathematics-render.sl-math-reveal > .katex,
+.doc-body .tiptap-mathematics-render.sl-math-reveal > .block-math-inner {
+  display: none;
 }
 .readonly-banner {
   position: sticky;
