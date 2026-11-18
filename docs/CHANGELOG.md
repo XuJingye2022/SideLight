@@ -322,6 +322,13 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **300,971 B**（内部 310,000 / 硬线 320,000，余 19,029）；`npm test` **40 个文件 517 条**全过；roundtrip 未跑（未动编辑器/序列化）。
 - UNVERIFIED（本轮）：真宿主 WebView2 内 1 MB 进出源码与滚动还原；真实中文 IME 下的源码态切换；150% / 200% 缩放下的 `.source-hidden`；真实 FSA / 更长文档下的大纲跟随。
 
+**第 65 轮（同一未发版区间）**
+
+- **大纲可用键盘整篇跳章节 + 树语义**（B-138）：`.outline-list` 由 `nav` 改 `div role="tree" aria-label="大纲"`，行加 `role="treeitem"` / `aria-level` / `aria-expanded`；`outlineTree.ts` 新增 `visibleRows` / `resolveRovingId` / `stepRowId`，roving tabindex 落在最后聚焦的行（被折叠隐藏时回退当前章节）；`↑/↓` 换行、`Home/End` 首尾、`←` 收起或跳父级、`→` 展开或进首个子行，`Enter` / `Space` 走原生 click 跳章节并把焦点送回正文；折叠钮 `tabIndex=-1` + `aria-hidden`（保留 `aria-label`，鼠标仍可点），焦点环画在行内（`src/styles.css`）。单测 14→**17**；E2E 34/34 + 补测 8/8（Space 跳章节、鼠标折叠、折叠钮不在 Tab 序）。
+- **B-115 复核定案**：1 MB 进源码 p50 **1,173** / 退 **299** ms（第 64 轮 A1 为 1,210 / 298，−3.1% / +0.3%），门槛进 ≤1,500 / 退 ≤600 全过；源码态打 10 字 `value` +10、`sl-parse-done` 不增、`Ctrl+F` 后焦点回源码框；每键约 120 ms 的全篇 `countText` 记为 P2（B-139）。
+- 门禁：`npm run verify` PASS，首屏 gzip **300,980 B**（比第 64 轮 +9，内部 310,000 / 硬线 320,000，余 19,020）；`npm test` **40 个文件 520 条**全过；roundtrip 未跑（未动编辑器/序列化）；回归大纲跟随 26/26。
+- UNVERIFIED（本轮）：真实屏幕阅读器对 tree/treeitem 的播报；真宿主 WebView2、真实中文 IME、真实 FSA 句柄。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

@@ -58,6 +58,37 @@ export function visibleActiveId(nodes: OutlineNode[], collapsed: Set<string>, ac
   return outermost ?? activeId
 }
 
+/** 折叠后的可见行：父级被折叠的整棵子树都不出现，顺序仍是文档顺序。 */
+export function visibleRows(nodes: OutlineNode[], collapsed: Set<string>): OutlineNode[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  return nodes.filter((node) => {
+    let parentId = node.parentId
+    while (parentId) {
+      if (collapsed.has(parentId)) return false
+      parentId = byId.get(parentId)?.parentId ?? null
+    }
+    return true
+  })
+}
+
+/**
+ * roving tabindex 的落点（第 65 轮 B-138）：优先用户最后聚焦过的行，
+ * 它被折叠隐藏时退回当前章节，再退回第一条。返回 null 表示没有可聚焦的行。
+ */
+export function resolveRovingId(rows: OutlineNode[], focusedId: string | null, activeId: string | null): string | null {
+  if (rows.length === 0) return null
+  if (focusedId && rows.some((row) => row.id === focusedId)) return focusedId
+  if (activeId && rows.some((row) => row.id === activeId)) return activeId
+  return rows[0].id
+}
+
+/** 上下键的目标：可见行的前一条/后一条；到边界返回 null（不循环）。 */
+export function stepRowId(rows: OutlineNode[], id: string, delta: number): string | null {
+  const index = rows.findIndex((row) => row.id === id)
+  if (index < 0) return null
+  return rows[index + delta]?.id ?? null
+}
+
 /** 跟随滚动的几何量：容器与目标条目都用 getBoundingClientRect 的视口坐标 */
 export type FollowGeometry = {
   /** 容器当前的 scrollTop */

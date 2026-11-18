@@ -1729,6 +1729,17 @@ button:disabled {
   flex: 1;
 }
 
+/* 第 65 轮 B-138：大纲是 tree（折叠钮 14px + 文本列），焦点环画在行内，不撑出侧栏 */
+.outline-list {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+}
+
+.outline-item:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+
 .outline-item {
   display: block;
   width: 100%;

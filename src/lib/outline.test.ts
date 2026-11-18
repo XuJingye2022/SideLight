@@ -5,7 +5,7 @@ import { getSchema, type JSONContent } from '@tiptap/core'
 import { StarterKit } from '@tiptap/starter-kit'
 
 import { activeOutlineId, extractOutline } from './outline.ts'
-import { buildOutlineTree, expandAncestors, nearestScrollTop, visibleActiveId } from './outlineTree.ts'
+import { buildOutlineTree, expandAncestors, nearestScrollTop, resolveRovingId, stepRowId, visibleActiveId, visibleRows } from './outlineTree.ts'
 
 const schema = getSchema([StarterKit])
 
@@ -174,6 +174,54 @@ test('当前节被折叠时高亮最外层被折叠的祖先，展开后回到�
   assert.equal(visibleActiveId(nodes, new Set(['h-13']), 'h-30'), 'h-13')
   assert.equal(visibleActiveId(nodes, new Set(), 'h-30'), 'h-30')
   assert.equal(visibleActiveId(nodes, new Set(), null), null)
+})
+
+/* ---------- 键盘导航（第 65 轮 B-138） ---------- */
+
+test('可见行：折叠父级后整棵子树都不出现', () => {
+  const nodes = buildOutlineTree(extractOutline(doc))
+
+  assert.deepEqual(
+    visibleRows(nodes, new Set()).map((node) => node.id),
+    ['h-0', 'h-13', 'h-30'],
+  )
+  // 折叠二级：三级子条目不出现，二级标题本身还在
+  assert.deepEqual(
+    visibleRows(nodes, new Set(['h-13'])).map((node) => node.id),
+    ['h-0', 'h-13'],
+  )
+  // 折叠一级：二级、三级一起消失，一级标题本身还在
+  assert.deepEqual(
+    visibleRows(nodes, new Set(['h-0'])).map((node) => node.id),
+    ['h-0'],
+  )
+})
+
+test('roving 落点：最后聚焦的行优先，隐藏后回退当前章节，再回退第一条', () => {
+  const nodes = buildOutlineTree(extractOutline(doc))
+  const all = visibleRows(nodes, new Set())
+
+  assert.equal(resolveRovingId(all, 'h-30', 'h-0'), 'h-30')
+  assert.equal(resolveRovingId(all, null, 'h-13'), 'h-13')
+  assert.equal(resolveRovingId(all, null, null), 'h-0')
+  // 聚焦的行被折叠隐藏、当前章节也不可见：回退第一条
+  const folded = visibleRows(nodes, new Set(['h-13']))
+  assert.equal(resolveRovingId(folded, 'h-30', 'h-30'), 'h-0')
+  assert.equal(resolveRovingId([], 'h-0', 'h-0'), null)
+})
+
+test('上下键取相邻可见行，到边界返回 null（不循环）', () => {
+  const rows = buildOutlineTree(extractOutline(doc))
+
+  assert.equal(stepRowId(rows, 'h-0', 1), 'h-13')
+  assert.equal(stepRowId(rows, 'h-30', -1), 'h-13')
+  assert.equal(stepRowId(rows, 'h-0', -1), null)
+  assert.equal(stepRowId(rows, 'h-30', 1), null)
+  assert.equal(stepRowId(rows, 'missing', 1), null)
+  // 折叠的父行本身仍可见；它的子行被跳过
+  const folded = visibleRows(rows, new Set(['h-13']))
+  assert.equal(stepRowId(folded, 'h-0', 1), 'h-13')
+  assert.equal(stepRowId(folded, 'h-13', 1), null)
 })
 
 /* ---------- 跟随滚动 ---------- */
