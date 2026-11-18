@@ -329,6 +329,13 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **300,980 B**（比第 64 轮 +9，内部 310,000 / 硬线 320,000，余 19,020）；`npm test` **40 个文件 520 条**全过；roundtrip 未跑（未动编辑器/序列化）；回归大纲跟随 26/26。
 - UNVERIFIED（本轮）：真实屏幕阅读器对 tree/treeitem 的播报；真宿主 WebView2、真实中文 IME、真实 FSA 句柄。
 
+**第 66 轮（同一未发版区间）**
+
+- **源码态停笔也排自动保存与停笔草稿**（B-143）：源码打字只走 `setSourceText`，编辑器没有事务，`onUpdate` 里的排程不触发；>256 KiB 文档在源码里改字期间磁盘、`.sidelight/drafts`、localStorage 三处都无副本，状态栏还停在旧「已自动保存」。改法：`onUpdate` 的草稿三支抽成 `scheduleDraft(text)` 供两种视图共用；新增一条 effect，声明在 `src/App.tsx:3662-3667` 的 ref 赋值**之后**（同 commit 按声明序跑，2 s 后 `currentMarkdown()` 才读到最新 `sourceText`），按 `sourceMode && sourceText !== sourceBaselineRef.current && sourceDirtyNowRef.current` 排 `scheduleAutoSaveRef` + `scheduleDraftRef(sourceText)`；脏值用新 ref `sourceDirtyNowRef` 复用 `normalizeForBaseline` 口径（读 state 会晚一拍）；`scheduleAutoSave` 改由 `autoSaveScheduledRef` 去重，源码态逐键不再多一次 App 渲染。E2E 四档：100 KB 开 chip 先「自动保存排队中」→ 3.2 s 后 +1 字节写盘（文档 1 写 / 草稿 0）、1 MB 开 +1 字节且 `sidelight.doc.v1` 不存整篇、1 MB 关草稿含新字且 `big.md` 不变、新文件停笔 3.2 s 不建文件。
+- **一次停笔只写一份**（B-120 回归）：编辑器 100 KB 停笔 3.6 s 窗口 **36,029 B / 文档 1 写 / 草稿 0 写**（与第 63 轮同值），`autoSave:false` 文档 0 写 / 草稿 1 写；源码 1 MB 打 10 字（关）p50 **2,810 / 2,818 ms**（门槛 ≤2,900，改前 2,618），无 >1,000 ms 单条 long task、文档不变；1 MB（开）每轮 +10 且整篇与 textarea 逐字符相等。
+- 门禁：`npm run verify` PASS，首屏 gzip **301,073 B**（内部 310,000 / 硬线 320,000，余 18,927）；`npm test` **40 个文件 520 条**全过；roundtrip 未跑（未动编辑器内核/序列化）。
+- UNVERIFIED（本轮）：真实 FSA 磁盘与真实 1 MB 文件（用合成工作区）、WebView2 宿主内同一路径、中文 IME 下的源码态排程；B-144（退出源码前先绘遮罩）留 B 轮。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

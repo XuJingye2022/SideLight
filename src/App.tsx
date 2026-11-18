@@ -569,6 +569,8 @@ export default function App() {
   const jumpToRef = useRef<(item: OutlineItem) => void>(() => {})
   const typewriterRef = useRef<() => void>(() => {})
   const sourceBaselineRef = useRef('')
+  /** 源码态「现在算不算脏」的同步值：排自动保存的 effect 在 ref 赋值之后，读 state 会晚一拍（第 66 轮 B-143） */
+  const sourceDirtyNowRef = useRef(false)
   /** 载入后直接进源码（原文件）：未编辑时不能被富文本序列化基线判成 dirty */
   const sourceOriginalEntryRef = useRef(false)
   /** 进源码前的阅读位置：源码态把编辑视图收成 0 尺寸后 scrollTop 会夹到 0，退出时还回去（第 64 轮 B-115） */
@@ -617,6 +619,8 @@ export default function App() {
   const nextDraftIdRef = useRef(0)
   const draftSuppressedRef = useRef(false)
   const scheduleHostDraftRef = useRef<(text: string) => void>(() => {})
+  /** 停笔草稿三支的统一入口（第 66 轮 B-143）：编辑器与源码态共用 */
+  const scheduleDraftRef = useRef<(text: string) => void>(() => {})
   const scheduleAutoSaveRef = useRef<() => void>(() => {})
   const cancelAutoSaveRef = useRef<() => void>(() => {})
   const clearHostDraftRef = useRef<() => Promise<void>>(async () => {})
@@ -649,6 +653,8 @@ export default function App() {
   const hostDocRef = useRef<HostDoc | null>(null)
   /** 自动保存：2 秒防抖 + 输入法组合保护 */
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 状态栏「排队中」的同步值：只在 false↔true 时 setState，源码态逐键不再多一次 App 渲染 */
+  const autoSaveScheduledRef = useRef(false)
   const composeUntilRef = useRef(0)
   const autoFailCountRef = useRef(0)
   /** onUpdate 里同步维护，自动保存定时器不读可能过期的 state */
@@ -686,6 +692,58 @@ export default function App() {
       // 配额满/禁用：只保留内存
     }
   }, [])
+  /**
+   * 停笔草稿三支（第 66 轮 B-143）：localStorage（≤256 KiB）/ 宿主草稿 / `.sidelight/drafts` 2,500 ms。
+   * 编辑器在 onUpdate 的 300 ms 回调里调用；源码态没有编辑器事务，由源码 effect 直接传原文。
+   */
+  const scheduleDraft = useCallback(
+    (text: string) => {
+      // 宿主文档不写 localStorage：大文件会撑爆配额，正文由宿主保管
+      if (!hostModeRef.current && text.length <= 256 * 1024) {
+        persistDocKey(text)
+      }
+
+      // 宿主文档：草稿交给宿主写到文档同目录的 .sidelight/drafts
+      if (hostModeRef.current) {
+        draftSuppressedRef.current = false
+        scheduleHostDraftRef.current(text.replace(/\r\n/g, '\n'))
+      }
+
+      // 有磁盘目录时，再往 .sidelight/drafts 写一份。
+      const file = fileRef.current
+      const space = workspaceRef.current
+      if (file?.path && space) {
+        if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
+        draftTimerRef.current = setTimeout(() => {
+          void (async () => {
+            // 保存成功会清掉这个计时器并推进代际；已经在飞的一轮要在每个 await 后自己复查。
+            const targetPath = file.path
+            const generation = draftGenerationRef.current
+            const stale = () =>
+              !dirtyRef.current ||
+              fileRef.current?.path !== targetPath ||
+              deletingRef.current ||
+              generation !== draftGenerationRef.current
+            if (stale()) return
+            const dir = await parentDirectory(space, file.path)
+            if (!dir || stale()) return
+            const key = cacheKey(file.name)
+            await writeCache(dir, 'draft', key, text)
+            // writeCache 内部还有几段 await：保存可能就落在里面，这里补删刚写下的草稿
+            if (stale()) {
+              await removeCache(dir, 'draft', key)
+              return
+            }
+            const legacy = legacyKeyFor(file.name)
+            if (legacy) await removeCache(dir, 'draft', legacy)
+          })()
+          // 第 63 轮 B1（B-120）：2 s 自动保存先跑，成功会清掉这个计时器；这里只做兜底。
+          // 原来 800 ms 会让每次停笔先写一份整篇草稿（kb100 实测两次整篇写盘共 72,057 B）。
+        }, 2500)
+      }
+    },
+    [persistDocKey],
+  )
   /**
    * 记下「磁盘上现在是什么」（第 51 轮 F1）：保存前用它判断要不要整篇读回旧文件。
    * 传 null 表示不知道（宿主文档、正文已不可信）；没有句柄也记不了。
@@ -1031,49 +1089,8 @@ export default function App() {
           original ? leadingNewlines(splitFrontmatter(original).body) : undefined,
         )
 
-        // 宿主文档不写 localStorage：大文件会撑爆配额，正文由宿主保管
-        if (!hostModeRef.current && draft.length <= 256 * 1024) {
-          persistDocKey(draft)
-        }
-
-        // 宿主文档：草稿交给宿主写到文档同目录的 .sidelight/drafts
-        if (hostModeRef.current) {
-          draftSuppressedRef.current = false
-          scheduleHostDraftRef.current(draft.replace(/\r\n/g, '\n'))
-        }
-
-        // 有磁盘目录时，再往 .sidelight/drafts 写一份。
-        const file = fileRef.current
-        const space = workspaceRef.current
-        if (file?.path && space) {
-          if (draftTimerRef.current) clearTimeout(draftTimerRef.current)
-          draftTimerRef.current = setTimeout(() => {
-            void (async () => {
-              // 保存成功会清掉这个计时器并推进代际；已经在飞的一轮要在每个 await 后自己复查。
-              const targetPath = file.path
-              const generation = draftGenerationRef.current
-              const stale = () =>
-                !dirtyRef.current ||
-                fileRef.current?.path !== targetPath ||
-                deletingRef.current ||
-                generation !== draftGenerationRef.current
-              if (stale()) return
-              const dir = await parentDirectory(space, file.path)
-              if (!dir || stale()) return
-              const key = cacheKey(file.name)
-              await writeCache(dir, 'draft', key, draft)
-              // writeCache 内部还有几段 await：保存可能就落在里面，这里补删刚写下的草稿
-              if (stale()) {
-                await removeCache(dir, 'draft', key)
-                return
-              }
-              const legacy = legacyKeyFor(file.name)
-              if (legacy) await removeCache(dir, 'draft', legacy)
-            })()
-            // 第 63 轮 B1（B-120）：2 s 自动保存先跑，成功会清掉这个计时器；这里只做兜底。
-            // 原来 800 ms 会让每次停笔先写一份整篇草稿（kb100 实测两次整篇写盘共 72,057 B）。
-          }, 2500)
-        }
+        // 停笔草稿三支（第 66 轮 B-143）：与源码态共用一份排程，localStorage / 宿主 / `.sidelight/drafts`
+        scheduleDraftRef.current(draft)
       }, 300)
 
       // 停笔 2 秒自动保存（默认开；有结构损失/输入法组合/模态时不动）
@@ -2118,21 +2135,21 @@ export default function App() {
     typewriterRef.current = typewriterScroll
   }, [typewriterScroll])
 
-  // 源码模式：脏按保存基线算；改动仍要写草稿，否则退出前保存会丢
+  // 源码模式：脏按保存基线算（草稿/自动保存的排程在下面「ref 赋值之后」的 effect 里，第 66 轮 B-143）
   useEffect(() => {
     if (!sourceMode) return
     if (sourceText !== sourceBaselineRef.current) sourceOriginalEntryRef.current = false
     if (sourceOriginalEntryRef.current && sourceText === sourceBaselineRef.current) {
+      sourceDirtyNowRef.current = false
       setDirty(false)
     } else if (baselineRef.current !== null) {
       // 与保存基线同一归一化（第 48 轮）：补末尾换行的那一步不能各算各的
-      setDirty(normalizeForBaseline(sourceText, originalText) !== baselineRef.current)
-    }
-    if (sourceText === sourceBaselineRef.current) return
-    try {
-      persistDocKey(sourceText)
-    } catch {
-      // 存储不可用时只保留内存
+      const dirtyNow = normalizeForBaseline(sourceText, originalText) !== baselineRef.current
+      sourceDirtyNowRef.current = dirtyNow
+      setDirty(dirtyNow)
+    } else {
+      // 新文档还没有保存基线：以进源码时 seed 的原文为准
+      sourceDirtyNowRef.current = sourceText !== sourceBaselineRef.current
     }
   }, [sourceMode, sourceText, originalText])
 
@@ -3524,7 +3541,11 @@ export default function App() {
       clearTimeout(autoSaveTimerRef.current)
       autoSaveTimerRef.current = null
     }
-    setAutoSaveScheduled(false)
+    // 只在真的排着队时改状态：源码态逐键排程，多一次 setState 就多一次 App 渲染（第 66 轮 P1-5）
+    if (autoSaveScheduledRef.current) {
+      autoSaveScheduledRef.current = false
+      setAutoSaveScheduled(false)
+    }
   }, [])
 
   const writeDraftFallback = useCallback(async (text: string) => {
@@ -3546,7 +3567,10 @@ export default function App() {
   }, [])
 
   const runAutoSave = useCallback(async () => {
-    setAutoSaveScheduled(false)
+    if (autoSaveScheduledRef.current) {
+      autoSaveScheduledRef.current = false
+      setAutoSaveScheduled(false)
+    }
     if (!settings.autoSave || !editor) return
     if (Date.now() < composeUntilRef.current) return
     if (autoFailCountRef.current >= 3) return
@@ -3621,18 +3645,37 @@ export default function App() {
 
   const scheduleAutoSave = useCallback(() => {
     if (!settings.autoSave) return
-    cancelAutoSave()
-    setAutoSaveScheduled(true)
+    // 只清表，不翻转状态：逐键重排时 state 已是「排队中」，再 set 一次会多渲染一帧
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+      autoSaveTimerRef.current = null
+    }
+    if (!autoSaveScheduledRef.current) {
+      autoSaveScheduledRef.current = true
+      setAutoSaveScheduled(true)
+    }
     autoSaveTimerRef.current = setTimeout(() => {
       void runAutoSave()
     }, 2000)
-  }, [cancelAutoSave, runAutoSave, settings.autoSave])
+  }, [runAutoSave, settings.autoSave])
 
   useEffect(() => {
     scheduleAutoSaveRef.current = scheduleAutoSave
     cancelAutoSaveRef.current = cancelAutoSave
+    scheduleDraftRef.current = scheduleDraft
     clearHostDraftRef.current = clearHostDraft
-  }, [scheduleAutoSave, cancelAutoSave, clearHostDraft])
+  }, [scheduleAutoSave, cancelAutoSave, scheduleDraft, clearHostDraft])
+
+  // 源码态停笔也要排自动保存与停笔草稿（第 66 轮 B-143）：源码打字只走 setSourceText，编辑器没有事务。
+  // 必须声明在上面的 ref 赋值之后：同一 commit 里按声明序跑，先换 ref 再排程，2 秒后 currentMarkdown()
+  // 才读到本文最新的 sourceText（否则存下少最后一个字的旧串还报「已自动保存」）。
+  useEffect(() => {
+    if (!sourceMode) return
+    if (sourceText === sourceBaselineRef.current) return
+    if (!sourceDirtyNowRef.current) return
+    scheduleAutoSaveRef.current()
+    scheduleDraftRef.current(sourceText)
+  }, [sourceMode, sourceText, originalText])
 
   // 五个开关先落进 ref：上面的定时器读 ref，不读可能过期的 state。一次赋完，少一个漏同步的口子
   useEffect(() => {
