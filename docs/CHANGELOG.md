@@ -4,6 +4,13 @@
 
 ## Unreleased（第 29–74 轮，未发版）
 
+**第 83 轮（同一未发版区间）**
+
+- `\=` 保存后不再变成真高亮（A2，B-213）：`src/lib/inlineSyntax.ts` 加常驻 mark `eqEscaped`（`slot` 属性只防相邻 `\=\=` 并节点、不落盘；`renderHTML` → `span.sl-eq-escaped`）与只认 `\=` 的 marked 行内 tokenizer（不随开关关，序列化每枚补回 `\`）；`inlineSyntax.test.ts` 14→**20**。tester 自写探针 9/9 行字节同（`\===a===` 第二次解析 eq 仍 1、`\=\=` 不合并、`a == b` 与 `==a====b==` 不动），公式里 `\=` 不被抢。
+- 删除确认框两分支共用恢复说明（A3，B-212）：新 `src/lib/deleteDialogText.ts`（`DELETE_TRASH_DIR` / `deleteDialogLead(dirty)` / `DELETE_RECOVER_TAIL`），`TreeActions.tsx` 的 `.dialog-note` 只渲染常量，干净/脏只差开头一句、恢复句逐字相同且都含「撤销」；`deleteDialogText.test.ts` 4 条；静态 `文件管理器` 1→0。
+- 复核用户点名 3 条回归（A1，只读）：`mathInput` 5/5、`mathReveal` 10/10、`settings` 14/14、`mathStyle` 4/4，`src/styles.css:2137-2141` 的 `.katex-display { margin:0 auto; width:fit-content; min-width:100% }` 在位。
+- 门禁：首屏 gzip **304,492 B**（余 5,508 / 15,508）；`npm test` **47 文件 601 条 0 fail**；`roundtrip` rich 6/8 + source 8/8。tester 独立验收（未读 `impl.md`；CDP 9222–9226 与 54280 无监听，单次尝试即停）：A1 单测与 CSS 静态全对、A2 探针 9/9 + 公式三例、A3 单测与静态计数全对。UNVERIFIED：用户点名 3 项、A2、A3 的浏览器读数（缺口归 tester），见 `docs/iteration/round-83/test.md`。
+
 **第 82 轮（同一未发版区间）**
 
 - 宿主单文件文档的相对图不再先发一次裸路径请求（A1，B-121）：`assetResolve.ts` 加 `setHostAssetMode`/`isHostAssetMode` 与纯函数 `shouldWaitAssetPaint(src, docPath, hostMode)`（宿主 `docPath` 恒空但仍要等 `/__asset`），`assetImage.ts:51` 改用它；App 抽 `markHostMode`/`hostResolver`/`workspaceResolver`，在宿主正文载入（`setMarkdown` 之前）、`hostUnavailable`、`keepDraft`、`performCommit`、`loadIntoEditor` 各出口成对置位（`src/App.tsx:1232,1301,1385,2424,3073,3174`）。真机（ego CDP 54280，stub `/__doc`+`/__asset`）：宿主流派裸 `/assets/a.png` 请求 **0**（改前 1）、`/__asset` 1、`img[src]`=`/__asset?path=…`、`naturalWidth` 1；反向工作区 `blob:` 1、裸 0；`assetResolve.test.ts` 9→**15**。

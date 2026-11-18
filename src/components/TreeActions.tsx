@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 
+import { DELETE_RECOVER_TAIL, DELETE_TRASH_DIR, deleteDialogLead } from '../lib/deleteDialogText.ts'
 import { renameFile, validateRename } from '../lib/rename.ts'
 import type { WorkspaceFileNode, WorkspaceNode } from '../lib/workspace.ts'
 import { useDialogFocus } from './useDialogFocus.ts'
@@ -285,11 +286,9 @@ export default function TreeActions({
           >
             <h2>删除「{deleteTarget.name}」？</h2>
             <p className="dialog-note">
-              {deleteIsDirty
-                ? '这篇还有未保存的正文。移到回收站时，未保存的正文与这篇的批注会一起删除；撤销会一起搬回。'
-                : '移到这个文件夹的 '}
-              {!deleteIsDirty && <code>.sidelight/trash/</code>}
-              {!deleteIsDirty && '，不会当场永久删除。要恢复，用文件管理器把 trash 里的文件移回原位。'}
+              {deleteDialogLead(deleteIsDirty)}
+              <code>{DELETE_TRASH_DIR}</code>
+              {DELETE_RECOVER_TAIL}
             </p>
             <div className="dialog-actions">
               <button ref={cancelRef} type="button" onClick={onCancelDelete}>

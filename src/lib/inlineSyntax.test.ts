@@ -171,3 +171,61 @@ test('开关前后写回字节一致（开与关都写回 ==a==）', () => {
   assert.equal(on, '==a== 与 ^b^ 与 ~c~\n')
   assert.equal(off, on)
 })
+
+/**
+ * 第 83 轮 A2：`\=` 保存后字节保真。
+ * marked 的 escape 规则会把 `\=` 吃成 `=`，保存时反斜杠就丢了；现在 `\=` 由 eqEscaped mark 接住、
+ * 序列化时补回反斜杠。`\=` 不是快捷语法，开关关着也要保真。
+ */
+test('A2：\\==a== 保存字节同，且不产生 eqHighlight', () => {
+  enabled = true
+  const source = '\\==a== 结尾\n'
+  assert.equal(roundTrip(source), source)
+  assert.equal(countMark(manager.parse(escapeHtmlForParse(source)) as Json, 'eqHighlight'), 0)
+  assert.deepEqual(markedText(manager.parse(escapeHtmlForParse(source)) as Json, 'eqEscaped'), ['='])
+})
+
+test('A2：\\==**b**c== 保存字节同，不产生 eqHighlight', () => {
+  enabled = true
+  const source = '\\==**b**c==\n'
+  assert.equal(roundTrip(source), source)
+  assert.equal(countMark(manager.parse(escapeHtmlForParse(source)) as Json, 'eqHighlight'), 0)
+})
+
+test('A2：\\===a=== 只转义第一枚 =，剩下 ==a== 仍解析且二次解析计数不变', () => {
+  enabled = true
+  const source = '\\===a===\n'
+  const first = roundTrip(source)
+  assert.equal(first, source)
+  assert.equal(countMark(manager.parse(escapeHtmlForParse(source)) as Json, 'eqHighlight'), 1)
+  // 二次解析：写回的字节再读一遍，eqHighlight 仍是 1（不是靠第一次解析的残留在撑）
+  assert.equal(countMark(manager.parse(escapeHtmlForParse(first)) as Json, 'eqHighlight'), 1)
+})
+
+test('A2：空格旁的 \\= 与公式里的 TeX \\= 都保存字节同', () => {
+  enabled = true
+  for (const source of ['a \\== b\n', '\\== 单独\n', '$\\alpha \\= x$\n']) {
+    assert.equal(roundTrip(source), source, `字节应不变：${JSON.stringify(source)}`)
+  }
+  // 这个 manager 没装公式扩展，`$…$` 只是普通文本，`\=` 仍走 eqEscaped；
+  // 真解析路径（inlineMath 1、escapedNodes 0）由带 Mathematics 的探针锁：.tmp/r83-a2-eq-escape.ts
+  assert.equal(countMark(manager.parse(escapeHtmlForParse('$\\alpha \\= x$')) as Json, 'eqEscaped'), 1)
+})
+
+test('A2：相邻两枚 \\=\\= 各占一个文本节点，写回两枚反斜杠', () => {
+  enabled = true
+  const source = '\\=\\=\n'
+  const parsed = manager.parse(escapeHtmlForParse(source)) as Json
+  assert.deepEqual(markedText(parsed, 'eqEscaped'), ['=', '='], '两枚 mark 不能并成一个文本节点')
+  assert.equal(roundTrip(source), source)
+  assert.equal(roundTrip('x \\=\\= y\n'), 'x \\=\\= y\n')
+})
+
+test('A2：开关关着 \\= 也保真，行内代码里的 \\= 不产生 mark', () => {
+  enabled = false
+  assert.equal(roundTrip('\\==a==\n'), '\\==a==\n')
+  const code = '用 `\\=` 表示字面。\n'
+  assert.equal(countMark(manager.parse(escapeHtmlForParse(code)) as Json, 'eqEscaped'), 0)
+  assert.equal(roundTrip(code), code)
+  enabled = true
+})

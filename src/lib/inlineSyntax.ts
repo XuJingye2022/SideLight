@@ -68,6 +68,34 @@ export const INLINE_SYNTAX: readonly SyntaxSpec[] = [
   },
 ]
 
+/** 转义用的 `\=`：不是快捷语法，开关关着也要认（字节保真），所以单独一个 mark */
+let escapeSlot = 0
+
+/**
+ * `\=` 的字节保真 mark（第 83 轮 A2）。marked 的 escape 规则会把 `\=` 吃成 `=`，
+ * 保存时反斜杠就丢了。这里在 marked 的 escape 规则之前接住 `\=`，正文里仍是 `=`，
+ * 序列化时每枚 mark 补回一枚 `\`。
+ *
+ * `slot` 属性必须留：相邻两枚 `\=`（`\=\=`）在 Fragment 里会并成一个文本节点，
+ * 两枚 mark 也就并成一份，写回只剩一枚反斜杠（planner 探针实测）。slot 让两份 mark 不相等，
+ * 各占一个文本节点，`renderMarkdown` 才各补一枚。属性本身不落盘、也不进 DOM。
+ */
+const EqEscaped = Mark.create({
+  name: 'eqEscaped',
+  inclusive: false,
+  addAttributes: () => ({ slot: { default: 0, parseHTML: () => null, renderHTML: () => null } }),
+  // 只可能来自 markdown token：粘贴 HTML 里没有这个标签（已知残余：复制 `\=` 再粘回会丢反斜杠）
+  parseHTML: () => [],
+  renderHTML: () => ['span', { class: 'sl-eq-escaped' }, 0],
+  markdownTokenName: 'eqEscaped',
+  parseMarkdown(token: MarkdownToken, helpers: MarkdownParseHelpers) {
+    return helpers.applyMark('eqEscaped', helpers.parseInline(token.tokens ?? []), { slot: ++escapeSlot })
+  },
+  renderMarkdown(node: JSONContent, helpers: MarkdownRendererHelpers): string {
+    return `\\${helpers.renderChildren(node.content ?? [])}`
+  },
+})
+
 function syntaxMark(spec: SyntaxSpec) {
   return Mark.create({
     name: spec.kind,
@@ -86,9 +114,9 @@ function syntaxMark(spec: SyntaxSpec) {
   })
 }
 
-/** 三个 mark：与 App 的行内 HTML mark 一次注册进 schema */
+/** 三个 mark + 转义用的 eqEscaped：与 App 的行内 HTML mark 一次注册进 schema */
 export function inlineSyntaxMarks() {
-  return INLINE_SYNTAX.map(syntaxMark)
+  return [...INLINE_SYNTAX.map(syntaxMark), EqEscaped]
 }
 
 /**
@@ -119,17 +147,35 @@ function makeTokenizer(spec: SyntaxSpec, isEnabled: () => boolean) {
   }
 }
 
+/** marked 的行内扩展：只在 `\=` 处起手，吃掉两个字符，内容是一个普通 `=`。不随开关关（字节保真） */
+const EQ_ESCAPED_TOKENIZER = {
+  name: 'eqEscaped',
+  level: 'inline',
+  start: (src: string): number => {
+    const at = src.search(/\\=/)
+    return at < 0 ? src.length : at
+  },
+  tokenizer(src: string) {
+    if (!/^\\=/.test(src)) return undefined
+    // raw 给全两个字符，text 只给 `=`：反斜杠不进正文，序列化时由 renderMarkdown 补回
+    return { type: 'eqEscaped', raw: '\\=', tokens: [{ type: 'text', raw: '=', text: '=' }] } as never
+  },
+} as MarkedInlineTokenizer
+
 export function inlineSyntaxTokenizers(isEnabled: () => boolean): MarkedInlineTokenizer[] {
-  return INLINE_SYNTAX.map(
-    (spec) =>
-      ({
-        name: spec.kind,
-        level: 'inline',
-        start: (src: string): number => {
-          const at = src.search(spec.candidate)
-          return at < 0 ? src.length : at
-        },
-        tokenizer: makeTokenizer(spec, isEnabled),
-      }) as MarkedInlineTokenizer,
-  )
+  return [
+    ...INLINE_SYNTAX.map(
+      (spec) =>
+        ({
+          name: spec.kind,
+          level: 'inline',
+          start: (src: string): number => {
+            const at = src.search(spec.candidate)
+            return at < 0 ? src.length : at
+          },
+          tokenizer: makeTokenizer(spec, isEnabled),
+        }) as MarkedInlineTokenizer,
+    ),
+    EQ_ESCAPED_TOKENIZER,
+  ]
 }
