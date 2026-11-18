@@ -594,6 +594,8 @@ export default function App() {
   const [saveWarned, setSaveWarned] = useState(false)
   const [draftShown, setDraftShown] = useState(initial.savedAt > 0)
   const [stats, setStats] = useState<TextStats>(() => countText(initial.text))
+  /** 源码态字数（第 81 轮 B-139）：逐键不再在渲染里扫全篇，停笔 300 ms 只算一次；null = 还没算过 */
+  const [sourceStats, setSourceStats] = useState<TextStats | null>(null)
   // 字数明细面板：null = 关闭；打开时冻结当时的正文与选区文本
   // paragraphs 可选：源码模式解析失败时为 undefined，面板回退到「空行分段」的旧口径
   const [statsDetail, setStatsDetail] = useState<{ text: string; selection: string; paragraphs?: number } | null>(null)
@@ -663,6 +665,8 @@ export default function App() {
   const scheduleHostDraftRef = useRef<(text: string) => void>(() => {})
   /** 停笔草稿三支的统一入口（第 66 轮 B-143）：编辑器与源码态共用 */
   const scheduleDraftRef = useRef<(text: string) => void>(() => {})
+  /** 作废某篇的停笔草稿（第 81 轮 B-153）：onUpdate 声明处早于 useCallback，用 ref 转手 */
+  const discardDraftRef = useRef<(name: string, oldName?: string) => void>(() => {})
   const scheduleAutoSaveRef = useRef<() => void>(() => {})
   const cancelAutoSaveRef = useRef<() => void>(() => {})
   const clearHostDraftRef = useRef<() => Promise<void>>(async () => {})
@@ -678,6 +682,10 @@ export default function App() {
   const activeDocIdRef = useRef(0)
   const pendingRefreshRef = useRef<{ mode?: 'adopt' | 'check'; activePath?: string; announce?: boolean } | null>(null)
   const statsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 源码态字数的防抖计时器（第 81 轮 B-139） */
+  const sourceStatsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 源码态首个值已经算过：只在进源码态时立即算，之后走防抖；退出源码复位 */
+  const sourceStatsSeededRef = useRef(false)
   const deriveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshTreeRef = useRef<
     (options?: { mode?: 'adopt' | 'check'; activePath?: string; announce?: boolean }) => Promise<Workspace | null>
@@ -1129,6 +1137,9 @@ export default function App() {
           if (dirtyNow !== dirtyRef.current) {
             dirtyRef.current = dirtyNow
             setDirty(dirtyNow)
+            // 撤销回基线（第 81 轮 B-153）：翻转成「干净」之后 requestSave 与 runAutoSave 都在
+            // 脏标记门早退，模态期间落下的残草稿只有这里能清掉。
+            if (!dirtyNow) discardDraftRef.current(docNameRef.current)
           }
         }
         const original = rawTextRef.current
@@ -3036,6 +3047,32 @@ export default function App() {
     }
   }, [])
 
+  /**
+   * 作废一篇文档的停笔草稿（第 81 轮 B-153）：保存成功、撤销回基线都走它。
+   * 顺序照草稿计时器那条路（`:769-785`）：先停表、再推代际，在飞的一轮写完会自己复查代际并补删。
+   * 另存为之后旧名字的草稿留着会误导恢复，新旧两个名字的主键与 legacy 键都清一遍。
+   */
+  const discardDraftFor = useCallback(
+    async (name: string, oldName?: string) => {
+      if (draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current)
+        draftTimerRef.current = null
+      }
+      draftGenerationRef.current += 1
+      const dir = await cacheDirFor()
+      if (!dir) return
+      const keys = new Set<string>()
+      for (const entry of [oldName, name]) {
+        if (!entry) continue
+        keys.add(cacheKey(entry))
+        const legacy = legacyKeyFor(entry)
+        if (legacy) keys.add(legacy)
+      }
+      for (const key of keys) await removeCache(dir, 'draft', key)
+    },
+    [cacheDirFor],
+  )
+
   /** 保存成功后的统一收尾：新句柄就是文档身份，基线更新，提示留下不消失 */
   const finishSaved = useCallback(
     (name: string, target: FileWriteTarget, normalized: string, withEol: string, keepLosses = false, expected?: { epoch: number; docId: number; path: string }) => {
@@ -3099,22 +3136,11 @@ export default function App() {
       } catch {
         // 配额满：磁盘已保存成功，本地兜底可失败
       }
-      // 保存成功等于草稿作废：停掉还没触发的草稿计时器，并推进代际让在飞的一轮写入跳过
-      if (draftTimerRef.current) {
-        clearTimeout(draftTimerRef.current)
-        draftTimerRef.current = null
-      }
-      draftGenerationRef.current += 1
-      // 另存为之后旧名字的草稿留着会误导恢复，两个名字都清一遍
-      void (async () => {
-        const dir = await cacheDirFor()
-        if (!dir) return
-        await removeCache(dir, 'draft', cacheKey(oldName))
-        await removeCache(dir, 'draft', cacheKey(name))
-      })()
+      // 保存成功等于草稿作废：停表 + 推代际 + 删主键与 legacy 键（第 81 轮 B-153 抽成 discardDraftFor）
+      void discardDraftFor(name, oldName)
       return true
     },
-    [cacheDirFor, hostDoc, rememberDisk],
+    [discardDraftFor, hostDoc, rememberDisk],
   )
 
   /** 真正写盘：有句柄写句柄，没有就弹保存位置；调用前已经过差异门 */
@@ -3164,6 +3190,9 @@ export default function App() {
           if (normalized === baselineRef.current) {
             dirtyRef.current = false
             setDirty(false)
+            // 撤销后 300 ms 内按 Ctrl+S 落这条（第 81 轮 B-153）：脏标记还没翻转，
+            // 上面 onUpdate 的翻转来不及清，模态期间留下的残草稿在这里作废。
+            void discardDraftFor(docNameRef.current)
             return true
           }
           // 只有写盘期间身份变了才要回滚，所以旧正文不能每次全读：先用磁盘快照，
@@ -3255,7 +3284,7 @@ export default function App() {
         return false
       }
     },
-    [activeFile, docName, finishSaved, saveBlob, saveIntoWorkspace],
+    [activeFile, discardDraftFor, docName, finishSaved, saveBlob, saveIntoWorkspace],
   )
 
   /**
@@ -3757,8 +3786,9 @@ export default function App() {
     scheduleAutoSaveRef.current = scheduleAutoSave
     cancelAutoSaveRef.current = cancelAutoSave
     scheduleDraftRef.current = scheduleDraft
+    discardDraftRef.current = (name, oldName) => void discardDraftFor(name, oldName)
     clearHostDraftRef.current = clearHostDraft
-  }, [scheduleAutoSave, cancelAutoSave, scheduleDraft, clearHostDraft])
+  }, [scheduleAutoSave, cancelAutoSave, scheduleDraft, discardDraftFor, clearHostDraft])
 
   // 源码态停笔也要排自动保存与停笔草稿（第 66 轮 B-143）：源码打字只走 setSourceText，编辑器没有事务。
   // 必须声明在上面的 ref 赋值之后：同一 commit 里按声明序跑，先换 ref 再排程，2 秒后 currentMarkdown()
@@ -3770,6 +3800,35 @@ export default function App() {
     scheduleAutoSaveRef.current()
     scheduleDraftRef.current(sourceText)
   }, [sourceMode, sourceText, originalText])
+
+  // 源码态字数（第 81 轮 B-139）：原先在渲染里直接 countText 全篇（splitFrontmatter(sourceText).body），
+  // 1 MB 文档逐键重扫全篇（每键约一条 ~120 ms 长任务）。改成进源码态先算 1 次、之后停笔 300 ms 再算；
+  // ≤20 KB 的正文立即算（成本可忽略，也不必让状态栏等 300 ms）。
+  useEffect(() => {
+    if (sourceStatsTimerRef.current) {
+      clearTimeout(sourceStatsTimerRef.current)
+      sourceStatsTimerRef.current = null
+    }
+    if (!sourceMode) {
+      if (sourceStatsSeededRef.current) {
+        sourceStatsSeededRef.current = false
+        setSourceStats(null)
+      }
+      return
+    }
+    const compute = () => {
+      sourceStatsTimerRef.current = null
+      // DEV 埋点：10 键期间应为 0 次，停笔后 +1（E2E 按 performance.mark 计数）
+      if (import.meta.env.DEV) performance.mark('sl-source-stats')
+      setSourceStats(countText(splitFrontmatter(sourceText).body))
+    }
+    if (!sourceStatsSeededRef.current || sourceText.length <= 20 * 1024) {
+      sourceStatsSeededRef.current = true
+      compute()
+      return
+    }
+    sourceStatsTimerRef.current = setTimeout(compute, 300)
+  }, [sourceMode, sourceText])
 
   // 退出源码态必须同时清组合标记与有界组合门（第 68 轮 B-145）：textarea 卸载不保证先派 blur，
   // 残留的 60 s 门会让「组合未提交时 Esc 退出」之后一直不写盘。
@@ -6032,7 +6091,7 @@ export default function App() {
       )}
 
       <StatusBar
-        stats={sourceMode ? countText(splitFrontmatter(sourceText).body) : stats}
+        stats={sourceMode ? (sourceStats ?? stats) : stats}
         statsOpen={statsDetail !== null}
         onStatsClick={openStatsDetail}
         selectionWords={viewMode === 'edit' ? selection.words : 0}

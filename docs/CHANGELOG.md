@@ -4,6 +4,13 @@
 
 ## Unreleased（第 29–74 轮，未发版）
 
+**第 81 轮（同一未发版区间）**
+
+- 1 MB 源码态逐键不再算全篇字数（A1，B-139）：`sourceStats` state + 300 ms 防抖 effect（`src/App.tsx:598,686-688,3806-3831`），进源码态先算 1 次、≤20 KB 立即算、退出复位；状态栏取值改 `sourceMode ? (sourceStats ?? stats) : stats`（`:6094`）。真机 1 MB（ego CDP 54280，before/after 各跑一遍）：`sl-source-stats` 标记 10 键期间 **0**、+600 ms **+1**、+800 ms 不再增；每键 longTask p50 **85 → 56 ms**、600 ms 状态栏读值与改前逐字符同（`333,337 字 · 阅读约 1260 分钟`）、`value.length` +10、`sl-parse-done` 3→3、0 错误。
+- 保存成功与「回到基线」都清草稿（A2，B-153）：抽出 `discardDraftFor(name, oldName?)`（先停表再推代际，删主键与 legacy 键，`:3055`），`finishSaved` 改调它；`onUpdate` 派生物里脏标记翻成干净时经 `discardDraftRef` 触发（`:1142`），`performCommit` 的「正文没变」分支补一道（`:3195`）。真机：撤销回基线后 **331 ms** 草稿归 0（改前一直留着）、撤销后 150 ms `Ctrl+S` 也归 0、legacy 40 位键保存后一并清掉；autoSave:false 与保存失败仍留草稿、保存成功后重开不弹草稿提示，0 错误。
+- HTML 导出目录复核（A3，B-134，0 改动）：`export.test.ts` **27/27**，静态 `export.ts:33/:110` + `App.tsx:4852/:4885` 调用链在，模块探针目录/锚点替换成立；B-134 维持 `fixed`。
+- 门禁：首屏 gzip **304,124 B**（余 5,876）；`npm test` **45 文件 580 条 0 fail**；未动编辑器/序列化不跑 roundtrip。tester 独立验收（未读 `impl.md`；CDP 9222–9226 无监听 → ego-browser CDP 54280 真机页自写脚本，before 用 `git stash` 切 HEAD）：A1/A2/A3 全过，回归 `stale-save` 4/4；UNVERIFIED：假 FSA、A3 完整导出 UI 链本轮未重跑、真实 IME/WebView2/原生打印，见 `docs/iteration/round-81/test.md`。
+
 **第 80 轮（同一未发版区间）**
 
 - 暖纸 Mermaid 主题竞态（A1，B-122）：`ensureMermaid` 的 `loading` 分支改成落地后补 `configure(mermaid, theme)`（幂等，`src/lib/mermaidLazy.ts:144-152`）——首次加载期间切主题不再被吞掉；`mermaidLazy.test.ts` 19→20（挂起 loader，release 前 inits 0、后 inits 2 且末次为后设主题，正序/反序两场景）。真机（ego-browser）五档 light→dark→sepia→dark→light：sepia fill `rgb(251,243,227)` ≠ light `rgb(236,236,255)` ≠ dark，标签对 fill 11.83:1，第二次 dark/light 三字段逐值同第一次，0 pageerror；截图 `shots/round-80/mermaid-sepia.png`。
