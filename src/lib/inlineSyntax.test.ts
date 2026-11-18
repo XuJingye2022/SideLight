@@ -44,7 +44,7 @@ function markedText(node: Json, type: string): string[] {
 /** 关时四例：四条互不相同的行，各自成段 */
 const FOUR = '==a==\n\n^b^\n\n~c~\n\n<mark>a</mark>\n'
 
-test('关时四例往返逐字节同（默认关）', () => {
+test('显式关时四例往返逐字节同（设置里关掉）', () => {
   enabled = false
   assert.equal(roundTrip(FOUR), FOUR)
   const parsed = manager.parse(escapeHtmlForParse(FOUR)) as Json

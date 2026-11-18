@@ -116,7 +116,7 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
           <span>快捷行内语法（`==高亮==` / `^上标^` / `~下标~`）</span>
         </label>
         <p className="field-hint">
-          默认关：关着这些符号按字面保存。开只作用在下次打开或拖入的文档上，已打开的正文不重排；成对且不贴空白才解析。
+          默认开（第 75 轮起）：关掉后这些符号按字面保存。改这项只作用在下次打开或拖入的文档上，已打开的正文不重排；成对且不贴空白才解析。
         </p>
 
         <label className="field">

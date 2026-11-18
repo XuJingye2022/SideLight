@@ -8,7 +8,8 @@ import type {
 import type { MarkdownManager } from '@tiptap/markdown'
 
 /**
- * 快捷行内语法（第 55 轮 B-101）：`==高亮==`、`^上标^`、`~下标~`。默认关，设置里打开。
+ * 快捷行内语法（第 55 轮 B-101）：`==高亮==`、`^上标^`、`~下标~`。第 75 轮起默认开，设置里可关
+ * （开是 Typora 的习惯；旧存档里那个 false 在 settings.ts 一次性迁移，见 B-158）。
  *
  * 三个专用 mark 一直注册在 schema 里：开关只改**解析**，不重建编辑器（重建会丢撤销栈）。
  * 解析走 marked 的行内 token（见 tilde.ts 里的一次 `use()`），序列化由 renderMarkdown 写回同样的符号。

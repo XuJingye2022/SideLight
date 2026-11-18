@@ -10,6 +10,7 @@
 
 | ID | 状态 | 区域 | 问题 | 证据 | 轮 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
+| B-157 | open | 编辑 | 点公式编辑后取消仍露 `$…$` 源码：关闭就地编辑只 `focus()` 不回写选区，光标停在 atom 上是 NodeSelection，mathReveal 继续画源码 | 第 75 轮：候选成因已修（`mathInputSelection`/`closeMathEditTransaction`，三条出口并为 `finishMathEdit`，单测 5 条 + 独立探针 `.tmp/r75-tester-a1.log`）；**用户症状 UNVERIFIED**：CDP 9222–9226 无监听，点 `$\alpha$`→Esc、手打 `$x^2$` 的浏览器项未跑（`.tmp/e2e-r75-a1.mjs` 未交付），不判 fixed | 75 |
 
 ## P1
 
@@ -55,6 +56,8 @@
 | B-154 | fixed | 界面 | 任务列表行高 1.51×（50.14 px，普通列表 33.14），复选框中心比文字低 7.5 px：`li{display:flex}` 挡住行内 `p` 的 1em 下外边距折叠，`label{margin-top:7px}` 再下推复选框；`li > p{margin:0}` 规则不匹配 TaskItem 的 `li > div > p` | `src/styles.css:763`/`:777`/`:1034`/`:1040`；`.tmp/e2e-r73-finder-bug.mjs`、`.tmp/r73-finder-bug.json`（taskList.rows）；`shots/round-73/tasklist-row.png`；`docs/iteration/round-73/findings-bug.md` F1 | 73 |
 | B-155 | fixed | 编辑 | `[TOC]` 标记段 `display:none` 没有盒，方向键整段跳过、`is-revealed` 永不触发（光标在下一标题连按 ↑ 3 次，anchor 从 `标题二`→`正文甲`→`标题一`，露出 0/3）；隐藏段因此只能用鼠标或 Backspace 边界操作 | `src/styles.css:956-958`；`src/lib/tocRender.ts:82-87`/`:266-275`；`.tmp/r73-finder-bug.json`（toc.arrowUpSamples）；`shots/round-73/toc-math-reveal.png`；`docs/iteration/round-73/findings-bug.md` F2 | 73 |
 | B-156 | fixed | 编辑 | 行内/块级公式源码只在鼠标 `onClick` 露出：方向键把选区移到 atom 上只得到 `ProseMirror-selectednode`，`$…$` 不出现（`mathEditorVisible` 6/6=0），键盘用户看不出这里可改 | `src/App.tsx:966`/`:969`/`:5003`；`.tmp/r73-finder-bug.json`（math.arrowLeftSamples）；`docs/iteration/round-73/findings-bug.md` F3 | 73 |
+| B-158 | fixed | 设置 | `==高亮==` 失效：默认关 + 旧存档无版本标记，第 55–74 轮存下的 `inlineSyntax:false`（当时的默认值）被读成用户选择，升级后仍不解析 | 第 75 轮：`SETTINGS_VERSION=2` + `loadSettings` 一次性迁移（无版本 false→开、版本 ≥2 的 false 保留）+ `saveSettings` 恒写版本，`settings.test.ts` +5、独立探针 `.tmp/r75-tester-a2.ts` 全过；`默认关` 8→1（剩 smartPunctuation 注释）；UNVERIFIED：真机 `.sl-eq` 渲染与保存字节（CDP 不可用） | 75 |
+| B-159 | fixed | 外观 | 行间公式不如 Typora 美观：`.katex-display` 的 `margin:0` | 第 75 轮：改 `margin:0 auto; width:fit-content; min-width:100%`（`src/styles.css:2119-2123`，短公式仍居中、长公式可横向滚回），`mathStyle.test.ts` 2 条（先断言 4 个规则块再按块断言）；UNVERIFIED：浏览器几何与字号 px（CDP 9222–9226 无监听，`.tmp/e2e-r75-a3.mjs` 未交付） | 75 |
 
 ## P2（路线图，open）
 
@@ -102,5 +105,5 @@
 | B-140 | 文档 | CHANGELOG 的 `## Unreleased（第 29–50 轮，未发版）` 标题区间过期：同节正文已到「第 65 轮（同一未发版区间）」，按标题写 release notes 会漏 51–65 轮 | P2 打磨；**第 69 轮 scribe 已改标题为 `## Unreleased（第 29–69 轮，未发版）`**（`docs/CHANGELOG.md:5`；`docs/iteration/round-66/findings-ship.md` F1） | 66 |
 | B-141 | 界面 | 页边批注卡不可键盘聚焦：`article.note` 无 `tabindex` 也无 `role`，`.focus()` 后 `activeElement` 仍是 `BUTTON`，键盘用户读不到「第 N 处 / 引文 / note」这组上下文，卡片本身也没有 Enter 跳句 | P2 打磨（`src/components/MarginRail.tsx:110-140`；`.tmp/r66-ui-rail.json`；`shots/round-66/annotation-rail.png`；`docs/iteration/round-66/findings-ui.md` §3） | 66 |
 | B-142 | 界面 | 删除文件的「撤销」只挂在单条 toast 上：`a.md` 脏时删除 → toast「已移到回收站：a.md｜撤销」，随后在切过去的文档里打字并 `Ctrl+S` → toast 变「已保存 b.md」，`撤销` 按钮消失，删除失去应用内恢复入口（数据不丢：trash 里 `…-a.md` 21 B + `…-a.md.current.md` 26 B 成对保留，撤销还能写回脏正文）。改法：恢复入口保留到下一次文件树操作，或「更多 ▾」加「恢复最近删除」 | P2 打磨（`src/App.tsx:5687-5710` 单槽 notice）；`.tmp/r66-finder-bug.json` B.undoClicked=false / B.afterUndoToast、`.tmp/r66-finder-bug2.json` T1；`docs/iteration/round-66/findings-bug.md` F1 | 66 |
-| B-153 | 界面 | 模态（设置/确认框）挡住自动保存时，2.5 s 草稿先落地；之后关闭模态补存成功也不删草稿，`.sidelight/drafts/<key>.md` 每篇留一份过期副本（mtime 早于保存，下次打开不弹恢复，无数据风险） | P2 打磨；`src/App.tsx:779-784`（只在那条竞态分支删）、`:3032-3070`（`finishSaved` 不删）、`:2453`；`.tmp/r72-bug-d.json` 的 `D1.*`；`docs/iteration/round-72/findings-bug.md` F1 | 72 |
-| B-139 | 性能 | 1 MB 文档停在源码态逐键全篇 `countText`：10 字共 2,121 ms、每键约 1 条 ~120 ms long task（最大 223），逐键不再重解析编辑器（`sl-parse-done` 3→3）但状态栏统计仍在每次渲染扫全篇。第 65 轮 B2 按计划只记录、不设门槛 | `src/App.tsx:5731`（`stats={sourceMode ? countText(splitFrontmatter(sourceText).body) : stats}`）；`.tmp/r65-tester-b2-typing.json`、`.tmp/e2e-r64-impl-b2-typing.mjs`；`docs/iteration/round-65/test.md` | 65 |
+| B-153 | open | 界面 | 模态（设置/确认框）挡住自动保存时，2.5 s 草稿先落地；之后关闭模态补存成功也不删草稿，`.sidelight/drafts/<key>.md` 每篇留一份过期副本（mtime 早于保存，下次打开不弹恢复，无数据风险） | P2 打磨；`src/App.tsx:779-784`（只在那条竞态分支删）、`:3032-3070`（`finishSaved` 不删）、`:2453`；`.tmp/r72-bug-d.json` 的 `D1.*`；`docs/iteration/round-72/findings-bug.md` F1 | 72 |
+| B-139 | open | 性能 | 1 MB 文档停在源码态逐键全篇 `countText`：10 字共 2,121 ms、每键约 1 条 ~120 ms long task（最大 223），逐键不再重解析编辑器（`sl-parse-done` 3→3）但状态栏统计仍在每次渲染扫全篇。第 65 轮 B2 按计划只记录、不设门槛 | `src/App.tsx:5731`（`stats={sourceMode ? countText(splitFrontmatter(sourceText).body) : stats}`）；`.tmp/r65-tester-b2-typing.json`、`.tmp/e2e-r64-impl-b2-typing.mjs`；`docs/iteration/round-65/test.md` | 65 |

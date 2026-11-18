@@ -107,3 +107,41 @@ test('clampPageZoom 与正文字号是两条独立的链', async () => {
   assert.equal(clampFontSize(110), 26)
   assert.equal(clampPageZoom(110), 110)
 })
+
+/* ── `==高亮==` 默认开 + 旧存档一次性迁移（第 75 轮 B-158）────────────── */
+
+test('inlineSyntax：没有存档时是开（第 75 轮起默认开）', async () => {
+  const { loadSettings, DEFAULT_SETTINGS, SETTINGS_VERSION } = await setup(undefined)
+  assert.equal(DEFAULT_SETTINGS.inlineSyntax, true)
+  assert.equal(DEFAULT_SETTINGS.settingsVersion, SETTINGS_VERSION)
+  assert.equal(loadSettings().inlineSyntax, true)
+})
+
+test('inlineSyntax：空存档 {} 也读成开', async () => {
+  const { loadSettings } = await setup({})
+  assert.equal(loadSettings().inlineSyntax, true)
+})
+
+test('inlineSyntax：旧存档的 false（无 settingsVersion）迁成开', async () => {
+  // 第 55–74 轮的默认值是关：存下来的 false 不算用户选择
+  const { loadSettings } = await setup({ inlineSyntax: false })
+  assert.equal(loadSettings().inlineSyntax, true)
+})
+
+test('inlineSyntax：版本 >= 2 的 false 是显式关闭，原样保留', async () => {
+  const v2 = await setup({ inlineSyntax: false, settingsVersion: 2 })
+  assert.equal(v2.loadSettings().inlineSyntax, false)
+  // 以后版本推到 3 也不能再把这批用户翻回开（critic P2-3）
+  const v3 = await setup({ inlineSyntax: false, settingsVersion: 3 })
+  assert.equal(v3.loadSettings().inlineSyntax, false)
+})
+
+test('saveSettings 恒写 settingsVersion：显式关掉的档保存后不回弹', async () => {
+  const { storage, loadSettings, saveSettings } = await setup({ inlineSyntax: false, settingsVersion: 2 })
+  const loaded = loadSettings()
+  assert.equal(loaded.inlineSyntax, false)
+  saveSettings(loaded)
+  const saved = JSON.parse(storage.getItem(KEY) as string) as Record<string, unknown>
+  assert.equal(saved.settingsVersion, 2)
+  assert.equal(saved.inlineSyntax, false)
+})

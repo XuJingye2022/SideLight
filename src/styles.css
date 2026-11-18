@@ -845,7 +845,7 @@ button:disabled {
   bottom: -0.25em;
 }
 
-/* 快捷行内语法（第 55 轮 B-101）：`==高亮==` / `^上标^` / `~下标~`。默认关；
+/* 快捷行内语法（第 55 轮 B-101）：`==高亮==` / `^上标^` / `~下标~`。第 75 轮起默认开；
    关着不产生这三个 mark，所以这里不需要额外的开关样式 */
 .doc-body .sl-eq {
   background: var(--mark-bg);
@@ -2113,8 +2113,13 @@ button:disabled {
   padding: 0.15em 0;
 }
 
+/* 第 75 轮 A3：KaTeX 的 display 默认 margin 会叠出两层留白，这里清零；宽度先按内容收缩、
+   再用 min-width 撑满可用宽——短公式仍居中（KaTeX 内部 .katex 居中），长公式箱子变宽，
+   .block-math-inner 的横向滚动才有内容可滚（超宽时左端能滚回来，不被裁掉） */
 .tiptap-mathematics-render[data-type='block-math'] .katex-display {
-  margin: 0;
+  margin: 0 auto;
+  width: fit-content;
+  min-width: 100%;
 }
 
 .tiptap-mathematics-render[data-type='block-math'] .katex {

@@ -25,7 +25,7 @@ const LONE_TILDE = {
  * 成对的 `~~…~~` 仍交给 marked 自己的 del 规则。
  * marked 的 use() 是包装而不是覆盖：tokenizer 返回 false 会落回基础规则（仍是删除线），所以不能用 return false。
  *
- * 第 55 轮起同一处还注册 `==高亮==` / `^上标^` / `~下标~` 三个 tokenizer（默认关，设置里开）。
+ * 第 55 轮起同一处还注册 `==高亮==` / `^上标^` / `~下标~` 三个 tokenizer（第 75 轮起默认开，设置里可关）。
  * marked 的 use() 对行内 tokenizer 用 unshift：数组里靠前的先进队尾，所以 loneTildeText 写在数组第一个，
  * 真正匹配时它排最后——`~c~` 先被「下标」接住，裸 `~` 才落到这里。
  */

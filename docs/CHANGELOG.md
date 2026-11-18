@@ -4,6 +4,13 @@
 
 ## Unreleased（第 29–74 轮，未发版）
 
+**第 75 轮（同一未发版区间）**
+
+- 点公式编辑后取消不再露 `$…$` 源码（A1，B-157）：新增 `mathInputSelection` / `closeMathEditTransaction`（`src/lib/mathInput.ts`），`src/App.tsx` 的三条关闭出口并为 `finishMathEdit`（提交换内容、空内容保留、取消删新建），单测 5 条 + `src/lib/mathInput.test.ts`。
+- `==高亮==` 默认开 + 旧存档一次性迁移（A2，B-158）：`SETTINGS_VERSION=2`，无版本号的旧 `inlineSyntax:false`（第 55–74 轮的默认值）迁成开，版本 ≥2 的 false 是显式关、原样保留，`saveSettings` 恒写版本；`settings.test.ts` +5。
+- 块级公式排版（A3，B-159）：`.katex-display` 改 `margin:0 auto; width:fit-content; min-width:100%`，短公式仍居中、长公式可横向滚回；`src/lib/mathStyle.test.ts` 2 条（4 个规则块按块断言）。
+- 门禁：首屏 gzip **303,381 B**（余 6,619）；`npm test` **43 文件 548 条**；roundtrip 富文本 6/8 + 源码 8/8。UNVERIFIED：CDP 9222–9226 不可用，A1 点取消/手打公式的浏览器项与 A3 长公式几何、真机 `.sl-eq` 渲染与保存字节均未验（见 `docs/iteration/round-75/test.md`）。
+
 **第 74 轮（同一未发版区间）**
 
 - `==高亮==` 定界符随选区露出（B 轮 B2，复用第 73 轮 `src/lib/mathReveal.ts` 工厂）：光标进高亮或贴两端时 `::before/::after` 画回 `==`（`src/styles.css:856-871`），移开收回；设置关时文档里没有 mark、装饰为空集；保存仍逐字节写回 `==高亮==`。截图 `shots/round-74/eq-delimiter-reveal.png`。

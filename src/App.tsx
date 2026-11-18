@@ -66,7 +66,7 @@ import {
 import { cacheKey, legacyKeyFor, readCache, readCacheText, removeCache, writeCache } from './lib/cache.ts'
 import { buildChunkContext, buildContext, splitSelection, type Block, type ContextPayload } from './lib/context.ts'
 import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } from './lib/decorations.ts'
-import { MathInputRules } from './lib/mathInput.ts'
+import { MathInputRules, closeMathEditTransaction, mathInputSelection } from './lib/mathInput.ts'
 import { normalizeForBaseline } from './lib/baseline.ts'
 import { diskSnapshot, reusableDiskText, type DiskSnapshot } from './lib/saveDisk.ts'
 import { inTableAncestry, typingBlockMarkerInCell } from './lib/tableScope.ts'
@@ -988,7 +988,7 @@ export default function App() {
       // 行内 HTML 白名单（第 47 轮）：kbd/mark/sub/sup 四种真成对标签在编辑视图与预览里成为真样式，
       // 保存仍写回原标签；其余标签照旧走实体与 repairHtml 的保真路径
       ...inlineMarks,
-      // 快捷行内语法（第 55 轮 B-101）：`==高亮==` / `^上标^` / `~下标~`，默认关，设置里开
+      // 快捷行内语法（第 55 轮 B-101，第 75 轮起默认开）：`==高亮==` / `^上标^` / `~下标~`，设置里可关
       ...inlineSyntaxExtensions,
       Markdown.configure({ indentation: { style: 'space', size: 2 } }),
       AnnotationDecorations,
@@ -5235,24 +5235,40 @@ export default function App() {
     // 只在进入/退出草稿时重挂监听，编辑过程中的范围走 ref
   }, [editor, mathDraft !== null])
 
-  const applyMath = useCallback(() => {
-    if (!editor || !mathEdit) return
-    const latex = mathEdit.latex.trim()
-    if (latex.length > 0) {
-      editor
-        .chain()
-        .focus()
-        .insertContentAt(
-          { from: mathEdit.from, to: mathEdit.to },
-          { type: mathEdit.block ? 'blockMath' : 'inlineMath', attrs: { latex } },
-        )
-        .run()
-    } else {
+  /**
+   * 公式就地编辑的唯一出口：提交（latex 非空换内容、空则保留公式块）与取消。
+   * 第 75 轮 A1：原来只 `focus()`、不回写选区，光标停在 atom 上是 NodeSelection，
+   * mathReveal 继续画 `$…$` / `$$…$$`，用户看到「取消后还是源码」。
+   * 现在提交走 mathInputSelection 落到公式后面，取消/清空走 closeMathEditTransaction。
+   */
+  const finishMathEdit = useCallback(
+    (mode: 'commit' | 'cancel') => {
+      if (!editor || !mathEdit) return
+      const view = editor.view
+      const { state } = view
+      const latex = mode === 'commit' ? mathEdit.latex.trim() : ''
+      let tr: Transaction
+      if (latex.length > 0) {
+        const type = mathEdit.block ? state.schema.nodes.blockMath : state.schema.nodes.inlineMath
+        tr = state.tr.replaceWith(mathEdit.from, mathEdit.to, type.create({ latex }))
+        tr.setSelection(mathInputSelection(tr.doc, mathEdit.from))
+      } else {
+        // 内容为空时保留这个公式块：刚打 $$ 回车建出来就被失焦删掉，用户会以为没生效
+        tr = closeMathEditTransaction(state, {
+          from: mathEdit.from,
+          to: mathEdit.to,
+          remove: mode === 'cancel' && mathEdit.isNew,
+        })
+      }
+      view.dispatch(tr)
+      setMathEdit(null)
+      // 只把焦点交回正文；选区已经由上面的事务定好，focus 不改它
       editor.commands.focus()
-    }
-    // 内容为空时保留这个公式块：刚打 $$ 回车建出来就被失焦删掉，用户会以为没生效
-    setMathEdit(null)
-  }, [editor, mathEdit])
+    },
+    [editor, mathEdit],
+  )
+
+  const applyMath = useCallback(() => finishMathEdit('commit'), [finishMathEdit])
 
   const applyLink = useCallback(() => {
     if (!editor || !linkEdit) return
@@ -6273,13 +6289,7 @@ export default function App() {
           display={mathEdit.block}
           onChange={(latex) => setMathEdit({ ...mathEdit, latex })}
           onCommit={applyMath}
-          onCancel={() => {
-            if (mathEdit.isNew) {
-              editor?.chain().focus().deleteRange({ from: mathEdit.from, to: mathEdit.to }).run()
-            }
-            setMathEdit(null)
-            editor?.commands.focus()
-          }}
+          onCancel={() => finishMathEdit('cancel')}
         />
       )}
 

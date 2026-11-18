@@ -1,5 +1,6 @@
 import { Extension, InputRule } from '@tiptap/core'
-import { TextSelection } from '@tiptap/pm/state'
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { TextSelection, type EditorState, type Selection, type Transaction } from '@tiptap/pm/state'
 
 import { isMathBody } from './math.ts'
 import { inTableAncestry } from './tableScope.ts'
@@ -9,6 +10,79 @@ type Options = {
   onBlockCreated?: (position: number) => void
   /** 在表格单元格里被守卫拦下时回调，用来给用户一句提示 */
   onBlockedTable?: () => void
+}
+
+/** 落点候选：文档位置 + 就近方向（1 向后找文本位置，-1 向前找） */
+type CursorCandidate = { pos: number; bias: 1 | -1 }
+
+/** 夹到文档范围内：公式在文末时 `from + 1` 等于 content.size，删掉后还可能越界 */
+const clampPosition = (doc: ProseMirrorNode, pos: number) => Math.min(Math.max(pos, 0), doc.content.size)
+
+/**
+ * 按顺序试候选落点，取第一个「不选中 atom」的文本光标。
+ * `TextSelection.near` 向前找不到文本位置时会退到后退方向，最后落到 atom 上变成
+ * NodeSelection（critic 实测：文档以块级公式结尾就是这种情形）。NodeSelection 在
+ * mathReveal 里算「选中公式」，于是 `$…$` / `$$…$$` 源码一直露着 —— 第 75 轮 A1 的病根。
+ */
+function firstTextCursor(doc: ProseMirrorNode, candidates: CursorCandidate[]): Selection {
+  let fallback: Selection | null = null
+  for (const { pos, bias } of candidates) {
+    const selection = TextSelection.near(doc.resolve(clampPosition(doc, pos)), bias)
+    fallback ??= selection
+    if (selection instanceof TextSelection) return selection
+  }
+  return fallback as Selection
+}
+
+/**
+ * 输入规则把 `$x^2$` 换成 atom 之后的光标：落在 atom 后面，公式保持 KaTeX 成品。
+ * 落在 atom 上会被 mathReveal 立刻展开成 `$…$`，看起来像「行内公式输入后失效」。
+ * 文末的块级公式后面没有文本位置可落，退到它前面的段落里（仍不选中 atom）。
+ */
+export function mathInputSelection(doc: ProseMirrorNode, atomFrom: number, nodeSize = 1): Selection {
+  const after = atomFrom + nodeSize
+  return firstTextCursor(doc, [
+    { pos: after, bias: 1 },
+    { pos: after, bias: -1 },
+    { pos: atomFrom, bias: -1 },
+    { pos: atomFrom, bias: 1 },
+  ])
+}
+
+export type CloseMathEditOptions = {
+  /** 公式 atom 的起点 */
+  from: number
+  /** 公式 atom 的终点（`from + nodeSize`） */
+  to: number
+  /** true = 删掉这条公式（新建后取消）；false = 保留公式，只把光标移出去 */
+  remove: boolean
+}
+
+/**
+ * 关掉就地编辑（提交 / 取消 / Esc）时的事件：取消新建的公式就删掉，其余只把光标移出 atom。
+ * 原来只 `commands.focus()`、不回写选区，光标停在 atom 上，mathReveal 继续画 `$…$`，
+ * 用户看到的就是「点了公式编辑、取消后还是源码」（第 75 轮 A1）。
+ */
+export function closeMathEditTransaction(state: EditorState, { from, to, remove }: CloseMathEditOptions): Transaction {
+  if (remove) {
+    // 先删再落 from：删掉后 from 正好是原公式所在的位置
+    const transaction = state.tr.delete(from, to)
+    return transaction.setSelection(
+      firstTextCursor(transaction.doc, [
+        { pos: from, bias: 1 },
+        { pos: from, bias: -1 },
+        { pos: from + 1, bias: -1 },
+      ]),
+    )
+  }
+  return state.tr.setSelection(
+    firstTextCursor(state.doc, [
+      { pos: to, bias: 1 },
+      { pos: to, bias: -1 },
+      { pos: from, bias: -1 },
+      { pos: from, bias: 1 },
+    ]),
+  )
 }
 
 /**
@@ -47,10 +121,7 @@ export const MathInputRules = Extension.create<Options>({
           // 第 75 轮：输入规则把原子建出来后，选区留在原子上的话，mathReveal 会
           // 立刻把 KaTeX 收起、只显示 `$…$`，看起来像「行内公式失效」。把光标放到
           // 原子后面，公式保持成品；要改它再按方向键/点击选中。
-          const after = range.from + 1
-          if (after <= tr.doc.content.size) {
-            tr.setSelection(TextSelection.near(tr.doc.resolve(after), 1))
-          }
+          tr.setSelection(mathInputSelection(tr.doc, range.from))
         },
       }),
       new InputRule({

@@ -26,11 +26,21 @@ export type Settings = {
   autoSave: boolean
   /** 键盘输入把直引号 / -- / ... / 中文后半角标点换成排版符，并自动配对括号引号 */
   smartPunctuation: boolean
-  /** `==高亮==` / `^上标^` / `~下标~` 快捷语法（默认关；只改解析与写回，不重建编辑器） */
+  /** `==高亮==` / `^上标^` / `~下标~` 快捷语法（默认开；只改解析与写回，不重建编辑器） */
   inlineSyntax: boolean
+  /** 设置结构版本：用来区分「旧存档的默认值」与「用户显式选择」，见 SETTINGS_VERSION */
+  settingsVersion: number
 }
 
 const STORAGE_KEY = 'sidelight.settings.v1'
+
+/**
+ * 设置结构版本（第 75 轮 B-158）。
+ * 2 = `==高亮==` 默认开：版本 < 2 的存档里 `inlineSyntax:false` 是第 55–74 轮那个默认值，
+ * 不算用户选择，一次性迁成开；版本 >= 2 的 false 才是显式关，原样保留。
+ * 以后改默认值就 +1，并在 `loadSettings` 里写对应的迁移。
+ */
+export const SETTINGS_VERSION = 2
 
 export const MIN_FONT_SIZE = 12
 export const MAX_FONT_SIZE = 26
@@ -55,6 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
   smartPunctuation: true,
   // 第 75 轮：`==高亮==` 与 Typora 一致，默认开；显式关掉的存档仍保留关
   inlineSyntax: true,
+  settingsVersion: SETTINGS_VERSION,
 }
 
 /** 旧默认提示词的指纹（v1）：长度 + FNV-1a；命中才升级，用户改过的不动 */
@@ -118,8 +129,11 @@ export function loadSettings(): Settings {
       autoSave: parsed.autoSave !== false,
       // 旧存档没有这个键，读出来必须是开（不能把老用户的功能默认关掉）
       smartPunctuation: parsed.smartPunctuation !== false,
-      // 新功能默认开（第 75 轮）：旧存档没有这个键也算开；显式 false 保留
-      inlineSyntax: parsed.inlineSyntax !== false,
+      // 第 75 轮 B-158：新功能默认开。版本 < 2 的存档里 false 是旧默认值，迁成开；
+      // 版本 >= 2 起 false 才是用户显式关掉，原样保留（版本往 3 推也不会再翻一次）
+      inlineSyntax: parsed.settingsVersion !== undefined && parsed.settingsVersion >= SETTINGS_VERSION ? parsed.inlineSyntax !== false : true,
+      // 读出来就带当前版本：下次 save 落盘即是已迁移的形状
+      settingsVersion: SETTINGS_VERSION,
     }
   } catch {
     return { ...DEFAULT_SETTINGS }
@@ -127,7 +141,8 @@ export function loadSettings(): Settings {
 }
 
 export function saveSettings(settings: Settings): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+  // 版本恒写当前值：调用方手里的对象可能是旧形状（迁移前读出来的），别把版本写丢
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, settingsVersion: SETTINGS_VERSION }))
 }
 
 export function hasKey(settings: Settings): boolean {
