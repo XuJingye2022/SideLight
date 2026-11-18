@@ -115,6 +115,9 @@ export function FileTree({
       activePath ?? treeRef.current?.querySelector<HTMLElement>('[role="treeitem"]')?.dataset.path ?? null
     if (!target) return
     const frame = requestAnimationFrame(() => {
+      // 第 68 轮：在「抢」的那一帧再判一次。判在排 rAF 之前会被同一帧里别的聚焦排程翻盘
+      // （快速打开选中后 App 的聚焦排在 rAF 里，这一帧谁先谁后不定），正文/源码框拿到焦点就不抢。
+      if (document.activeElement?.closest('.ProseMirror, textarea.source-editor')) return
       const row = treeRef.current?.querySelector<HTMLElement>(`[data-path="${CSS.escape(target)}"]`)
       row?.focus()
     })

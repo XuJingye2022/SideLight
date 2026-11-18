@@ -2714,6 +2714,12 @@ button:disabled {
   outline: none;
 }
 
+/* 键盘用户要看得出焦点在输入框里（WCAG 2.4.7，第 68 轮 B-147）；照 .link-editor-input:focus */
+.quick-open-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .quick-open-list {
   margin: 8px 0 0;
   padding: 0;

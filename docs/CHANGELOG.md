@@ -344,6 +344,14 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **301,383 B**（内部 310,000 / 硬线 320,000，余 18,617）；`npm test` **40 个文件 520 条**全过；`npm run roundtrip` rich 6/8、source 8/8。
 - UNVERIFIED（本轮）：真实 FSA 磁盘与真实 1 MB 文件（合成工作区）、真实中文 IME 在两个 rAF 窗口内击键、WebView2 宿主内的遮罩帧与重解析、真实读屏对 `role="status"` 的播报；B-145（源码态自动保存无 IME 组合守卫）本轮登记、未修。
 
+**第 68 轮（同一未发版区间）**
+
+- **源码改字后 2 s 内退出不再连写两次盘**（B-148）：`runAutoSave` 在 `await performCommit` 之前清草稿计时器并推 `draftGenerationRef`（`src/App.tsx:3672-3675`），失败仍走 `writeDraftFallback`。1 MB 源码打 1 字后 350 ms 退出：`big.md` 写 1 次（1,000,013）、drafts(len>0) 0、退出后 0 写；等 3.4 s 再退仍 1 次；`autoSave:false` 草稿 1、`big.md` 不变。
+- **源码态组合输入不写盘**（B-145）：`textarea.source-editor` 接 compositionstart（`sourceComposingRef` + 有界 60 s）、compositionend（+400 ms 并补排自动保存与草稿）、blur（只清标记），`scheduleDraft` 加源码态草稿门，退出源码态的 effect 清两个 ref。100 KB 组合 `zhong` 停 2.6 s：盘不变、`sidelight.doc.v1` 无拼音、drafts 0；提交 **2,034 ms** 后写 100,011 含「中」无 `zhong`；1 MB 关自动保存组合期 drafts 0、提交后草稿含「中」；组合未提交时 Esc 退源码仍会在 1.6 s 内恢复写盘。
+- **快速打开焦点困锁与 Esc**（B-146/B-147）：`useDialogFocus` 加 `overlaySelector`/`restoreFocus` 两参，`QuickOpen` 改用 hook（`restoreFocus=false`，焦点由 App 按视图分派）、`.quick-open` 补 `aria-modal`/`tabIndex=-1`、删输入框私有的 Esc；App 的 Esc 链与 `dialogOpen` 认 `quickOpen`，新增 `closeQuickOpen`；选中文件后 `focusCurrentView` + 按帧重试的 `focusCurrentViewWhenReady`，`FileTree` 在抢焦点那一帧再判一次。Tab 60 次 0 逃出、Esc 关且焦点回正文/源码框；`.quick-open-input:focus` 补焦点环。
+- 门禁：`npm run verify` PASS，首屏 gzip **301,694 B**（内部 310,000，余 18,306）；`npm test` **40 个文件 520 条**全过；`roundtrip` 未跑（未动序列化）。
+- UNVERIFIED（本轮）：真实中文 IME 与 WebView2 宿主内的组合输入/快速打开、真实 FSA 与真实 1 MB 文件、真实屏幕阅读器。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDialogFocus } from './useDialogFocus'
 
 export type QuickFile = { name: string; path: string }
 
@@ -13,10 +14,11 @@ export function QuickOpen({ files, onSelect, onClose }: Props) {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const dialogRef = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
+  // 第 68 轮 B-146：焦点困锁 + 兄弟节点 inert。组件挂载即打开，关闭由 App 的 Esc 链与遮罩负责；
+  // 关闭后的焦点由 App 按视图分派，所以不动打开者（restoreFocus=false）。
+  useDialogFocus(true, dialogRef, '.quick-open-backdrop', false)
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -49,9 +51,12 @@ export function QuickOpen({ files, onSelect, onClose }: Props) {
   return (
     <div className="quick-open-backdrop" onMouseDown={onClose}>
       <div
+        ref={dialogRef}
         className="quick-open"
         role="dialog"
+        aria-modal="true"
         aria-label="快速打开"
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <input
@@ -71,10 +76,8 @@ export function QuickOpen({ files, onSelect, onClose }: Props) {
             } else if (event.key === 'Enter') {
               event.preventDefault()
               choose(active)
-            } else if (event.key === 'Escape') {
-              event.preventDefault()
-              onClose()
             }
+            // Esc 不在这里处理：焦点可能已经 Tab 到列表按钮上，交给 App 的窗口级 Esc 链（第 68 轮 B-146）
           }}
         />
         <ul className="quick-open-list" role="listbox">

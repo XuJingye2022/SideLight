@@ -370,6 +370,40 @@ const focusSourceEditor = (ratio?: number) =>
     box.focus()
   })
 
+/**
+ * 焦点按「现在的 DOM」分派：源码框在就进源码框，否则回正文（正文选择器排除预览 pane，
+ * 预览不是聚焦目标：它 `contentEditable=false` 且无 `tabindex`，`.focus()` 静默落空）。
+ * 给 await 之后用（切视图是异步的，闭包里的 viewMode 已经过期），第 68 轮 B-146 的选文件出口。
+ */
+const focusCurrentView = () =>
+  requestAnimationFrame(() => {
+    const source = document.querySelector<HTMLTextAreaElement>('textarea.source-editor')
+    if (source) {
+      source.focus()
+      return
+    }
+    document.querySelector<HTMLElement>('.ProseMirror:not(.preview-pane)')?.focus()
+  })
+
+/**
+ * 打开文档之后把焦点送到「切换之后」的视图：载入与切视图都要再走一两次 commit，
+ * `await` 之后只排一帧 rAF 会抢在 commit 前面打空（预览→编辑、编辑→源码都实测落空）。
+ * 按帧盯到窗口结束：焦点掉回 body（旧视图被卸掉）或还在写作面上时，接回当前视图那一个；
+ * 焦点去了别的控件（树行、按钮、对话框）说明用户自己走了，立刻放手。
+ * 上限 20 帧（约 0.3 s），与切视图的 `focusWhenShown` 同一套路。
+ */
+const focusCurrentViewWhenReady = (attempt = 0) => {
+  requestAnimationFrame(() => {
+    const target =
+      document.querySelector<HTMLTextAreaElement>('textarea.source-editor') ??
+      document.querySelector<HTMLElement>('.ProseMirror:not(.preview-pane)')
+    const active = document.activeElement
+    if (active && active !== document.body && !active.closest('textarea.source-editor, .ProseMirror')) return
+    if (target) target.focus()
+    if (attempt < 20) focusCurrentViewWhenReady(attempt + 1)
+  })
+}
+
 /** 富文本光标在正文里的相对位置：进源码时按同一比例落 caret（第 37 轮） */
 const caretRatioOf = (editor: Editor | null) => {
   if (!editor) return undefined
@@ -659,6 +693,8 @@ export default function App() {
   /** 状态栏「排队中」的同步值：只在 false↔true 时 setState，源码态逐键不再多一次 App 渲染 */
   const autoSaveScheduledRef = useRef(false)
   const composeUntilRef = useRef(0)
+  /** 源码框是否正在组合输入：只挡源码态的草稿门，编辑器那条路仍靠 composeUntilRef（第 68 轮 B-145） */
+  const sourceComposingRef = useRef(false)
   const autoFailCountRef = useRef(0)
   /** onUpdate 里同步维护，自动保存定时器不读可能过期的 state */
   const dirtyRef = useRef(false)
@@ -701,6 +737,9 @@ export default function App() {
    */
   const scheduleDraft = useCallback(
     (text: string) => {
+      // 第 68 轮 B-145：源码框正在组合输入时不写草稿（那时 sourceText 里是未提交的拼音）。
+      // 门只开在源码态：编辑器自己的组合保护在 composeUntilRef 那条路上，这里一起关会丢编辑器草稿。
+      if (sourceMode && sourceComposingRef.current) return
       // 宿主文档不写 localStorage：大文件会撑爆配额，正文由宿主保管
       if (!hostModeRef.current && text.length <= 256 * 1024) {
         persistDocKey(text)
@@ -745,7 +784,7 @@ export default function App() {
         }, 2500)
       }
     },
-    [persistDocKey],
+    [persistDocKey, sourceMode],
   )
   /**
    * 记下「磁盘上现在是什么」（第 51 轮 F1）：保存前用它判断要不要整篇读回旧文件。
@@ -2543,6 +2582,13 @@ export default function App() {
     else if (viewMode !== 'preview') focusEditor()
   }, [viewMode])
 
+  /** 关快速打开：同上按视图分派焦点。焦点还原交给这里，组件里的 useDialogFocus 不还原打开者（第 68 轮 B-146） */
+  const closeQuickOpen = useCallback(() => {
+    setQuickOpen(false)
+    if (viewMode === 'source') focusSourceEditor()
+    else if (viewMode !== 'preview') focusEditor()
+  }, [viewMode])
+
   /** 点搜索结果：按路径找到节点打开文件，再把查找条打开并回填搜索词（第 59 轮 B-104） */
   const openGlobalSearchHit = useCallback(
     (hit: SearchHit, term: string) => {
@@ -3619,6 +3665,14 @@ export default function App() {
     }
 
     if (generation !== autoSaveGenerationRef.current || deletingRef.current || refreshingRef.current) return
+    // 第 68 轮 B-148：写盘前先作废停笔草稿。performCommit 的第一个 await 会让出主线程，
+    // 2,500 ms 草稿计时器若已过期就会先落地，把同一份全文再写一次（1 MB 档多写 ≈1 MB）。
+    // 保存失败仍由 writeDraftFallback 兜底；成功路径 finishSaved 再清一次表、再推一次代际。
+    if (draftTimerRef.current) {
+      clearTimeout(draftTimerRef.current)
+      draftTimerRef.current = null
+    }
+    draftGenerationRef.current += 1
     const ok = await performCommit(normalized, withEol)
     if (ok) {
       setAutoSaveState('saved')
@@ -3679,6 +3733,14 @@ export default function App() {
     scheduleAutoSaveRef.current()
     scheduleDraftRef.current(sourceText)
   }, [sourceMode, sourceText, originalText])
+
+  // 退出源码态必须同时清组合标记与有界组合门（第 68 轮 B-145）：textarea 卸载不保证先派 blur，
+  // 残留的 60 s 门会让「组合未提交时 Esc 退出」之后一直不写盘。
+  useEffect(() => {
+    if (sourceMode) return
+    sourceComposingRef.current = false
+    composeUntilRef.current = 0
+  }, [sourceMode])
 
   // 五个开关先落进 ref：上面的定时器读 ref，不读可能过期的 state。一次赋完，少一个漏同步的口子
   useEffect(() => {
@@ -4018,7 +4080,12 @@ export default function App() {
       const mod = event.ctrlKey || event.metaKey
       const key = event.key.toLowerCase()
       const dialogOpen =
-        settingsOpen || shortcutsOpen || globalSearch || pendingConfirm !== null || pendingSwitch !== null
+        settingsOpen ||
+        shortcutsOpen ||
+        globalSearch ||
+        quickOpen ||
+        pendingConfirm !== null ||
+        pendingSwitch !== null
       const productCombo =
         (mod && !event.shiftKey && !event.altKey && key === 's') ||
         (mod && event.altKey && !event.shiftKey && ['n', 'o', 's', 'e'].includes(key)) ||
@@ -4036,6 +4103,14 @@ export default function App() {
         if (globalSearch) {
           event.preventDefault()
           closeGlobalSearch()
+          return
+        }
+        // 快速打开：焦点可能 Tab 到列表按钮甚至框外，Esc 只有一个出口（第 68 轮 B-146）。
+        // 组合输入中按 Esc 是取消候选的常规动作，不拿去关面板。
+        if (quickOpen) {
+          if (event.isComposing || event.keyCode === 229) return
+          event.preventDefault()
+          closeQuickOpen()
           return
         }
         // 放在 Escape 判断之内：放外面会把所有按键都吃掉
@@ -4285,6 +4360,8 @@ export default function App() {
     shortcutsOpen,
     globalSearch,
     closeGlobalSearch,
+    quickOpen,
+    closeQuickOpen,
     pendingConfirm,
     pendingSwitch,
     menuOpen,
@@ -5701,6 +5778,22 @@ export default function App() {
                 value={sourceText}
                 spellCheck={false}
                 onChange={(event) => setSourceText(event.target.value)}
+                onCompositionStart={() => {
+                  // 有界窗口：真实输入法一定在 60 s 内结束或取消；用 Infinity 时一次取消就永久停写（第 68 轮 B-145）
+                  sourceComposingRef.current = true
+                  composeUntilRef.current = Date.now() + 60_000
+                }}
+                onCompositionEnd={(event) => {
+                  sourceComposingRef.current = false
+                  composeUntilRef.current = Date.now() + 400
+                  // 组合期间的 onUpdate 都被挡住：结束后补排一次，否则提交的「中」要等下次击键才落盘
+                  scheduleAutoSaveRef.current()
+                  scheduleDraftRef.current(event.currentTarget.value)
+                }}
+                onBlur={() => {
+                  // 卸载不保证派 blur；这里只清标记、留着有界门，宁可少写一次盘也不写未提交的拼音
+                  sourceComposingRef.current = false
+                }}
               />
             </div>
           )}
@@ -6045,14 +6138,20 @@ export default function App() {
             files={flattenFiles(workspace?.root ?? null).map((file) => ({ name: file.name, path: file.path }))}
             onSelect={(picked) => {
               const node = flattenFiles(workspace?.root ?? null).find((file) => file.path === picked.path)
-              if (node) void openWorkspaceFile(node)
+              // 文件刚被删掉时列表可能过期：按关面板处理，别把焦点丢在 body 上
+              if (!node) {
+                closeQuickOpen()
+                return
+              }
               setQuickOpen(false)
-              focusEditor()
+              // 立刻把焦点送回当前视图：文件树的 activePath effect 会判「焦点已在 .ProseMirror」才不抢，
+              // 等 await 之后再聚焦会被树行抢走（第 34 轮「选中之后回到正文」的既有行为，第 68 轮回归）
+              focusCurrentView()
+              // 打开的可能是源码态（含引用式链接定义的文档），也可能从预览切回编辑：焦点等切换落定后
+              // 再按当时的 DOM 分派一次，闭包里的 viewMode 这时已经过期（第 68 轮 B-146）
+              void openWorkspaceFile(node).then(() => focusCurrentViewWhenReady())
             }}
-            onClose={() => {
-              setQuickOpen(false)
-              focusEditor()
-            }}
+            onClose={closeQuickOpen}
           />
         </Suspense>
       )}
