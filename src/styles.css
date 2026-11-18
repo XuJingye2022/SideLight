@@ -1528,6 +1528,22 @@ button:disabled {
   color: var(--ink-soft);
 }
 
+/* 第 80 轮 A3（B-150）：设置面板按节折叠。summary 是原生开合钮，不进 Tab 序的额外站（浏览器默认它可聚焦） */
+.settings-group {
+  margin-bottom: 12px;
+}
+
+.settings-group > summary {
+  padding: 6px 0;
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.settings-group[open] > summary {
+  margin-bottom: 6px;
+}
+
 .theme-field {
   margin-bottom: 14px;
 }

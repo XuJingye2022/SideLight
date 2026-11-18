@@ -141,7 +141,15 @@ export function ensureMermaid(theme: MermaidTheme = mermaidTheme()): Promise<voi
     configure(mermaid, theme)
     return Promise.resolve()
   }
-  if (loading) return loading.then(() => undefined)
+  if (loading) {
+    // 并发分支同样要补一次 configure：首次加载期间切了主题（loading 里那份是旧主题），
+    // 直接吞掉就会让落地后的图继续用旧配色（第 80 轮 A1，B-122 主题竞态）。
+    // configure 自身按 appliedTheme 幂等，同主题不会重复 initialize。
+    const pending = loading
+    return pending.then(() => {
+      if (mermaid) configure(mermaid, theme)
+    })
+  }
   loading = (async () => {
     loadCount += 1
     try {

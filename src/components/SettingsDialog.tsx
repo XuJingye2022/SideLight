@@ -124,38 +124,7 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
           默认开（第 75 轮起）：关掉后这些符号按字面保存。改这项只作用在下次打开或拖入的文档上，已打开的正文不重排；成对且不贴空白才解析。
         </p>
 
-        <label className="field">
-          <span>接口地址</span>
-          <input
-            value={draft.baseUrl}
-            onChange={(event) => update({ baseUrl: event.target.value })}
-            placeholder="https://api.deepseek.com/v1"
-            spellCheck={false}
-          />
-        </label>
-
-        <label className="field">
-          <span>API Key</span>
-          <input
-            type="password"
-            value={draft.apiKey}
-            onChange={(event) => update({ apiKey: event.target.value })}
-            placeholder="sk-..."
-            spellCheck={false}
-          />
-          {draft.apiKey.trim().length === 0 && <span className="field-hint">未配置：分析会用本地模拟批注</span>}
-        </label>
-
-        <label className="field">
-          <span>模型</span>
-          <input
-            value={draft.model}
-            onChange={(event) => update({ model: event.target.value })}
-            placeholder="deepseek-chat"
-            spellCheck={false}
-          />
-        </label>
-
+        {/* 字号上移常显：它是最常改的一项，折叠在分组里会多一次点击（第 80 轮 A3） */}
         <label className="field">
           <span>正文字号（{MIN_FONT_SIZE}–{MAX_FONT_SIZE}）</span>
           <input
@@ -167,56 +136,92 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
           />
         </label>
 
-        <label className="field">
-          <span>联网核对（可选）</span>
-          <select
-            value={draft.searchProvider}
-            onChange={(event) => update({ searchProvider: event.target.value as Settings['searchProvider'] })}
-          >
-            <option value="off">不启用</option>
-            <option value="tavily">Tavily</option>
-            <option value="bocha">博查</option>
-            <option value="deepseek">DeepSeek 搜索</option>
-          </select>
-        </label>
-
-        {draft.searchProvider !== 'off' && (
+        {/* 原生的非受控 details：不传 open，React 重渲染时不接管开合，用户展开的状态保留 */}
+        <details className="settings-group">
+          <summary>接口与模型</summary>
           <label className="field">
-            <span>搜索 API Key</span>
+            <span>接口地址</span>
             <input
-              type="password"
-              value={draft.searchApiKey}
-              onChange={(event) => update({ searchApiKey: event.target.value })}
-              placeholder={draft.searchProvider === 'deepseek' ? 'sk-…（DeepSeek Key，可与模型 Key 相同）' : 'tvly-… 或博查 key'}
+              value={draft.baseUrl}
+              onChange={(event) => update({ baseUrl: event.target.value })}
+              placeholder="https://api.deepseek.com/v1"
               spellCheck={false}
             />
           </label>
-        )}
 
-        {draft.searchProvider === 'deepseek' && (
-          <p className="dialog-note">
-            使用 DeepSeek 搜索接口，Key 可与模型 Key 相同（当前需单独填写）；按成功请求计费（5 元/1000 次）。
-          </p>
-        )}
+          <label className="field">
+            <span>API Key</span>
+            <input
+              type="password"
+              value={draft.apiKey}
+              onChange={(event) => update({ apiKey: event.target.value })}
+              placeholder="sk-..."
+              spellCheck={false}
+            />
+            {draft.apiKey.trim().length === 0 && <span className="field-hint">未配置：分析会用本地模拟批注</span>}
+          </label>
 
-        <label className="field">
-          <span>批注提示词（作者偏好）</span>
-          <textarea
-            className="dialog-textarea"
-            value={draft.userPrompt}
-            spellCheck={false}
-            onChange={(event) => update({ userPrompt: event.target.value })}
-          />
-          <span className="field-hint">格式与安全规则内置、不可改；这里只写你自己的偏好与检查重点。</span>
-        </label>
-        <div className="dialog-inline">
-          <button
-            type="button"
-            onClick={() => update({ userPrompt: DEFAULT_USER_PROMPT })}
-          >
-            恢复默认
-          </button>
-        </div>
+          <label className="field">
+            <span>模型</span>
+            <input
+              value={draft.model}
+              onChange={(event) => update({ model: event.target.value })}
+              placeholder="deepseek-chat"
+              spellCheck={false}
+            />
+          </label>
+
+          <label className="field">
+            <span>联网核对（可选）</span>
+            <select
+              value={draft.searchProvider}
+              onChange={(event) => update({ searchProvider: event.target.value as Settings['searchProvider'] })}
+            >
+              <option value="off">不启用</option>
+              <option value="tavily">Tavily</option>
+              <option value="bocha">博查</option>
+              <option value="deepseek">DeepSeek 搜索</option>
+            </select>
+          </label>
+
+          {draft.searchProvider !== 'off' && (
+            <label className="field">
+              <span>搜索 API Key</span>
+              <input
+                type="password"
+                value={draft.searchApiKey}
+                onChange={(event) => update({ searchApiKey: event.target.value })}
+                placeholder={draft.searchProvider === 'deepseek' ? 'sk-…（DeepSeek Key，可与模型 Key 相同）' : 'tvly-… 或博查 key'}
+                spellCheck={false}
+              />
+            </label>
+          )}
+
+          {draft.searchProvider === 'deepseek' && (
+            <p className="dialog-note">
+              使用 DeepSeek 搜索接口，Key 可与模型 Key 相同（当前需单独填写）；按成功请求计费（5 元/1000 次）。
+            </p>
+          )}
+        </details>
+
+        <details className="settings-group">
+          <summary>批注提示词</summary>
+          <label className="field">
+            <span>批注提示词（作者偏好）</span>
+            <textarea
+              className="dialog-textarea"
+              value={draft.userPrompt}
+              spellCheck={false}
+              onChange={(event) => update({ userPrompt: event.target.value })}
+            />
+            <span className="field-hint">格式与安全规则内置、不可改；这里只写你自己的偏好与检查重点。</span>
+          </label>
+          <div className="dialog-inline">
+            <button type="button" onClick={() => update({ userPrompt: DEFAULT_USER_PROMPT })}>
+              恢复默认
+            </button>
+          </div>
+        </details>
 
         <p className="dialog-note">协议按 OpenAI 兼容走，DeepSeek、Kimi、智谱、OpenAI、Ollama 都能填。</p>
 

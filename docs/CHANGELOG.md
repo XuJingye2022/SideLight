@@ -4,6 +4,13 @@
 
 ## Unreleased（第 29–74 轮，未发版）
 
+**第 80 轮（同一未发版区间）**
+
+- 暖纸 Mermaid 主题竞态（A1，B-122）：`ensureMermaid` 的 `loading` 分支改成落地后补 `configure(mermaid, theme)`（幂等，`src/lib/mermaidLazy.ts:144-152`）——首次加载期间切主题不再被吞掉；`mermaidLazy.test.ts` 19→20（挂起 loader，release 前 inits 0、后 inits 2 且末次为后设主题，正序/反序两场景）。真机（ego-browser）五档 light→dark→sepia→dark→light：sepia fill `rgb(251,243,227)` ≠ light `rgb(236,236,255)` ≠ dark，标签对 fill 11.83:1，第二次 dark/light 三字段逐值同第一次，0 pageerror；截图 `shots/round-80/mermaid-sepia.png`。
+- 只读查找条补证（A2，B-136，产品代码无改动）：夹具 `find.md` 真机 21/21（预览/源码两态 readOnly×2、Aa/ab disabled、note 与 id/aria-describedby 对齐、真实键入无效、`.find-hit`/mark 0、Esc 落点正确；回编辑键入「字数」1/1），见 `.tmp/r80-a2-find-locked.json`。
+- 设置面板分节折叠（A3，B-150）：`SettingsDialog.tsx` 两个原生非受控 `<details className="settings-group">`（接口与模型 / 批注提示词，默认闭合）＋字号上移常显，`styles.css` 加 summary 样式；真机三档 `scrollHeight-clientHeight` **0 / 62 / 0**（1024×700 / 1000×620 / 1440×900，改前 352/432/152），footer 三档在框内与视口内、radio 4 且 tabIndex=0 恰 1、改字号保存生效；截图 `shots/round-80/settings-1024x700.png`。
+- 门禁：首屏 gzip **303,975 B**（余 6,025）；`npm test` **45 文件 580 条 0 fail**（基线 579）。tester 独立复验（未读 `impl.md`；CDP 9222–9226/54280 无监听 → ego-browser 真机页自写脚本）：A1/A2/A3 全过；UNVERIFIED：交付 `.tmp` 脚本未按 CDP 执行、A2 夹具原文未由 tester 重跑、真实 FSA/IME/WebView2，见 `docs/iteration/round-80/test.md`。
+
 **第 79 轮（同一未发版区间）**
 
 - `==` 露出定界符改用 widget（A1，B-161）：`decorateEqReveal` 每区间发 2 条 `Decoration.widget`（`from` side −1 / `to` side +1、`marks:[]`、key 带位置；`src/lib/mathReveal.ts:164,179-192`），CSS 四条伪元素规则换一条 `.doc-body .sl-eq-delim`（`src/styles.css:860-865`），print 块删两条 `sl-eq-revealed` 恢复、加 `.sl-eq-delim{display:none}`；`mathReveal.test.ts` 改断 2 条 widget + 新增「三文本节点仍 2 枚」（10 条）、`mathStyle.test.ts` 屏幕 7/7、print 公式定界符 2 条 + delim `display:none`（4 条）。真机 17/17：`.sl-eq` 三个独立 mark、露出时 delim 恰 2 且夹住 `abc`、保存逐字节、print 藏掉；截图 `shots/round-79/eq-delim.png`。

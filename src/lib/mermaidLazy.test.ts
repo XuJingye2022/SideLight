@@ -22,6 +22,21 @@ import { contrastRatio, themeById } from './themes.ts'
 
 const schema = getSchema([StarterKit])
 
+/** 挂起的 loader：release() 之前不返回，用来造「首次加载还没落地就切主题」的竞态（第 80 轮 A1） */
+function gatedLoader(fake: ReturnType<typeof fakeMermaid>) {
+  let release: (() => void) | undefined
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return {
+    loader: async () => {
+      await gate
+      return fake.module
+    },
+    release: () => release?.(),
+  }
+}
+
 function fakeMermaid(impl?: { render?: (id: string, text: string) => Promise<{ svg: string }> }) {
   const calls: string[] = []
   const inits: Array<Record<string, unknown>> = []
@@ -284,5 +299,39 @@ test('mermaid：sepia 渲染拿到 base + 暖色变量，同主题不重复 init
   __setLoaderForTest(async () => plain.module)
   await renderDiagram('graph TD; G-->H')
   assert.equal(plain.inits[0].theme, 'default')
+})
+
+/* ---------- 第 80 轮 A1（B-122）：首次加载未落地时切主题，落地后要补 configure ---------- */
+
+test('mermaid：加载未完成时切主题，落地后补 configure，末次为后设主题', async () => {
+  // 场景 1：挂起期先 sepia 后 default → 落地后末次 initialize 是 default、不带 themeVariables
+  const first = fakeMermaid()
+  const gate1 = gatedLoader(first)
+  __setLoaderForTest(gate1.loader)
+  const pendingSepia = ensureMermaid('sepia')
+  const pendingDefault = ensureMermaid('default')
+  await Promise.resolve()
+  assert.equal(first.inits.length, 0, '加载没落地就不该 initialize')
+  gate1.release()
+  await Promise.all([pendingSepia, pendingDefault])
+  assert.equal(first.inits.length, 2)
+  assert.equal(first.inits[0].theme, 'base')
+  assert.equal(first.inits[1].theme, 'default')
+  assert.equal('themeVariables' in first.inits[1], false)
+
+  // 场景 2（反序）：先 default 后 sepia → 末次是 base + 暖色变量
+  const second = fakeMermaid()
+  const gate2 = gatedLoader(second)
+  __setLoaderForTest(gate2.loader)
+  const pendingDefault2 = ensureMermaid('default')
+  const pendingSepia2 = ensureMermaid('sepia')
+  await Promise.resolve()
+  assert.equal(second.inits.length, 0)
+  gate2.release()
+  await Promise.all([pendingDefault2, pendingSepia2])
+  assert.equal(second.inits.length, 2)
+  assert.equal(second.inits[0].theme, 'default')
+  assert.equal(second.inits[1].theme, 'base')
+  assert.deepEqual(second.inits[1].themeVariables, mermaidConfig('sepia').themeVariables)
 })
 
