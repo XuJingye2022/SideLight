@@ -360,6 +360,31 @@ export function flattenFiles(node: WorkspaceNode | null): WorkspaceFileNode[] {
 }
 
 /**
+ * 删掉一个文件之后要试的替代文件：先按树的显示顺序往后找（index+1 到末尾），
+ * 再从被删项前一个往前找（index-1 到开头）。不回绕到已删项之后重复扫，
+ * 同一个 path 只出现一次，最多 max 个。被删项本身不在结果里。
+ */
+export function fallbackTargets(
+  files: WorkspaceFileNode[],
+  deletedPath: string,
+  max = 3,
+): WorkspaceFileNode[] {
+  if (max <= 0) return []
+  const index = files.findIndex((file) => file.path === deletedPath)
+  if (index < 0) return []
+  const ordered = [...files.slice(index + 1), ...files.slice(0, index).reverse()]
+  const seen = new Set<string>([deletedPath])
+  const targets: WorkspaceFileNode[] = []
+  for (const file of ordered) {
+    if (seen.has(file.path)) continue
+    seen.add(file.path)
+    targets.push(file)
+    if (targets.length >= max) break
+  }
+  return targets
+}
+
+/**
  * 路径去掉首段（工作区名），给全局搜索结果行与列表态侧栏显示相对路径。
  * 不在工作区里的路径（只有文件名）原样返回。
  */

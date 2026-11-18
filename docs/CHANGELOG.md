@@ -360,6 +360,13 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **301,886 B**（内部 310,000，余 18,114）；`npm test` **40 个文件 520 条**全过；`roundtrip` 未跑（未动序列化）。
 - UNVERIFIED（本轮）：真实中文 IME 与 WebView2 宿主内的组合输入（CDP `imeSetComposition` 合成组合）、真实 FSA 与真实磁盘文件；CDP 合成组合未提交时按 Esc 会退出并把原始串写入正文（真输入法由 blur 提交候选字，拦退分支需真 IME 才能触发）。
 
+**第 70 轮（同一未发版区间）**
+
+- **删除正在编辑的文件不再被读不出的候选中断**（B-152）：新增纯函数 `fallbackTargets`（`src/lib/workspace.ts:367`）——候选按删除前的树快照取「先 index+1 到末尾、再 index-1 到开头」，path 去重、最多 3 个、不回绕；`removeFile`（`src/App.tsx:2866-2912`）逐个试 `readNode`，读不出（>5.5 MiB 或抛错）就跳过看下一个，刷新后按 path 命中新节点、否则用删除前的旧节点，全失败才退回空白 `未命名.md` 且提示里带第一个失败名。修前 `big.md` 在树里时 `readNode` 抛错会吞掉「已移到回收站 + 撤销」，标题停在已删文档。
+- **验收实测**：改前 24 采样 `undoAny:false`（`.tmp/r70-bug-c.json`，未覆盖）；改后 `.tmp/r70-impl-a1-after.json` 120 ms 出撤销并切 `a.md`。四场景 `.tmp/r70-impl-a2.json` 全 `pass:true`、0 pageerror：删脏 b（下一个 6 MiB 读不出）64 ms 出撤销 + 切 a、撤销后 b 回树且保留「脏Q」；删 a → 切 b 且 `Ctrl+S` 写 b；两个 6 MiB 候选全读不出 → 空白 `未命名.md` + 撤销 + 提示失败名；删 c → 切 b。`workspace.test.ts` +4 条。
+- 门禁：`npm run verify` PASS，首屏 gzip **302,014 B**（内部 310,000，余 17,986）；`npm test` **40 个文件 524 条**全过；`roundtrip` 未跑（未动序列化）。
+- UNVERIFIED（本轮）：真实 FSA 磁盘与真实 6 MiB 文件、WebView2 宿主内删除 + 撤销；③ 空白文档 `Ctrl+S` 实测 `addOps:2`（预存在设计：落点未知的新文档不拦，`src/App.tsx:3365-3371`，基线对照 `.tmp/r70-tester-blank-save.json`）。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

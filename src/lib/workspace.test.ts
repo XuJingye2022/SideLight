@@ -4,10 +4,12 @@ import test from 'node:test'
 import {
   MAX_DOC_BYTES,
   dropHandle,
+  fallbackTargets,
   fileFromDrop,
   fileFromHandle,
   flattenFiles,
   workspaceFromHandle,
+  type WorkspaceFileNode,
 } from './workspace.ts'
 
 // 假句柄只带被测代码用到的那几个成员；不碰真磁盘，测的是判定与映射
@@ -29,6 +31,11 @@ function fakeDirHandle(name: string, entries: Record<string, unknown>): FileSyst
       for (const [entryName, entry] of Object.entries(entries)) yield [entryName, entry]
     },
   } as unknown as FileSystemDirectoryHandle
+}
+
+// 候选只按 path 认，句柄留空也不影响判定
+function fakeNode(name: string): WorkspaceFileNode {
+  return { kind: 'file', name, path: `ws/${name}`, handle: null }
 }
 
 test('fileFromHandle：正常 .md 读出正文，句柄留着当保存落点', async () => {
@@ -91,6 +98,48 @@ test('workspaceFromHandle：name 取句柄名，root 是目录节点并带上句
   assert.deepEqual(
     flattenFiles(workspace.root).map((file) => file.name),
     ['b.md', 'a.md', 'z.md'],
+  )
+})
+
+test('fallbackTargets：删中间的文件，候选先往后找（删 b → 首候选 c）', () => {
+  const files = [fakeNode('a.md'), fakeNode('b.md'), fakeNode('c.md')]
+  assert.deepEqual(
+    fallbackTargets(files, 'ws/b.md').map((file) => file.name),
+    ['c.md', 'a.md'],
+  )
+})
+
+test('fallbackTargets：删最后一个文件，候选往开头倒着数（删 c → 首候选 b）', () => {
+  const files = [fakeNode('a.md'), fakeNode('b.md'), fakeNode('c.md')]
+  assert.deepEqual(
+    fallbackTargets(files, 'ws/c.md').map((file) => file.name),
+    ['b.md', 'a.md'],
+  )
+})
+
+test('fallbackTargets：没有其它文件时返回空数组，路径不在树里也不猜', () => {
+  const files = [fakeNode('a.md')]
+  assert.deepEqual(fallbackTargets(files, 'ws/a.md'), [])
+  // 并发删除或刚刷新过：删的这项已不在快照里，别拿相邻项硬凑
+  assert.deepEqual(fallbackTargets(files, 'ws/gone.md'), [])
+})
+
+test('fallbackTargets：path 去重，最多 3 个，不回绕', () => {
+  const dup = [fakeNode('a.md'), fakeNode('b.md'), fakeNode('b.md'), fakeNode('c.md')]
+  assert.deepEqual(
+    fallbackTargets(dup, 'ws/a.md').map((file) => file.path),
+    ['ws/b.md', 'ws/c.md'],
+  )
+  const five = ['a.md', 'b.md', 'c.md', 'd.md', 'e.md'].map((name) => fakeNode(name))
+  // 删 c：[d, e] 先，再从 b 往开头数取一个，共 3 个；被删项不出现
+  assert.deepEqual(
+    fallbackTargets(five, 'ws/c.md').map((file) => file.name),
+    ['d.md', 'e.md', 'b.md'],
+  )
+  // 只往后看：删 b 时先取满 3 个，不绕回 a
+  assert.deepEqual(
+    fallbackTargets(five, 'ws/b.md').map((file) => file.name),
+    ['c.md', 'd.md', 'e.md'],
   )
 })
 

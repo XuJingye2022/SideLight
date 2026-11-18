@@ -98,6 +98,7 @@ import { createSmartTyping } from './lib/smartTyping.ts'
 import { countParagraphs, countText, type TextStats } from './lib/wordcount.ts'
 import {
   dropHandle,
+  fallbackTargets,
   fileFromDrop,
   fileFromHandle,
   flattenFiles,
@@ -2862,9 +2863,8 @@ export default function App() {
         await waitForCommit()
         const { deleteDocumentToTrash } = await import('./lib/trash.ts')
         const wasActive = activeFile?.path === node.path
-        const files = flattenFiles(workspaceRef.current?.root ?? null)
-        const index = files.findIndex((file) => file.path === node.path)
-        const nextFile = files[index + 1] ?? files[index - 1] ?? null
+        // 候选从删除前的树快照取：删完之后这次 flatten 里已经没有它，顺序要按用户当时看到的树
+        const candidates = fallbackTargets(flattenFiles(workspaceRef.current?.root ?? null), node.path)
         const currentText = wasActive && dirtyRef.current ? currentMarkdown() : null
         const result = await deleteDocumentToTrash(root, node, currentText)
         if (!result.ok) {
@@ -2873,21 +2873,42 @@ export default function App() {
         }
         // 缓存已提前搬进 trash，不再 removeCache
         const fresh = await refreshTree()
+        // 候选全部读不出才退回空白文档；blankFailure 记第一个读不出的名字，用来说明原因
+        let blankFailure: string | null = null
         if (wasActive) {
           saveTargetRef.current = null
           setActiveFile(null)
           setDirty(false)
-          const rebound = fresh && nextFile ? flattenFiles(fresh.root).find((file) => file.path === nextFile.path) : null
-          if (rebound) {
-            const text = await readNode(rebound)
-            loadIntoEditor(text, rebound.name, rebound)
-          } else {
+          const freshByPath = new Map(
+            (fresh ? flattenFiles(fresh.root) : []).map((file) => [file.path, file]),
+          )
+          let opened = false
+          let firstUnreadable: string | null = null
+          for (const candidate of candidates) {
+            // 刷新后命中就用新节点（句柄最新），刷新失败或刷新里没有它才用删除前的旧节点
+            const target = freshByPath.get(candidate.path) ?? candidate
+            let text: string
+            try {
+              text = await readNode(target)
+            } catch {
+              // 读不出（超大、权限失效、被移走）：跳过它继续试下一个，别让切换中断删除流程
+              if (!firstUnreadable) firstUnreadable = candidate.name
+              continue
+            }
+            loadIntoEditor(text, target.name, target)
+            opened = true
+            break
+          }
+          if (!opened) {
             loadIntoEditor('', '未命名.md', null)
+            blankFailure = firstUnreadable
           }
         }
         const trashFile = result.trashName
         setNotice({
-          text: `已移到回收站：${node.name}`,
+          text: blankFailure
+            ? `已移到回收站：${node.name}（${blankFailure} 读不出，已打开空白文档）`
+            : `已移到回收站：${node.name}`,
           kind: 'info',
           persist: true,
           action: trashFile
