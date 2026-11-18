@@ -297,7 +297,7 @@
 - **TOC 逐键不再全篇重建**（B-129，findings-code F1）：`src/lib/tocRender.ts:218-320` 的插件 state 缓存条目、顶层标题区间与 `[TOC]` 段区间；正文事务只 `mapState` 映射位置，改动命中标题 / `[TOC]` 区间或正敲标记才重建；停笔 300 ms 由插件顶层 `view` 派 resync 兜底（导出 `createTocPlugin` 供单测）。单测 +3 条：resync 无 `docChanged` 也重建、正文只映射而标题才重建（`builds` 不变；改标题 `builds+1`）、标记段 `toc-source` 装饰。E2E 100 KB/1 MB × 有/无 TOC：目录 3 条、改标题不等停笔即更新、`[TOC]` 前插 3 行停 400 ms 点第 2 条仍落 H2（差 1 px）。
 - **TOC 进只读预览 + 编辑视图收起标记**（B-130，findings-typora F2）：`[TOC]` 段落挂 `Decoration.node` 的 `toc-source` 类，`src/styles.css:941-950` 只隐未揭示的段，光标进入加 `is-revealed`（看得见、能 Backspace 删）；`PreviewPane` 按顶层标题建同一套 `<nav class="sl-toc">`（引用块里的标题不算），点条目滚到标题；原文 `\[TOC\]` 两边都保留字面；保存仍写 `[TOC]` 单行。`docs/typora-gap.md` 的 TOC 行同步，导出/打印是否带目录未验。
 - **文件列表态可访问性**（B-131，findings-ui F1/F2）：列表态单独算 roving tabindex（不复用树的 rows，当前文件在折叠目录里仍只 1 个 Tab 站）、`ArrowUp/Down/Home/End` 只移焦点（Enter 走原生 button）、装行的 `ul` 补 `role="list"` + `aria-label`；暖纸 `--ink-faint` 调深到 `#6f6047`，hover 合成底与当前行实色底 4.673:1 ≥4.5。
-- 门禁：`npm run verify` PASS，首屏 gzip **300,727 B**（比第 60 轮 +2,968，内部 310,000 / 硬线 320,000，余 9,273）；`npm test` **40 个文件 508 条**全过；`npm run roundtrip` 富文本 6/8、源码 8/8（与第 58 轮基线相同，报告未变）；`theme-acceptance` 27/27；`tree-acceptance` 54/56（2 条既有过期断言，与第 58/59 轮相同）。
+- 门禁：`npm run verify` PASS，首屏 gzip **300,727 B**（比第 60 轮 +968，内部 310,000 / 硬线 320,000，余 9,273）；`npm test` **40 个文件 508 条**全过；`npm run roundtrip` 富文本 6/8、源码 8/8（与第 58 轮基线相同，报告未变）；`theme-acceptance` 27/27；`tree-acceptance` 54/56（2 条既有过期断言，与第 58/59 轮相同）。
 - UNVERIFIED（本轮）：B1 的 1 MB 相对 p50 门槛（改前差 0，60% 不可达）与 100 KB median-of-3 差未达（残值 +3/+4 ms 只记，机制由单测坐实）；HTML 导出 / 打印是否带目录；真宿主 WebView2、真实 FSA 句柄与磁盘写回、中文 IME。
 
 ## 0.32.1 — 2026-11-16
