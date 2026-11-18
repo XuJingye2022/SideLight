@@ -53,7 +53,8 @@ export const DEFAULT_SETTINGS: Settings = {
   promptVersion: 3,
   autoSave: true,
   smartPunctuation: true,
-  inlineSyntax: false,
+  // 第 75 轮：`==高亮==` 与 Typora 一致，默认开；显式关掉的存档仍保留关
+  inlineSyntax: true,
 }
 
 /** 旧默认提示词的指纹（v1）：长度 + FNV-1a；命中才升级，用户改过的不动 */
@@ -117,8 +118,8 @@ export function loadSettings(): Settings {
       autoSave: parsed.autoSave !== false,
       // 旧存档没有这个键，读出来必须是开（不能把老用户的功能默认关掉）
       smartPunctuation: parsed.smartPunctuation !== false,
-      // 新功能默认关：旧存档读出来是关（第 55 轮 B-101）
-      inlineSyntax: parsed.inlineSyntax === true,
+      // 新功能默认开（第 75 轮）：旧存档没有这个键也算开；显式 false 保留
+      inlineSyntax: parsed.inlineSyntax !== false,
     }
   } catch {
     return { ...DEFAULT_SETTINGS }

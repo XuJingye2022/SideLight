@@ -2102,8 +2102,23 @@ button:disabled {
 /* 块级公式在编辑区按 display 排版 */
 .tiptap-mathematics-render[data-type='block-math'] {
   display: block;
-  margin: 1em 0;
+  margin: 1.4em 0;
   text-align: center;
+}
+
+/* 第 75 轮：向 Typora 的块级公式靠拢——居中、留白、长公式可横向滚动 */
+.tiptap-mathematics-render[data-type='block-math'] .block-math-inner {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.15em 0;
+}
+
+.tiptap-mathematics-render[data-type='block-math'] .katex-display {
+  margin: 0;
+}
+
+.tiptap-mathematics-render[data-type='block-math'] .katex {
+  font-size: 1.08em;
 }
 
 /* 第 73 轮 B-156：公式 atom 被选中（方向键移进来）时露出 Markdown 源码。

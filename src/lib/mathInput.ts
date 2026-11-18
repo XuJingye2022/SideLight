@@ -1,4 +1,5 @@
 import { Extension, InputRule } from '@tiptap/core'
+import { TextSelection } from '@tiptap/pm/state'
 
 import { isMathBody } from './math.ts'
 import { inTableAncestry } from './tableScope.ts'
@@ -42,7 +43,14 @@ export const MathInputRules = Extension.create<Options>({
           const latex = body.trim()
           const type = state.schema.nodes.inlineMath
           if (!latex || !type) return
-          state.tr.replaceWith(range.from, range.to, type.create({ latex }))
+          const tr = state.tr.replaceWith(range.from, range.to, type.create({ latex }))
+          // 第 75 轮：输入规则把原子建出来后，选区留在原子上的话，mathReveal 会
+          // 立刻把 KaTeX 收起、只显示 `$…$`，看起来像「行内公式失效」。把光标放到
+          // 原子后面，公式保持成品；要改它再按方向键/点击选中。
+          const after = range.from + 1
+          if (after <= tr.doc.content.size) {
+            tr.setSelection(TextSelection.near(tr.doc.resolve(after), 1))
+          }
         },
       }),
       new InputRule({
