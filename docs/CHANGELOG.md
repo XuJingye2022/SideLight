@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–86 轮，未发版）
+## Unreleased（第 29–87 轮，未发版）
+
+**第 87 轮（同一未发版区间）**
+
+- 图片缩放（A1+A2，B-103）：新 `src/lib/imageWidth.ts`（`imageHtmlOf` 规范形整行 `<img src alt [title] width>`、`parseImageHtml` 严格全行、`isImageHtmlLine` 剥引用/列表前缀、`clampImageWidth` 先 `Number()` 再判整数 40–2000、`imageWidthFromDrag` 夹取、`imageMarkdownOf` 无宽度退回 `![alt](src "title")`）；`assetImage.ts` 的 `ResolvingImage` 加 `renderMarkdown` 与 `.sl-image` 包裹 + 右下角手柄（pointerdown 记起点、pointermove 只改 style、pointerup 才 `setNodeMarkup`、双击手柄清宽度），`styles.css` 5 条规则；`inlineHtmlTags.ts`/`html.ts` 只在整行放行（`escapeHtmlForParse` 判行首行尾）。`imageWidth.test.ts` **24 条**挂 `npm test` 链尾；真机（ego CDP 54280，tester 自写 `.tmp/r87-tester-e2e.mjs` **21/21**、0 pageerror）：拖 +80 → 442 且规范形行、另一张仍 `![](…)`、重开 442/差 0 且再存逐字节同、双击回原文、嵌套列表 2 空格与引用 `> ` 两行规范形且重开宽 320/200、`.sl-image` 高 = img 高、老文档四形字面且字节不变、`<kbd>` 回归在。
+- 差距表与计数（A3）：缺表删「内容能力（1）」与图片缩放行、已有表加「图片缩放」、表头 39/6 → 40/5，README/AGENTS 同步，BACKLOG B-103 → fixed；`node .tmp/r58-docs-check.mjs` 40/40、5/5、子节 2/1/2、missRowSum 5。
+- 门禁：首屏 gzip **307,292 B**（余 12,708 / 2,708）；`npm test` **52 文件 683 条 0 fail**（基线 51/659）；`roundtrip` rich 7/9 + source 9/9（同第 86 轮）。见 `docs/iteration/round-87/test.md`。
 
 **第 86 轮（同一未发版区间）**
 

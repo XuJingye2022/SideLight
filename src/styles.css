@@ -2293,6 +2293,41 @@ button:disabled {
   font-size: 0.8em;
 }
 
+/* 图片缩放（第 87 轮 B-103）：图外面包一层，右下角手柄拖宽度。
+   inline-block + line-height:0 + img display:block：外壳高度与图片等高，手柄贴着图的右下角。 */
+.doc-body .sl-image {
+  display: inline-block;
+  position: relative;
+  max-width: 100%;
+  line-height: 0;
+}
+
+.doc-body .sl-image > img {
+  display: block;
+  max-width: 100%;
+}
+
+.doc-body .sl-image-handle {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  z-index: 2;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--paper);
+  border-radius: 3px;
+  background: var(--accent);
+  cursor: nwse-resize;
+  opacity: 0;
+  touch-action: none;
+}
+
+/* 悬停或选中才显形：平时不挡正文点击，鼠标移到图上就知道能拖 */
+.doc-body .sl-image:hover .sl-image-handle,
+.doc-body .sl-image.is-selected .sl-image-handle {
+  opacity: 1;
+}
+
 /* ---------- 查找与替换 ---------- */
 
 .find-bar {

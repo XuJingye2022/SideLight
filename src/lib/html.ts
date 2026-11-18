@@ -115,7 +115,14 @@ export function hasHtml(text: string): boolean {
  * 转成实体后它只是普通文字，能原样留在正文里，保存时再由 repairHtml 还原。
  * 代码围栏、行内代码里的 `<` 不转义（第 41 轮）：那里本来就该是字面代码，转义会让保存永久漂移。
  * 白名单里的真成对标签（kbd/mark/sub/sup）例外：留着真标签，让解析器建成真样式（第 47 轮）。
+ * 图片规范形整行也例外（第 87 轮 B-103）：放行后由 marked 交成图片节点，宽度才存得住。
  */
 export function escapeHtmlForParse(text: string): string {
-  return mapOutsideCode(text, escapeInlineHtml)
+  return mapOutsideCode(text, (segment, start) => {
+    // 这段是不是整行：贴着行首且贴着行尾（行内代码会把一行切成多段）
+    const atLineStart = start === 0 || text[start - 1] === '\n'
+    const after = start + segment.length
+    const atLineEnd = after >= text.length || text[after] === '\n'
+    return escapeInlineHtml(segment, atLineStart && atLineEnd)
+  })
 }

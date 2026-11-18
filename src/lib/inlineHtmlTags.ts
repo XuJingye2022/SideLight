@@ -1,6 +1,8 @@
 import { Mark } from '@tiptap/core'
 import type { JSONContent, MarkdownRendererHelpers } from '@tiptap/core'
 
+import { isImageHtmlLine } from './imageWidth.ts'
+
 /**
  * 行内 HTML 白名单（第 47 轮）：只有这四个标签在编辑视图与预览里成为真样式。
  * 其余标签（含带属性、单开、跨行、内容里带 `<` 或 `&`）一律保持字面文本，保存时由 repairHtml 原样还原。
@@ -19,8 +21,12 @@ const PLACEHOLDER = /\u0001(\d+)\u0001/g
  * 顺序必须是「先占位、再转义、最后换回」：转义后的 `&lt;kbd>` 看不出作者写的是真标签
  * 还是本来就写的实体，转义后还原会把讲转义的段落改成真标签（第 47 轮 P1-1）。
  * 段来自 mapOutsideCode 的逐行回调，所以围栏与行内代码里的 `<kbd>` 根本不进这里。
+ *
+ * 第 87 轮（B-103）另开一条口子：整行恰是图片规范形时放行，让 marked 建出图片节点。
+ * `wholeLine` 由调用方判（这段是否同时贴着行首与行尾），行内夹着 `<img>` 的仍照旧转义。
  */
-export function escapeInlineHtml(segment: string): string {
+export function escapeInlineHtml(segment: string, wholeLine = false): string {
+  if (wholeLine && isImageHtmlLine(segment)) return segment
   // 原文真含占位符字符：放弃还原，退回纯转义（不吞字符）
   if (segment.includes('\u0001')) return segment.replace(ANGLE, '&lt;')
   const saved: string[] = []
