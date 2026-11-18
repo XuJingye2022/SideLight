@@ -336,6 +336,14 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **301,073 B**（内部 310,000 / 硬线 320,000，余 18,927）；`npm test` **40 个文件 520 条**全过；roundtrip 未跑（未动编辑器内核/序列化）。
 - UNVERIFIED（本轮）：真实 FSA 磁盘与真实 1 MB 文件（用合成工作区）、WebView2 宿主内同一路径、中文 IME 下的源码态排程；B-144（退出源码前先绘遮罩）留 B 轮。
 
+**第 67 轮（同一未发版区间）**
+
+- **源码改字后退出先绘「正在应用」遮罩再整篇重解析**（B-144）：`applySource` 在源码改过字时必然整篇 parse（1 MB 实测 4,140 ms 长任务），点击后界面像死住。`switchView` 现在先 `setSourceApplying(true)`，双 rAF + `setTimeout(0)` 之后才调 `applySource(textarea 现值)`（两帧里击键不丢），完成同批收遮罩并切视图；未改动的进出仍走 `skipReparse`（1.2 s / 0.3 s 级，不出遮罩）。遮罩 `position:fixed` 盖视口、带 `data-source-applying` + `role="status"`；退出到编辑时按帧重试到 `hidden` 摘掉再 `focus()` + 还原阅读位置（`src/App.tsx`、`src/styles.css`）。
+- **验收实测**：1 MB 改 10 字点「源码」退出，点击→第二个 rAF **101 ms**（≤250）、遮罩 rect 全视口且 `elementFromPoint` 命中遮罩子节点（不是 textarea）、4,119 ms 长任务 start 晚于遮罩帧（仍含 ≥4,000 ms 一条）、总 **4,470 ms**（≤5,330）；遮罩消失后 `[data-source-applying]` 0、正文尾含所打字符、`sl-parse-done` 3→4、焦点回 `.ProseMirror`。100 KB **145 ms**（≤700）。1 MB 未改动 5 轮进 p50 **1,219** / 退 **294**、parse 3→3、全程无遮罩。预览 / `Esc` / 「回到富文本编辑」确认框三条出口同路径（3/3、0 控制台错误）。
+- **B1 delta 回归**：A1/A2/B-115/finder-code 四脚本重跑全 true、0 控制台错误；1 MB 进 p50 **1,191** / 退 **297** ms、100 KB 进 **122** ms、`scrollDiff` 全 0、parse 3→3；A2 1 MB 源码打字 p50 2,887（关）/ 2,894（开，≤2,900）；改动 >10% 无一项（最大 +2.7%）。
+- 门禁：`npm run verify` PASS，首屏 gzip **301,383 B**（内部 310,000 / 硬线 320,000，余 18,617）；`npm test` **40 个文件 520 条**全过；`npm run roundtrip` rich 6/8、source 8/8。
+- UNVERIFIED（本轮）：真实 FSA 磁盘与真实 1 MB 文件（合成工作区）、真实中文 IME 在两个 rAF 窗口内击键、WebView2 宿主内的遮罩帧与重解析、真实读屏对 `role="status"` 的播报；B-145（源码态自动保存无 IME 组合守卫）本轮登记、未修。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

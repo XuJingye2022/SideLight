@@ -432,6 +432,9 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'edit' | 'source' | 'preview'>('edit')
   const [sourceConfirm, setSourceConfirm] = useState<'restore' | 'exit' | null>(null)
   const [sourceRefCount, setSourceRefCount] = useState(0)
+  /** 源码改过字后离开：先绘「正在应用」遮罩，再整篇重解析（第 67 轮 B-144） */
+  const [sourceApplying, setSourceApplying] = useState(false)
+  const sourceApplyingRef = useRef(false)
   const sourceMode = viewMode === 'source'
   const previewMode = viewMode === 'preview'
   const [sourceText, setSourceText] = useState('')
@@ -4377,20 +4380,25 @@ export default function App() {
   const strikeOn = Boolean(editor?.isActive('strike'))
   const codeOn = Boolean(editor?.isActive('code'))
 
-  /** 把源码框里的内容写回编辑器：退出源码、切到预览、按 Esc 都走这一条路 */
-  const applySource = useCallback(() => {
+  /**
+   * 把源码框里的内容写回编辑器：退出源码、切到预览、按 Esc 都走这一条路。
+   * textOverride 给「遮罩先上屏、再重解析」那条异步路用：两帧里源码框还能收到键，
+   * 用 textarea 的现值，别用点击那一刻的 state（否则最后一次击键会被静默丢掉）。
+   */
+  const applySource = useCallback((textOverride?: string) => {
     if (!editor) return
-    const split = splitFrontmatter(sourceText)
+    const text = textOverride ?? sourceText
+    const split = splitFrontmatter(text)
     const footnoteSplit = extractFootnotes(split.body)
     setFrontmatter(split.frontmatter)
     frontmatterRef.current = split.frontmatter
     setFootnotes(footnoteSplit.footnotes)
     footnotesRef.current = footnoteSplit.footnotes
-    const normalizedSource = sourceText.replace(/\r\n/g, '\n')
+    const normalizedSource = text.replace(/\r\n/g, '\n')
     // 源码框没动过，且正文现在序列化出来就是这段文本 → 不必整篇 parse（1 MB/4k 段曾要 5.5 s）
     // 不能用 currentMarkdown()：它在源码模式里返回 sourceText，判据恒真，源码编辑会被静默丢掉
     const skipReparse =
-      sourceText === sourceBaselineRef.current &&
+      text === sourceBaselineRef.current &&
       normalizedSource === serializeBodyNow().replace(/\r\n/g, '\n')
     if (!skipReparse) {
       setMarkdown(footnoteSplit.body)
@@ -4408,7 +4416,7 @@ export default function App() {
     }
     // 离开源码：脏按保存基线算，不能只看「源码里改没改」。
     // 基线是 prepareSave 归一化过的串（可能补了末尾换行），比较也必须走同一个函数（第 48 轮）
-    if (baselineRef.current !== null) setDirty(normalizeForBaseline(sourceText, originalText) !== baselineRef.current)
+    if (baselineRef.current !== null) setDirty(normalizeForBaseline(text, originalText) !== baselineRef.current)
   }, [editor, sourceText, setMarkdown, syncDocInfo, serializeBodyNow, originalText])
 
   /**
@@ -4436,6 +4444,54 @@ export default function App() {
     (next: 'edit' | 'source' | 'preview') => {
       if (!editor) return
       const leavingSource = viewMode === 'source' && next !== 'source'
+      // 源码里改过字再离开：applySource 的整篇重解析是同步长任务（1 MB 实测 4.3 s）。
+      // 先把「正在应用」遮罩画上屏，再在绘制之后的任务里重解析；否则点击后界面像卡死。
+      // 未改动的进出仍走 skipReparse，照旧 1.2 s / 0.3 s 级，不出遮罩（第 67 轮 B-144）。
+      if (leavingSource && sourceText !== sourceBaselineRef.current) {
+        if (sourceApplyingRef.current) return
+        sourceApplyingRef.current = true
+        setSourceApplying(true)
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            // 0 ms 定时器把重解析放到遮罩绘制之后：长任务的 startTime 必须晚于遮罩帧
+            setTimeout(() => {
+              // 两帧里源码框还能收到键：用现值，别用点击时闭包里的 state
+              const liveSource = document.querySelector<HTMLTextAreaElement>('textarea.source-editor')?.value
+              try {
+                applySource(liveSource)
+              } finally {
+                sourceApplyingRef.current = false
+                setSourceApplying(false)
+                if (next !== 'edit') {
+                  setFocusMode(false)
+                  setTypewriterMode(false)
+                  setMenuOpen(false)
+                }
+                setViewMode(next)
+                if (next === 'edit') {
+                  // 1 MB 整篇重解析之后，编辑块重新显示还要约 400 ms（44,446 块重新布局）。
+                  // 单次 rAF 会落在 hidden 还没摘掉时，focus() 静默失效；按帧重试到可见再聚焦，
+                  // 再还原阅读位置（焦点引起的滚动排在 rAF 之后，见 restoreSourceScroll）。
+                  const focusWhenShown = (attempt = 0) => {
+                    requestAnimationFrame(() => {
+                      const editorElement = document.querySelector<HTMLElement>('.ProseMirror:not(.preview-pane)')
+                      const host = editorElement?.closest('.doc-layout')
+                      if (!editorElement || !host || host.hasAttribute('hidden')) {
+                        if (attempt < 60) focusWhenShown(attempt + 1)
+                        return
+                      }
+                      editorElement.focus()
+                      restoreSourceScroll()
+                    })
+                  }
+                  focusWhenShown()
+                }
+              }
+            }, 0)
+          })
+        })
+        return
+      }
       if (leavingSource) applySource()
       if (next === 'source') {
         // 进源码前记下阅读位置（退出时还原）；已在源码里再切源码不用重记
@@ -5956,6 +6012,17 @@ export default function App() {
                 保存并切换
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 遮罩先上屏，重解析在后面的任务里跑（第 67 轮 B-144）：1 MB 整篇 parse 约 4.3 s，
+          没有这层提示，点了「源码」之后界面看起来像死住。 */}
+      {sourceApplying && (
+        <div className="source-applying" data-source-applying="" role="status" aria-live="polite">
+          <div className="source-applying-note">
+            <strong>正在应用源码改动…</strong>
+            <span>长文要重新解析排版，可能要几秒。</span>
           </div>
         </div>
       )}
