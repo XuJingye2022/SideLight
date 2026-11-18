@@ -367,6 +367,15 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **302,014 B**（内部 310,000，余 17,986）；`npm test` **40 个文件 524 条**全过；`roundtrip` 未跑（未动序列化）。
 - UNVERIFIED（本轮）：真实 FSA 磁盘与真实 6 MiB 文件、WebView2 宿主内删除 + 撤销；③ 空白文档 `Ctrl+S` 实测 `addOps:2`（预存在设计：落点未知的新文档不拦，`src/App.tsx:3365-3371`，基线对照 `.tmp/r70-tester-blank-save.json`）。
 
+**第 71 轮（同一未发版区间）**
+
+- **B-152 delta 回归（无产品代码改动，仅独立复验）**：复跑第 70 轮 A2 四场景 + 四格矩阵 8/8 `pass:true`，写盘 ops 9 项与改前基线同值、草稿写盘 0 次、0 pageerror / 控制台错误。
+- 四格：非活动删除（当前 a.md 脏字不丢、`Ctrl+S` 只写 a.md、撤销后 b.md 回树）、删唯一文件（空白 + 撤销重开完整 + 保存写回 only.md）、列表态（无删除入口，B-102 记 UNVERIFIED；删后切列表选中与当前文档一致）、跨目录（跳过读不出的 6 MiB 落 `sub/c.md`，撤销后树与当前文档不受影响）。
+- 嵌套工作区补测：根 `a.md`/`big.md` + 第二层 `sub/c.md`，删当前 a 落 `sub/c.md`（title、`.is-active`、`data-path` 与树自动展开一致），撤销后树恢复、当前仍 c.md；列表态 3 行选中 `sub/c.md`、删后 2 行选中 `a.md`、列表内撤销恢复 3 行。
+- 尾部抽查 B-148 / B-149 全 `allPass:true`：1 MB 源码 2 s 内退出只写 1 次盘、草稿 0；组合输入 Ctrl+S 0 写 + 提示、提交后写 100,011、Esc 退出 1,606 / 1,609 ms 写盘。
+- 门禁：`npm run verify` PASS，首屏 gzip **302,014 B**（余 17,986）；`npm test` **40 个文件 524 条**全过；`roundtrip` 未跑（无 `src/` 改动）。
+- UNVERIFIED（本轮）：列表态删除入口（B-102 已知限制）、真实 FSA 磁盘与 WebView2 宿主内删除/撤销、B-149 的真实中文 IME。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。
