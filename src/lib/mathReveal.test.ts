@@ -5,12 +5,17 @@ import { Schema } from '@tiptap/pm/model'
 import { EditorState, NodeSelection, TextSelection } from '@tiptap/pm/state'
 
 import {
+  collectEqRanges,
   collectMathRanges,
   createRangeRevealPlugin,
+  decorateEqReveal,
   decorateMathReveal,
+  eqRevealKey,
+  eqTouchesTransaction,
   mathRevealKey,
   mathTouchesTransaction,
   revealIndexes,
+  revealIndexesTouching,
 } from './mathReveal.ts'
 
 const schema = new Schema({
@@ -20,6 +25,10 @@ const schema = new Schema({
     text: { group: 'inline' },
     inlineMath: { attrs: { latex: { default: '' } }, group: 'inline', inline: true, atom: true },
     blockMath: { attrs: { latex: { default: '' } }, group: 'block', atom: true },
+  },
+  marks: {
+    eqHighlight: {},
+    strong: {},
   },
 })
 
@@ -114,4 +123,95 @@ test('非公式编辑只映射位置（不重扫）；插入公式才重扫', ()
   assert.ok(afterMath)
   assert.equal(afterMath.builds, before.builds + 1)
   assert.equal(afterMath.ranges.length, 3)
+})
+
+/* ── `==高亮==` 定界符露出（第 74 轮 B2）──────────────────────────────── */
+
+const eqMark = schema.marks.eqHighlight.create()
+
+/** 段落「前 ==高亮== 后」：高亮区间 3..5，文字是「高亮」 */
+const eqDoc = () =>
+  schema.node('doc', null, [
+    schema.node('paragraph', null, [schema.text('前 '), schema.text('高亮', [eqMark]), schema.text(' 后')]),
+  ])
+
+const eqPlugin = () =>
+  createRangeRevealPlugin({
+    key: eqRevealKey,
+    scan: collectEqRanges,
+    decorate: decorateEqReveal,
+    touches: eqTouchesTransaction,
+    hit: revealIndexesTouching,
+  })
+
+test('collectEqRanges：高亮 mark 的连续区间合并，没 mark 的文字不收', () => {
+  const ranges = collectEqRanges(eqDoc())
+  assert.equal(ranges.length, 1)
+  assert.deepEqual(ranges[0], { from: 3, to: 5, type: 'eqHighlight' })
+  // 中间夹了别的 mark（等价于 ==a**b**c==）也仍是一段
+  const split = schema.node('doc', null, [
+    schema.node('paragraph', null, [
+      schema.text('a', [eqMark]),
+      schema.text('b', [eqMark, schema.marks.strong.create()]),
+      schema.text('c', [eqMark]),
+    ]),
+  ])
+  const merged = collectEqRanges(split)
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0].to - merged[0].from, 3)
+})
+
+test('revealIndexesTouching：光标贴两端也算进入，隔一个字就收回', () => {
+  const ranges = collectEqRanges(eqDoc())
+  assert.deepEqual(revealIndexesTouching(ranges, 4, 4), [0]) // 区间里
+  assert.deepEqual(revealIndexesTouching(ranges, 3, 3), [0]) // 起点
+  assert.deepEqual(revealIndexesTouching(ranges, 5, 5), [0]) // 末端（B2 验收）
+  assert.deepEqual(revealIndexesTouching(ranges, 2, 2), []) // 前一个字
+  assert.deepEqual(revealIndexesTouching(ranges, 6, 6), []) // 后一个字
+  // 公式那套「只认相交」的判定不变：空选区贴边仍是 0
+  assert.deepEqual(revealIndexes(ranges, 3, 3), [])
+})
+
+test('eq 插件：光标进高亮画一个行内装饰，贴末端仍露，移开归零', () => {
+  let state = EditorState.create({ schema, doc: eqDoc(), plugins: [eqPlugin()] })
+  const away = eqRevealKey.getState(state)
+  assert.ok(away)
+  assert.deepEqual(away.revealed, [])
+  state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 3)))
+  const current = eqRevealKey.getState(state)
+  assert.ok(current)
+  assert.deepEqual(current.revealed, [0])
+  const found = current.set.find()
+  assert.equal(found.length, 1)
+  assert.equal(found[0].from, 3)
+  assert.equal(found[0].to, 5)
+  assert.deepEqual((found[0] as unknown as { type: { attrs: Record<string, unknown> } }).type.attrs, { class: 'sl-eq-revealed' })
+  state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 5)))
+  assert.deepEqual(eqRevealKey.getState(state)?.revealed, [0])
+  state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 6)))
+  const awayAgain = eqRevealKey.getState(state)
+  assert.ok(awayAgain)
+  assert.deepEqual(awayAgain.revealed, [])
+  assert.equal(awayAgain.set.find().length, 0)
+})
+
+test('eq 插件：区间里插字重扫并收进来，区外插字只映射（不重扫）', () => {
+  let state = EditorState.create({ schema, doc: eqDoc(), plugins: [eqPlugin()] })
+  state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 4)))
+  const selected = eqRevealKey.getState(state)
+  assert.ok(selected)
+  assert.equal(selected.builds, 1) // 换选区不重扫，只有 init 那一次
+  // 区间里插入带 mark 的字（打字继承 mark 的等价形状）
+  state = state.apply(state.tr.replaceWith(4, 4, schema.text('x', [eqMark])))
+  const grown = eqRevealKey.getState(state)
+  assert.ok(grown)
+  assert.equal(grown.builds, selected.builds + 1)
+  assert.equal(grown.ranges[0].to - grown.ranges[0].from, 3)
+  assert.equal(state.doc.textBetween(grown.ranges[0].from, grown.ranges[0].to), '高x亮')
+  // 区外插字：不重扫，区间整体后移 1
+  state = state.apply(state.tr.insertText('y', 1))
+  const shifted = eqRevealKey.getState(state)
+  assert.ok(shifted)
+  assert.equal(shifted.builds, grown.builds)
+  assert.equal(shifted.ranges[0].from, grown.ranges[0].from + 1)
 })

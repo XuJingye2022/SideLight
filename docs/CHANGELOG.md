@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–73 轮，未发版）
+## Unreleased（第 29–74 轮，未发版）
+
+**第 74 轮（同一未发版区间）**
+
+- `==高亮==` 定界符随选区露出（B 轮 B2，复用第 73 轮 `src/lib/mathReveal.ts` 工厂）：光标进高亮或贴两端时 `::before/::after` 画回 `==`（`src/styles.css:856-871`），移开收回；设置关时文档里没有 mark、装饰为空集；保存仍逐字节写回 `==高亮==`。截图 `shots/round-74/eq-delimiter-reveal.png`。
+- Typora `==`/`$$` 机制与源码保真调研（`docs/iteration/round-73/typora-mechanism.md`）＋`docs/typora-gap.md` 两行补「选中/贴边露源码」。
+- 门禁：首屏 gzip **303,043 B**（余 16,957）；`npm test` **41 文件 536 条**；roundtrip 富文本 6/8 + 源码 8/8。
 
 **第 73 轮（同一未发版区间）**
 
