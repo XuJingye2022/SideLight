@@ -3,17 +3,17 @@
 > 每个代理先读这份（≤2 KB）。需要细节再读 `AGENTS.md` 第 4/8 节与相关 ADR；不要整篇读 AGENTS/README/STATE。
 
 ## 当前
-- 版本：0.32.1（未发版）；第 70 轮；HEAD `83603dd`
-- 测试：40 个文件 520 条；首屏 gzip 301,886 B（内部 310,000 / 硬线 320,000）
-- 阶段：P0/P1 收敛（最终确认 2）
+- 状态：**已停止**（2026-11-18）。第 72 轮 5 路 0 个新 P0/P1，BACKLOG 无 open P0/P1。
+- 版本：0.32.1（未发版）；最后一个代码提交在第 71 轮；HEAD `ece6eac`
+- 测试：40 个文件 524 条；首屏 gzip 302,014 B；差距 39 有 / 5 缺。
 - 本轮端口：9222–9226
 
-## Top 5 优先（本轮）
-1. 先查 BACKLOG：当前 **没有 open 的 P0/P1**，只剩 P2。
-2. 本轮 5 路只报新 P0/P1；若 0 条，planner 排不出 P0/P1 任务即停。
-3. P2（图片缩放、TOC/emoji、自定义快捷键、主题 radiogroup、24px 点击区、宿主相对图、宿主 `www`、导出 TOC 等）留 BACKLOG，之后一点点完善。
-4. 不要为凑轮次把 P2 塞进本轮。
-5. 停之前仍要跑 `npm run verify` 与 `npm test`。
+## Top 5 优先（已停止）
+1. 不再开新轮次；发布由产品负责人决定。
+2. 剩余 P2 从 `docs/iteration/BACKLOG.md` 取，之后一点点完善。
+3. 发版前跑 `npm run verify`、`npm test`、`packaging/verify-installer.ps1`。
+4. 真实中文 IME、真实 FSA、WebView2 宿主仍是未验项。
+5. v3 流程与度量在 STATE/METRICS。
 
 ## 环境- dev：`http://localhost:5175`（不要另起/重启；5173 禁用）
 - CDP 9222–9226；`node .tmp/reset.mjs <端口>`；截图 `node scripts/shot.mjs ...`
