@@ -1066,7 +1066,9 @@ export default function App() {
               const legacy = legacyKeyFor(file.name)
               if (legacy) await removeCache(dir, 'draft', legacy)
             })()
-          }, 800)
+            // 第 63 轮 B1（B-120）：2 s 自动保存先跑，成功会清掉这个计时器；这里只做兜底。
+            // 原来 800 ms 会让每次停笔先写一份整篇草稿（kb100 实测两次整篇写盘共 72,057 B）。
+          }, 2500)
         }
       }, 300)
 
@@ -3457,7 +3459,9 @@ export default function App() {
       })
       draftPendingRef.current = { id, generation, ack, resolve: resolveAck }
       host.postMessage({ v: 1, type: 'draft-save', id, text })
-    }, 800)
+      // 同上：宿主自动保存走 2 s 的回包（applyHostSaveSuccess → clearHostDraft 停表），
+      // 2.5 s 只兜底「保存被结构损失/模态挡住」这一档。
+    }, 2500)
   }, [])
 
   useEffect(() => {

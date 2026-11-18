@@ -308,6 +308,13 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **300,834 B**（比第 61 轮 +107，内部 310,000 / 硬线 320,000，余 19,166）；`npm test` **40 个文件 513 条**全过；`npm run roundtrip` 富文本 6/8、源码 8/8、firstSaveBlocked 1/8（与第 58 轮基线同）。
 - UNVERIFIED（本轮）：打印 / 另存 PDF 是否带目录（按同一 `getHTML()` 实现推断，B-134 只实测 HTML 导出）；真实 FSA 磁盘写回与中文 IME 沿用假 workspace。
 
+**第 63 轮（同一未发版区间）**
+
+- **停笔不再先写整篇草稿**（B-120，findings-code F2）：`src/App.tsx:1069-1071` 与 `:3462` 两个草稿兜底计时器 800→2,500 ms，2 s 自动保存回包先停表（`finishSaved` 清计时器并推代际 `src/App.tsx:3000-3005`）；kb100 停笔 3.6 s 只写 1 次 `kb100.md`（36,029 B，改前草稿 + 文档共 72,057 B）；`autoSave:false` 时草稿仍写 1 次（落盘由 ~1.1 s 变 ~2.8 s）。
+- **1 MB 切源码基线定案**（B-115）：夹具 A 7 轮进 p50 9,883 ms / 退 2,050 ms、maxRafGap 10,033 ms；加 `wrap="off"` 后 p50 9,867 ms（−0.16%）→ 排版不是瓶颈，主成本是脱离 44,446 块富文本态的 8.6–9.1 s long task。不改代码，B-115 记为「只能换 `<pre>` / 虚拟化」。
+- 门禁：`npm run verify` PASS，首屏 gzip **300,841 B**（内部 310,000 / 硬线 320,000，余 19,159）；`npm test` **40 个文件 513 条**全过；roundtrip 未跑（未动编辑器/序列化）；回归 `stale-save-acceptance` 4/4。
+- UNVERIFIED（本轮）：wrap=off 的 7 轮 p50 与「可编辑 / `Ctrl+S` 同源 / 横向滚动」取自执行方脚本（tester 3 轮复测趋势一致）；真实 FSA 与宿主 WebView2 下的 2500 ms 兜底；B-115 的最终实现未做。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。
