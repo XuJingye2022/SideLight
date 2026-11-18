@@ -74,7 +74,7 @@ html[data-theme='sepia'] {
   --panel: #efe2c9;
   --ink: #3a2f21;
   --ink-soft: #6b5d48;
-  --ink-faint: #736349;
+  --ink-faint: #6f6047;
   --line: #ddcbaa;
   --line-strong: #cbb58e;
   --accent: #7a5a2a;
@@ -934,6 +934,18 @@ button:disabled {
 .sl-toc-item:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* 第 61 轮 B2：编辑视图里的 [TOC] 标记段收起来，光标进入时露出（不露出就 Backspace 删不掉）。
+   目录 widget 挂在同一位置的 block widget，视觉上取代这一行；保存仍然写回 `[TOC]`。 */
+.ProseMirror .toc-source:not(.is-revealed) {
+  display: none;
+}
+
+/* 只读预览里的目录：与编辑视图同一个外观，宽度跟正文列；点条目滚到对应标题 */
+.preview-toc {
+  margin: 0 0 18px;
+  max-width: 36rem;
 }
 
 .doc-body hr {

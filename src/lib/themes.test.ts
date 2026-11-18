@@ -77,6 +77,30 @@ test('浅色与深色档的 --ink-faint 也 ≥4.5:1（同口径回归）', () =
   }
 })
 
+/** 把前景色按 alpha 铺在背景上（sRGB 逐通道四舍五入）：算 hover 的合成底 */
+function mix(fg: string, bg: string, alpha: number): string {
+  const rgb = (hex: string) => [0, 2, 4].map((offset) => parseInt(hex.replace('#', '').slice(offset, offset + 2), 16))
+  const front = rgb(fg)
+  const back = rgb(bg)
+  return `#${front
+    .map((channel, index) => Math.round(channel * alpha + back[index] * (1 - alpha)).toString(16).padStart(2, '0'))
+    .join('')}`
+}
+
+test('暖纸文件列表的悬停底与当前行底上，10.5px 路径仍 ≥4.5:1（第 61 轮 B3）', () => {
+  const vars = cssVars("html[data-theme='sepia']")
+  // 悬停底 = accent-wash 70% 铺在侧栏底 panel 上；当前行是实色 accent-wash（最坏底）
+  const hover = mix(vars['--accent-wash'], vars['--panel'], 0.7)
+  const rows: [string, string][] = [
+    ['悬停合成底', hover],
+    ['当前行实色底', vars['--accent-wash']],
+  ]
+  for (const [name, background] of rows) {
+    const ratio = contrastRatio(vars['--ink-faint'], background)
+    assert.ok(ratio >= 4.5, `${name}上 --ink-faint 只有 ${ratio.toFixed(3)}:1`)
+  }
+})
+
 test('弱文字的两个入口都吃 --ink-faint（改 token 才会跟着变）', () => {
   const css = readFileSync('src/styles.css', 'utf8')
   for (const selector of ['.status-chip-quiet', '.file-tree-empty-sub']) {

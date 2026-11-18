@@ -140,6 +140,16 @@ export function FileTree({
   })()
   const tabbablePath = focusVisible ?? activeVisible ?? nearestAncestor ?? rows[0]?.node.path ?? null
 
+  // 列表态单独算 roving tabindex（第 61 轮 B3）：不能复用 tabbablePath——
+  // 它按树的可见 rows 算，当前文件在折叠目录里时会回退成目录，列表态就一个键盘站都没有
+  const listPaths = new Set(flatFiles.map((file) => file.path))
+  const listTabbable =
+    focusPath && listPaths.has(focusPath)
+      ? focusPath
+      : activePath && listPaths.has(activePath)
+        ? activePath
+        : (flatFiles[0]?.path ?? null)
+
   // 当前文件换路径（打开/刷新/改名）时逐级展开祖先，保证选中行可见
   useEffect(() => {
     if (!activePath) return
@@ -167,6 +177,29 @@ export function FileTree({
   const focusRow = (path: string) => {
     setFocusPath(path)
     treeRef.current?.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)?.focus()
+  }
+
+  // 列表态的键盘导航（第 61 轮 B3）：方向键只移焦点，Enter/Space 交给原生 button 打开文件
+  const focusListRow = (path: string) => {
+    setFocusPath(path)
+    listRef.current?.querySelector<HTMLElement>(`.file-list-row[data-path="${CSS.escape(path)}"]`)?.focus()
+  }
+
+  const onListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!flatFiles.length) return
+    const index = Math.max(
+      0,
+      flatFiles.findIndex((file) => file.path === listTabbable),
+    )
+    const move = (next: number) => {
+      event.preventDefault()
+      const target = flatFiles[Math.max(0, Math.min(flatFiles.length - 1, next))]
+      if (target) focusListRow(target.path)
+    }
+    if (event.key === 'ArrowDown') move(index + 1)
+    else if (event.key === 'ArrowUp') move(index - 1)
+    else if (event.key === 'Home') move(0)
+    else if (event.key === 'End') move(flatFiles.length - 1)
   }
 
   const onTreeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -458,11 +491,23 @@ export function FileTree({
         </div>
 
       {view === 'list' ? (
-        <div className="file-tree-list file-list" aria-label="文件列表">
+        <div
+          className="file-tree-list file-list"
+          ref={(node) => {
+            listRef.current = node
+          }}
+          onScroll={(event) => {
+            scrollTopRef.current = event.currentTarget.scrollTop
+          }}
+          onKeyDown={onListKeyDown}
+          onFocus={() => {
+            wasFocusedRef.current = true
+          }}
+        >
           {flatFiles.length === 0 ? (
             <p className="file-tree-empty">这个文件夹里没有 Markdown 文件</p>
           ) : (
-            <ul className="file-list-rows">
+            <ul className="file-list-rows" role="list" aria-label="文件列表">
               {flatFiles.map((file) => {
                 const active = file.path === activePath
                 return (
@@ -470,8 +515,12 @@ export function FileTree({
                     <button
                       type="button"
                       className={`file-list-row${active ? ' is-active' : ''}`}
+                      data-path={file.path}
+                      // roving tabindex：列表只占一个 Tab 站，方向键在行间移动（第 61 轮 B3）
+                      tabIndex={file.path === listTabbable ? 0 : -1}
                       aria-current={active ? 'true' : undefined}
                       title={file.path}
+                      onFocus={() => setFocusPath(file.path)}
                       onClick={() => {
                         wasFocusedRef.current = true
                         onOpenFile(file)
