@@ -352,6 +352,14 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **301,694 B**（内部 310,000，余 18,306）；`npm test` **40 个文件 520 条**全过；`roundtrip` 未跑（未动序列化）。
 - UNVERIFIED（本轮）：真实中文 IME 与 WebView2 宿主内的组合输入/快速打开、真实 FSA 与真实 1 MB 文件、真实屏幕阅读器。
 
+**第 69 轮（同一未发版区间）**
+
+- **组合输入时 `Ctrl+S` 不写盘**（B-149 第二出口）：`requestSave` 顶部加组合门（`src/App.tsx:3330-3335`，`sourceMode && sourceComposingRef.current` → 提示「先完成候选字，再保存。」并返回），不再把 textarea 里未提交的 `zhong` 当正文写进文件。
+- **组合输入中退出源码先收尾再读值**（B-149 第三出口）：新增 `settleSourceComposition`（`src/App.tsx:4531-4566`）——离开源码且正在组合时先 `blur()` 并等一次 `compositionend`（≤300 ms），之后才读 textarea 现值；等不到且 value 变短才提示「先完成候选字，再退出。」并留在源码（不卸载、盘不变），文本仍在则放行，收尾值经 `pendingSourceLiveRef` 交给延迟的 `applySource`（`:4582-4600`）。
+- **验收实测**：100 KB 组合 `zhong` 按 `Ctrl+S` **0 写**、盘 100,010 不变、提示正确；提交「中」后按 `Ctrl+S` 恰 1 写 100,011（`count('中')` 2,323→2,324、无拼音、无草稿）；组合→提交→`Esc` 退出后正文含「中」无 `zhong`、**1,597 ms** 写盘（≤3,400）。B1 delta 回归全绿：1 MB 进 p50 1,170 / 退 294 ms、100 KB 125 / 57 ms、scrollDiff 全 0、parse 3→3、exitSourceEdited 5,108 ms（≤5,330）、A1/A2/A3 脚本全 true、编辑停笔 1 写 / 0 草稿，无一项偏差 >10%。
+- 门禁：`npm run verify` PASS，首屏 gzip **301,886 B**（内部 310,000，余 18,114）；`npm test` **40 个文件 520 条**全过；`roundtrip` 未跑（未动序列化）。
+- UNVERIFIED（本轮）：真实中文 IME 与 WebView2 宿主内的组合输入（CDP `imeSetComposition` 合成组合）、真实 FSA 与真实磁盘文件；CDP 合成组合未提交时按 Esc 会退出并把原始串写入正文（真输入法由 blur 提交候选字，拦退分支需真 IME 才能触发）。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

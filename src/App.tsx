@@ -649,6 +649,9 @@ export default function App() {
   const mathIsNewRef = useRef(false)
   const toggleSourceRef = useRef<() => void>(() => {})
   const togglePreviewRef = useRef<() => void>(() => {})
+  const switchViewRef = useRef<(next: 'edit' | 'source' | 'preview') => void>(() => {})
+  /** 退出源码时组合输入的收尾值：settleSourceComposition 等到 compositionend 之后才读（第 69 轮 B-149） */
+  const pendingSourceLiveRef = useRef<string | null>(null)
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 宿主草稿：generation 用过期的回包一律丢弃 */
   const draftGenerationRef = useRef(0)
@@ -3325,6 +3328,11 @@ export default function App() {
   const requestSave = useCallback(
     (target: SaveTarget, after?: () => void) => {
       if (!editor) return
+      // 源码框组合输入中按 Ctrl+S：sourceText 里还是未提交的拼音，不能写进盘（第 69 轮 B-149 第二出口）
+      if (sourceMode && sourceComposingRef.current) {
+        show('先完成候选字，再保存。')
+        return
+      }
       cancelAutoSaveRef.current()
       let goal = target
       if (goal === 'host' && (hostDoc === null || !hostDoc.ready)) return
@@ -3358,7 +3366,7 @@ export default function App() {
       }
       void runSave({ normalized, withEol, target: goal, losses: [], after })
     },
-    [editor, hostDoc, dirty, originalText, saveWarned, prepareSave, runSave, performSwitch],
+    [editor, hostDoc, dirty, originalText, saveWarned, prepareSave, runSave, performSwitch, sourceMode, show],
   )
 
   /** 确认回调：唯一置 saveWarned 的地方 */
@@ -4514,6 +4522,42 @@ export default function App() {
   }, [])
 
   /**
+   * 退出源码前收尾组合输入（第 69 轮 B-149 第三出口）：先 blur 逼输入法收尾，再等一次
+   * compositionend（≤300 ms），之后才读 textarea 的现值——不能只 blur 就照旧读值，
+   * 真输入法的候选字是 blur 之后才替换进 value 的。
+   * 等不到事件时比对 blur 前后的 value：短了说明候选字已被丢掉，返回 null（拦退：不卸载、盘不变）；
+   * 文本仍在就直接放行，A2 的「组合未提交也能退出」断言不会假红。
+   */
+  const settleSourceComposition = useCallback(
+    (box: HTMLTextAreaElement): Promise<string | null> => {
+      const before = box.value
+      return new Promise<string | null>((resolve) => {
+        let timer = 0
+        const finish = (ended: boolean) => {
+          window.clearTimeout(timer)
+          box.removeEventListener('compositionend', onEnd)
+          sourceComposingRef.current = false
+          // 组合结束（或确认作废）后放行保存与草稿：与 onCompositionEnd 的 400 ms 有界门一致
+          composeUntilRef.current = Date.now() + 400
+          const live = document.querySelector<HTMLTextAreaElement>('textarea.source-editor')?.value ?? box.value
+          if (!ended && live.length < before.length) {
+            show('先完成候选字，再退出。')
+            box.focus()
+            resolve(null)
+            return
+          }
+          resolve(live)
+        }
+        const onEnd = () => finish(true)
+        box.addEventListener('compositionend', onEnd)
+        timer = window.setTimeout(() => finish(false), 300)
+        box.blur()
+      })
+    },
+    [show],
+  )
+
+  /**
    * 三种视图统一在这里切：离开源码时先把源码写回正文，
    * 否则「源码 → 预览 / 源码 → 源码」会把刚改的字弄丢。
    */
@@ -4521,6 +4565,22 @@ export default function App() {
     (next: 'edit' | 'source' | 'preview') => {
       if (!editor) return
       const leavingSource = viewMode === 'source' && next !== 'source'
+      // 组合输入中退出源码（第 69 轮 B-149）：先收尾组合，拿收尾后的现值再走下面的退出逻辑。
+      // 收尾失败（候选字被 blur 丢掉）就留在源码里，不卸载、盘不变。
+      if (leavingSource && sourceComposingRef.current) {
+        const box = document.querySelector<HTMLTextAreaElement>('textarea.source-editor')
+        if (box) {
+          void settleSourceComposition(box).then((live) => {
+            if (live === null) return
+            pendingSourceLiveRef.current = live
+            switchViewRef.current(next)
+          })
+          return
+        }
+      }
+      // 组合收尾交进来的现值只给这一次退出用，取完就清，别漏给下一次
+      const sourceExitLive = pendingSourceLiveRef.current
+      pendingSourceLiveRef.current = null
       // 源码里改过字再离开：applySource 的整篇重解析是同步长任务（1 MB 实测 4.3 s）。
       // 先把「正在应用」遮罩画上屏，再在绘制之后的任务里重解析；否则点击后界面像卡死。
       // 未改动的进出仍走 skipReparse，照旧 1.2 s / 0.3 s 级，不出遮罩（第 67 轮 B-144）。
@@ -4532,8 +4592,11 @@ export default function App() {
           requestAnimationFrame(() => {
             // 0 ms 定时器把重解析放到遮罩绘制之后：长任务的 startTime 必须晚于遮罩帧
             setTimeout(() => {
-              // 两帧里源码框还能收到键：用现值，别用点击时闭包里的 state
-              const liveSource = document.querySelector<HTMLTextAreaElement>('textarea.source-editor')?.value
+              // 两帧里源码框还能收到键：用现值，别用点击时闭包里的 state；
+              // 组合收尾过的现值由 settleSourceComposition 交进来（第 69 轮 B-149）
+              const liveSource =
+                sourceExitLive ??
+                document.querySelector<HTMLTextAreaElement>('textarea.source-editor')?.value
               try {
                 applySource(liveSource)
               } finally {
@@ -4600,7 +4663,7 @@ export default function App() {
         restoreSourceScroll()
       }
     },
-    [editor, viewMode, sourceText, dirty, draftRestored, currentMarkdown, applySource, restoreSourceScroll],
+    [editor, viewMode, sourceText, dirty, draftRestored, currentMarkdown, applySource, restoreSourceScroll, settleSourceComposition],
   )
 
   const toggleSource = useCallback(() => {
@@ -4651,7 +4714,8 @@ export default function App() {
   useEffect(() => {
     toggleSourceRef.current = toggleSource
     togglePreviewRef.current = togglePreview
-  }, [toggleSource, togglePreview])
+    switchViewRef.current = switchView
+  }, [toggleSource, togglePreview, switchView])
   const jumpTo = useCallback(
     (item: OutlineItem) => {
       if (!editor) return
