@@ -676,12 +676,12 @@ export default function App() {
   const loadEpochRef = useRef(0)
   /** 文档身份代号：切文档/新建/另存为/改名/删除都递增，旧回包据此作废 */
   const activeDocIdRef = useRef(0)
-  const pendingRefreshRef = useRef<{ mode?: 'adopt' | 'check'; activePath?: string } | null>(null)
+  const pendingRefreshRef = useRef<{ mode?: 'adopt' | 'check'; activePath?: string; announce?: boolean } | null>(null)
   const statsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const deriveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const refreshTreeRef = useRef<(options?: { mode?: 'adopt' | 'check'; activePath?: string }) => Promise<Workspace | null>>(
-    async () => null,
-  )
+  const refreshTreeRef = useRef<
+    (options?: { mode?: 'adopt' | 'check'; activePath?: string; announce?: boolean }) => Promise<Workspace | null>
+  >(async () => null)
   /** 新建空文档在首次手动保存前没有基线：不允许自动保存写盘 */
   const hasSavedBaselineRef = useRef(false)
   const performingCommitRef = useRef<Promise<unknown> | null>(null)
@@ -2688,9 +2688,10 @@ export default function App() {
     [requestLoad, show, tooLargeNote],
   )
 
-  /** 刷新文件树：adopt=按新路径重绑（新建/另存为/改名）；check=找不到就清成只能另存为 */
+  /** 刷新文件树：adopt=按新路径重绑（新建/另存为/改名）；check=找不到就清成只能另存为。
+      announce:false 用于调用方自己会报结果的场景（改名），免得刷新计数提示顶掉专属提示 */
   const refreshTree = useCallback(
-    async (options?: { mode?: 'adopt' | 'check'; activePath?: string }): Promise<Workspace | null> => {
+    async (options?: { mode?: 'adopt' | 'check'; activePath?: string; announce?: boolean }): Promise<Workspace | null> => {
       const space = workspaceRef.current
       if (!space || !space.rootHandle) return null
       if (refreshingRef.current) {
@@ -2732,7 +2733,7 @@ export default function App() {
         }
         const added = after.filter((file) => !before.some((old) => old.path === file.path)).length
         const gone = before.filter((file) => !afterByPath.has(file.path)).length
-        if (added > 0 || gone > 0) show(`已刷新：新增 ${added} 个，消失 ${gone} 个`)
+        if ((added > 0 || gone > 0) && options?.announce !== false) show(`已刷新：新增 ${added} 个，消失 ${gone} 个`)
         if (missingName) {
           setNotice({
             text: `「${missingName}」已不在磁盘上（可能已删除、改名或移走），保存只能另存为。`,
@@ -2819,9 +2820,11 @@ export default function App() {
         }
       }
 
-      await refreshTree({ mode: 'adopt', activePath: newPath })
+      // 改名的结果由本函数报，别让刷新文案（新增 1 个，消失 1 个）顶掉它
+      await refreshTree({ mode: 'adopt', activePath: newPath, announce: false })
+      show(`已重命名：${oldFile.name} → ${newName}`)
     },
-    [activeFile, refreshTree],
+    [activeFile, refreshTree, show],
   )
 
   const createFolder = useCallback(async () => {

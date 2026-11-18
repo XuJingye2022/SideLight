@@ -2523,6 +2523,35 @@ button:disabled {
     --on-accent: #ffffff;
     --on-mark: #fffdf8;
   }
+
+  /* 第 78 轮 B-160：露出定界符是屏幕上「选中即露源码」的装饰（第 73/74 轮），纸面不该有。
+     选择器逐字照屏幕那几条；@media 不加权重，靠本块在 :858 / :2132 之后胜出。
+     `.sl-math-reveal` 只在选区落在公式上时才存在，这里恢复的是「万一正在露出」时的纸面表现。 */
+  .doc-body .tiptap-mathematics-render.sl-math-reveal {
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    white-space: normal;
+  }
+
+  .doc-body .tiptap-mathematics-render.sl-math-reveal[data-type='block-math'] {
+    text-align: center;
+  }
+
+  .doc-body .tiptap-mathematics-render.sl-math-reveal[data-type='inline-math']::after,
+  .doc-body .tiptap-mathematics-render.sl-math-reveal[data-type='block-math']::after,
+  .doc-body .sl-eq-revealed::before,
+  .doc-body .sl-eq-revealed::after {
+    content: none;
+  }
+
+  .doc-body .tiptap-mathematics-render.sl-math-reveal > .katex {
+    display: inline;
+  }
+
+  .doc-body .tiptap-mathematics-render.sl-math-reveal > .block-math-inner {
+    display: block;
+  }
 }
 
 /* ---------- 全局提示 ---------- */

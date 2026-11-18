@@ -65,3 +65,102 @@ test('.katex-display 居中且超宽可滚：margin / width / min-width 三项�
   assert.equal(display.get('width'), 'fit-content')
   assert.equal(display.get('min-width'), '100%')
 })
+
+/* ---------- 第 78 轮 B-160：打印纸面不出现露出定界符 ---------- */
+
+type LocatedRule = { selector: string; body: string; at: number }
+
+/** 带位置切规则：注释先摘掉，否则注释里提到的选择器会被当成一条规则 */
+const locatedRules = (): LocatedRule[] =>
+  [...readFileSync('src/styles.css', 'utf8').matchAll(/([^{}]*)\{([^{}]*)\}/g)].map((match) => ({
+    selector: match[1].replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\s+/g, ' ').trim(),
+    body: match[2].replace(/\s+/g, ' '),
+    at: match.index ?? 0,
+  }))
+
+/** `@media print` 块的 [起点, 终点]：括号配对取匹配的右花括号，全文只有这一个打印块 */
+const printRange = (): [number, number] => {
+  const css = readFileSync('src/styles.css', 'utf8')
+  const start = css.indexOf('@media print')
+  assert.ok(start >= 0, 'styles.css 里找不到 @media print')
+  let depth = 0
+  for (let i = start; i < css.length; i += 1) {
+    if (css[i] === '{') depth += 1
+    else if (css[i] === '}') {
+      depth -= 1
+      if (depth === 0) return [start, i]
+    }
+  }
+  assert.fail('@media print 块的花括号没有配对')
+}
+
+const REVEAL_SELECTOR = /sl-math-reveal|sl-eq-revealed/
+
+const splitSelectors = (selector: string): string[] =>
+  selector
+    .split(',')
+    .map((part) => part.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+const P = '.doc-body .tiptap-mathematics-render.sl-math-reveal'
+const P_INLINE_AFTER = `${P}[data-type='inline-math']::after`
+const P_BLOCK = `${P}[data-type='block-math']`
+const P_BLOCK_AFTER = `${P}[data-type='block-math']::after`
+const EQ_BEFORE = '.doc-body .sl-eq-revealed::before'
+const EQ_AFTER = '.doc-body .sl-eq-revealed::after'
+const P_KATEX = `${P} > .katex`
+const P_BLOCK_INNER = `${P} > .block-math-inner`
+
+test('打印块的露出恢复规则与屏幕露出规则逐条对应，且整块都排在屏幕规则之后', () => {
+  const [printStart, printEnd] = printRange()
+  const reveal = locatedRules().filter((rule) => REVEAL_SELECTOR.test(rule.selector))
+  const screen = reveal.filter((rule) => rule.at < printStart)
+  const print = reveal.filter((rule) => rule.at > printStart && rule.at < printEnd)
+
+  // 屏幕侧 `:858` 的共用规则把 ::before/::after 一次给全，`:865`/`:869` 又各给一次：
+  // 原始 10 条、唯一 8 条。按原始条数比会把 10 和 8 判成不等（假红），去重后才是同一组选择器。
+  const screenSelectors = screen.flatMap((rule) => splitSelectors(rule.selector))
+  assert.equal(screenSelectors.length, 10, '屏幕露出规则按逗号拆应为 10 条（两条 content 规则各给一次）')
+  const screenSet = [...new Set(screenSelectors)].sort()
+  assert.equal(screenSet.length, 8, `屏幕露出选择器去重后应为 8 条：${screenSet.join(' | ')}`)
+
+  const printSet = [...new Set(print.flatMap((rule) => splitSelectors(rule.selector)))].sort()
+  assert.deepEqual(printSet, screenSet, '打印块的恢复规则必须与屏幕露出规则逐字同一组选择器（少一条就漏一个定界符）')
+
+  // 同权重靠顺序胜出：整块起点晚于每一条屏幕露出规则，写成简写也不会被屏幕规则翻回来
+  for (const rule of screen) {
+    assert.ok(printStart > rule.at, `打印块起点 ${printStart} 应晚于屏幕露出规则 ${rule.at}（${rule.selector}）`)
+  }
+})
+
+test('打印块的恢复声明：定界符 content:none、公式可见、块根居中、顶栏仍隐藏', () => {
+  const [printStart, printEnd] = printRange()
+  const print = locatedRules().filter((rule) => rule.at > printStart && rule.at < printEnd)
+  const findPrint = (selector: string): Map<string, string> => {
+    const rule = print.find((candidate) => splitSelectors(candidate.selector).includes(selector))
+    assert.ok(rule, `打印块里找不到选择器「${selector}」`)
+    return declarations(rule)
+  }
+
+  const root = findPrint(P)
+  assert.equal(root.get('font-family'), 'inherit', '露出态是等宽字体，纸面要回到正文')
+  assert.equal(root.get('font-size'), 'inherit')
+  assert.equal(root.get('color'), 'inherit', '露出态用强调色，纸面要回到正文色')
+  assert.equal(root.get('white-space'), 'normal', '露出态是 pre-wrap，纸面要正常折行')
+  assert.equal(findPrint(P_BLOCK).get('text-align'), 'center', '屏幕露出态是 left，纸面回到块级公式的居中')
+
+  const delimiters = print.find((rule) =>
+    splitSelectors(rule.selector).includes(P_INLINE_AFTER),
+  )
+  assert.ok(delimiters, '打印块里找不到定界符规则')
+  assert.deepEqual(
+    [...new Set(splitSelectors(delimiters.selector))].sort(),
+    [EQ_AFTER, EQ_BEFORE, P_BLOCK_AFTER, P_INLINE_AFTER].sort(),
+    '四个定界符必须同一个规则块里一起关掉，漏一个就会把 `$…$` / `==` 打进纸面',
+  )
+  assert.equal(declarations(delimiters).get('content'), 'none')
+
+  assert.equal(findPrint(P_KATEX).get('display'), 'inline', '屏幕露出时 KaTeX 成品被 display:none 收起，打印要放回来')
+  assert.equal(findPrint(P_BLOCK_INNER).get('display'), 'block')
+  assert.equal(findPrint('.topbar').get('display'), 'none !important', '顶栏在纸面上仍要隐藏')
+})

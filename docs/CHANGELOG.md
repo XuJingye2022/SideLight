@@ -4,6 +4,13 @@
 
 ## Unreleased（第 29–74 轮，未发版）
 
+**第 78 轮（同一未发版区间）**
+
+- 两条回归脚本断言过期（A1，B-209）：`scripts/bigfile-acceptance.mjs:127` 改断「超过 5.5 MiB」+ 文件名（删「文件太大」）；`scripts/keyboard-acceptance.mjs:179` 在 Ctrl+Shift+S 段前等旧 toast（`ttl:1500`）过期再取基线，`waitForFunction` 带 `.catch(() => {})`。真机（ego-browser CDP 54280）bigfile **3/3**、keyboard **52/52**，均 exit 0。
+- 改名专用提示（A2，B-208）：`refreshTree` 加 `announce?: boolean`（缺省 true），`handleRenamedFile` 传 `announce:false` 并自报「已重命名：b.md → c.md」，不再被「已刷新：新增 1 个，消失 1 个」顶掉；`src/App.tsx:679/682/2694/2736/2824`。真机 11/11。
+- 打印纸面不出现露出定界符（A3，B-160）：`@media print` 补 8 条恢复规则（4 个定界符 `content:none`、`.katex` inline、`.block-math-inner` block、根块 4 个恢复值、块根 `center`），选择器与屏幕露出规则逐字同一组；`src/lib/mathStyle.test.ts` +2 条机械断言。真机 print 媒体 17/17，截图 `shots/round-78/print-math.png`。
+- 门禁：首屏 gzip **303,764 B**（余 6,236）；`npm test` **45 文件 578 条 0 fail**（基线 576）。UNVERIFIED：原生打印预览/另存 PDF 未跑（只 `emulateMedia({ media:'print' })`），见 `docs/iteration/round-78/test.md`。
+
 **第 77 轮（同一未发版区间）**
 
 - 主题单选组键盘模型（A1，B-109）：`src/lib/radioGroup.ts`（`nextRadioIndex` 右/下 +1、左/上 −1、Home/End、未知键 null；`rovingTabIndex` 三态）+ 单测 10 条；`SettingsDialog.tsx` 两段 map 合成 `THEME_CHOICES` 一段渲染，按钮 roving tabindex，`.theme-options` 的 `onKeyDown` 命中键后改主题并组内移焦。

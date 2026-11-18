@@ -173,6 +173,10 @@ check('Ctrl+S 写回当前文件、不再弹 picker', (await pickerCalls()) === 
 
 // 3) Ctrl+Shift+S：不划线、不保存、不提示
 const beforeShiftS = await pickerCalls()
+// 「没有改动，未写入。」的 ttl 是 1500 ms，上一段的提示会在这段（约 1.6 s 后）过期，
+// 于是「toast 变了」是关闭而不是新提示——先把旧提示等过期，基线取「无提示」（null）。
+// .catch 必须有：错误提示不自动消失（kind==='error' 无 ttl），等待超时不能中断整段。
+await page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 5000 }).catch(() => {})
 const toastBefore = await page.evaluate(() => document.querySelector('.toast-text')?.textContent ?? null)
 await page.locator('.editor').click()
 await page.locator('.editor').press('Control+End')

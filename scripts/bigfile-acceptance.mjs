@@ -124,7 +124,13 @@ const row = (name) => page.locator('[role="treeitem"]', { hasText: name }).first
 await row('big.md').click()
 await page.waitForTimeout(1800)
 const toast = await page.evaluate(() => document.querySelector('.toast-text')?.textContent ?? '')
-check('6.1 MiB 打开 2 秒内报「5.5 MiB」', toast.includes('5.5 MiB') && toast.includes('文件太大'), toast)
+// 文案是 `「big.md」超过 5.5 MiB，仍在「<当前篇>」`（src/App.tsx 的 tooLargeNote）：
+// 旧断言那串只留在 readNode 的异常文案里，提示已被换成说清「正文仍是哪一篇」的版本。
+check(
+  '6.1 MiB 打开 2 秒内报「超过 5.5 MiB」并说清文件名',
+  toast.includes('5.5 MiB') && toast.includes('超过 5.5 MiB') && toast.includes('big.md'),
+  toast,
+)
 check('超限时旧文档不变', (await page.evaluate(() => window.__slState?.name)) !== 'big.md')
 await row('ok.md').click()
 await page.waitForTimeout(2500)
