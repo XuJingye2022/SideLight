@@ -6,7 +6,7 @@ import { MarkdownManager } from '@tiptap/markdown'
 import { StarterKit } from '@tiptap/starter-kit'
 
 import { escapeHtmlForParse } from './html.ts'
-import { inlineSyntaxMarks, typedMatch } from './inlineSyntax.ts'
+import { inlineSyntaxMarks, pasteMatches, typedMatch } from './inlineSyntax.ts'
 import { serializeDocumentBody } from './serializeDocument.ts'
 import { disableSingleTildeStrike } from './tilde.ts'
 
@@ -46,8 +46,7 @@ function markedText(node: Json, type: string): string[] {
 
 type RuleFinder = (text: string) => { index: number; text: string; replaceWith?: string } | null
 
-/**
- * 取一枚 mark 的输入规则。Tiptap 在 `addInputRules` 里读 `this.type` 建 mark；这里只测 `find`，
+/** 取一枚 mark 的输入规则。Tiptap 在 `addInputRules` 里读 `this.type` 建 mark；这里只测 `find`，
  * 给 `type: null` 就够（handler 里的 type.create 不会被调用）。
  */
 function inputRulesOf(mark: Mark): Array<{ find: RuleFinder | RegExp }> {
@@ -57,6 +56,26 @@ function inputRulesOf(mark: Mark): Array<{ find: RuleFinder | RegExp }> {
   assert.equal(typeof add, 'function', `${mark.name} 应有 addInputRules`)
   if (typeof add !== 'function') throw new Error(`${mark.name} 缺 addInputRules`)
   return add.call({ type: null })
+}
+
+/** 第 86 轮 B-215：粘贴规则与输入规则分开测（同一枚 mark 上各 1 条） */
+type PasteFinder = (text: string, event?: ClipboardEvent | null) => Array<{ index: number; text: string; replaceWith?: string }> | null | undefined
+
+function pasteRulesOf(mark: Mark): Array<{ find: PasteFinder | RegExp }> {
+  const add = (mark.config as { addPasteRules?: unknown }).addPasteRules as unknown as
+    | ((this: { type: unknown }) => Array<{ find: PasteFinder | RegExp }>)
+    | undefined
+  assert.equal(typeof add, 'function', `${mark.name} 应有 addPasteRules`)
+  if (typeof add !== 'function') throw new Error(`${mark.name} 缺 addPasteRules`)
+  return add.call({ type: null })
+}
+
+function pasteFinderOf(mark: Mark): PasteFinder {
+  const rules = pasteRulesOf(mark)
+  assert.equal(rules.length, 1, `${mark.name} 应恰有 1 条粘贴规则`)
+  const find = rules[0].find
+  assert.equal(typeof find, 'function', `${mark.name} 的粘贴规则要能吃字符串（函数式 finder）`)
+  return find as PasteFinder
 }
 
 function finderOf(mark: Mark): RuleFinder {
@@ -369,4 +388,89 @@ test('输入规则：手打转换后的文档与解析出来的结构同形（�
   const parsed = manager.parse(escapeHtmlForParse(serialized)) as Json
   assert.equal(countMark(parsed, 'eqHighlight'), 1)
   assert.deepEqual(markedText(parsed, 'eqHighlight'), ['乙'])
+})
+
+/**
+ * 第 86 轮 B-215：粘贴也出 mark。手打有输入规则，粘贴是整段文字一次落进文档、输入规则不跑，
+ * 所以给同一枚 mark 挂 tiptap 的 `markPasteRule`。判定仍是纯函数 `pasteMatches`，
+ * 它比 `typedMatch` 多的只有「不尾锚定、一次返回全部不重叠的命中」。
+ */
+test('粘贴规则：一行两对 ==a== 与 ==b== 全命中，index 是各对起点', () => {
+  enabled = true
+  const hits = pasteMatches('eqHighlight', '==a== 与 ==b==')
+  assert.deepEqual(hits, [
+    { index: 0, text: '==a==', replaceWith: 'a' },
+    { index: 8, text: '==b==', replaceWith: 'b' },
+  ])
+  assert.equal(pasteFinderOf(markNamed('eqHighlight'))('==a== 与 ==b==')?.length, 2)
+})
+
+test('粘贴规则：==红== 与 ^上^ 与 ~下~ 三枚各 1 对，互不抢', () => {
+  enabled = true
+  const text = '==红== 与 ^上^ 与 ~下~'
+  assert.deepEqual(pasteMatches('eqHighlight', text), [{ index: 0, text: '==红==', replaceWith: '红' }])
+  assert.deepEqual(pasteMatches('caretSup', text), [{ index: 8, text: '^上^', replaceWith: '上' }])
+  assert.deepEqual(pasteMatches('tildeSub', text), [{ index: 14, text: '~下~', replaceWith: '下' }])
+})
+
+test('粘贴规则负例：a == b / ==== / \\==a== / 2^10 都不命中', () => {
+  enabled = true
+  assert.deepEqual(pasteMatches('eqHighlight', 'a == b'), [])
+  assert.deepEqual(pasteMatches('eqHighlight', '===='), [])
+  assert.deepEqual(pasteMatches('eqHighlight', '\\==a=='), [])
+  assert.deepEqual(pasteMatches('caretSup', '2^10'), [])
+  assert.deepEqual(pasteMatches('caretSup', 'a ^ b'), [])
+  assert.deepEqual(pasteMatches('tildeSub', '温度 25~ 左右'), [])
+})
+
+test('粘贴规则：~~删除线~~ 留给 Strike，~a~ ~b~ 仍是两对下标', () => {
+  enabled = true
+  assert.deepEqual(pasteMatches('tildeSub', '~~删除线~~'), [])
+  assert.equal(pasteMatches('tildeSub', '~a~ ~b~').length, 2)
+})
+
+test('粘贴规则：三枚语法 mark 各 1 条，\\= 的 eqEscaped 没有', () => {
+  for (const name of ['eqHighlight', 'caretSup', 'tildeSub']) {
+    assert.equal(pasteRulesOf(markNamed(name)).length, 1, `${name} 应恰 1 条粘贴规则`)
+  }
+  const escaped = markNamed('eqEscaped') as unknown as { config: { addPasteRules?: unknown } }
+  assert.equal(escaped.config.addPasteRules, undefined, 'eqEscaped 不该有粘贴规则（\\= 只走解析）')
+})
+
+test('粘贴规则：关态 find 返回 []，开态才命中；replaceWith 一定是命中串子串', () => {
+  const marks = inlineSyntaxMarks(() => enabled)
+  const eq = marks.find((mark) => mark.name === 'eqHighlight')
+  assert.ok(eq)
+  const find = pasteFinderOf(eq)
+  enabled = false
+  assert.deepEqual(find('==红=='), [], '关态粘贴保持字面')
+  enabled = true
+  for (const kind of ['eqHighlight', 'caretSup', 'tildeSub'] as const) {
+    const sample = kind === 'eqHighlight' ? '==内容==' : kind === 'caretSup' ? '^内容^' : '~内容~'
+    const hits = pasteFinderOf(markNamed(kind))(sample) ?? []
+    assert.equal(hits.length, 1, `${kind} 应命中`)
+    const hit = hits[0]
+    assert.equal(typeof hit.replaceWith, 'string', `${kind} 缺 replaceWith`)
+    assert.ok(hit.text.includes(hit.replaceWith ?? ''), `${kind} 的 replaceWith 不是命中串子串`)
+  }
+})
+
+test('粘贴规则：末尾一对与 typedMatch 一致；光标没停在收尾符上也照样命中', () => {
+  enabled = true
+  const cases: Array<[string, string]> = [
+    ['==红==', 'eqHighlight'],
+    ['甲==乙==', 'eqHighlight'],
+    ['x^上^', 'caretSup'],
+    ['H~2~', 'tildeSub'],
+    ['~a~ ~b~', 'tildeSub'],
+  ]
+  for (const [text, kind] of cases) {
+    const hits = pasteMatches(kind as never, text)
+    assert.deepEqual(hits[hits.length - 1], typedMatch(kind as never, text), `${kind} 末尾一对应与 typedMatch 同：${text}`)
+  }
+  // 差别就在尾锚定：后面还有字时手打规则不命中（光标没停在收尾符），粘贴规则仍要命中
+  assert.equal(typedMatch('eqHighlight', '==红== 后面还有字'), null)
+  assert.deepEqual(pasteMatches('eqHighlight', '==红== 后面还有字'), [
+    { index: 0, text: '==红==', replaceWith: '红' },
+  ])
 })

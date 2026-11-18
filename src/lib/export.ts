@@ -274,6 +274,28 @@ const STYLES = `
   nav.sl-toc a.sl-toc-item[data-level="4"],
   nav.sl-toc a.sl-toc-item[data-level="5"],
   nav.sl-toc a.sl-toc-item[data-level="6"] { padding-left: 3.4em; }
+  /* 第 86 轮 B-216：快捷行内语法的三个 mark。编辑视图的样式在 styles.css 的
+     .doc-body .sl-eq / .sl-sup / .sl-sub，这里是与之一致的自包含副本：
+     ==高亮== 用 app 的 --mark-bg 浅色值，^上标^ / ~下标~ 的五项与屏幕上相同。 */
+  .sl-eq {
+    background: #f0e0bd;
+    padding: 0 1px;
+    border-radius: 2px;
+  }
+  .sl-sup {
+    font-size: 0.75em;
+    line-height: 0;
+    position: relative;
+    vertical-align: baseline;
+    top: -0.5em;
+  }
+  .sl-sub {
+    font-size: 0.75em;
+    line-height: 0;
+    position: relative;
+    vertical-align: baseline;
+    bottom: -0.25em;
+  }
   @media (prefers-color-scheme: dark) {
     body { color: #e9e6e0; background: #15171a; }
     code { background: #22302e; }
@@ -282,6 +304,7 @@ const STYLES = `
     blockquote { color: #a8adaf; }
     nav.sl-toc { border-color: #2a2e33; }
     nav.sl-toc a.sl-toc-item { color: #8ec5bb; }
+    .sl-eq { background: #453618; }
   }
   @media print {
     :root { color-scheme: light; }
@@ -291,6 +314,7 @@ const STYLES = `
     blockquote, section.footnotes { color: #565c61; }
     nav.sl-toc { border-color: #e4dfd4; }
     nav.sl-toc a.sl-toc-item { color: #2b6d64; }
+    .sl-eq { background: #f0e0bd; }
   }
 `
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import katexReal from 'katex'
@@ -259,4 +260,96 @@ test('导出目录：标题文字里的 <b> 与 & 已转义，小写 [toc] 也�
   assert.ok(out.includes('<h1 id="sl-toc-0">A&lt;b&gt;&amp;C</h1>'))
   assert.ok(out.includes(toc.nav))
   assert.ok(!out.includes('[toc]'))
+})
+
+/* ---------- 第 86 轮 A2（B-216）：导出样式补三条行内语法 ---------- */
+
+type CssRule = { selector: string; body: string; at: number }
+
+/** 按规则块切导出文件里的 `<style>`；注释先摘掉，否则注释里提到的选择器会被当成一条规则 */
+const exportStyleRules = (): CssRule[] => {
+  const html = buildHtmlDocument({ title: '样式.md', bodyHtml: '<p>正文</p>' })
+  const start = html.indexOf('<style>') + '<style>'.length
+  const style = html.slice(start, html.indexOf('</style>'))
+  return [...style.matchAll(/([^{}]*)\{([^{}]*)\}/g)].map((match) => ({
+    selector: match[1].replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\s+/g, ' ').trim(),
+    body: match[2].replace(/\s+/g, ' '),
+    at: match.index ?? 0,
+  }))
+}
+
+const declarations = (rule: CssRule): Map<string, string> => {
+  const map = new Map<string, string>()
+  // 规则体里也可能夹注释（styles.css 的 `:root` 就是），不摘掉会把下一个 token 的键粘连
+  const body = rule.body.replace(/\/\*[\s\S]*?\*\//g, ' ')
+  for (const part of body.split(';')) {
+    const at = part.indexOf(':')
+    if (at < 0) continue
+    map.set(part.slice(0, at).trim(), part.slice(at + 1).trim())
+  }
+  return map
+}
+
+/** 导出样式里的行内语法规则：`.sl-eq` 三条（浅色 / 深色块 / 打印块），sup/sub 各一条 */
+const syntaxRules = (selector: string, expected = 1): CssRule[] => {
+  const found = exportStyleRules().filter((rule) => rule.selector === selector)
+  assert.equal(found.length, expected, `${selector} 应有 ${expected} 条，实际 ${found.length}`)
+  return found
+}
+
+test('导出样式：.sl-eq 浅底内边距圆角，深色块与打印块各自改底色', () => {
+  const [light, dark, print] = syntaxRules('.sl-eq', 3)
+  const base = declarations(light)
+  assert.equal(base.get('background'), '#f0e0bd', '==高亮== 在导出页也要有底色（app 的 --mark-bg 浅色值）')
+  assert.equal(base.get('padding'), '0 1px')
+  assert.equal(base.get('border-radius'), '2px')
+  assert.equal(declarations(dark).get('background'), '#453618', '深色系统下换成深色 --mark-bg')
+  assert.equal(declarations(print).get('background'), '#f0e0bd', '打印回浅底')
+  // 顺序：深色块在打印块之前（同权重靠顺序胜出）
+  assert.ok(dark.at < print.at, '深色块必须排在打印块之前')
+})
+
+test('导出样式：.sl-sup / .sl-sub 五项与屏幕规则同值', () => {
+  for (const selector of ['.sl-sup', '.sl-sub']) {
+    const [rule] = syntaxRules(selector)
+    const found = declarations(rule)
+    assert.equal(found.get('font-size'), '0.75em', `${selector} 字号要比正文小`)
+    assert.equal(found.get('line-height'), '0')
+    assert.equal(found.get('position'), 'relative')
+    assert.equal(found.get('vertical-align'), 'baseline')
+  }
+  assert.equal(declarations(syntaxRules('.sl-sup')[0]).get('top'), '-0.5em', '上标要抬起来')
+  assert.equal(declarations(syntaxRules('.sl-sub')[0]).get('bottom'), '-0.25em', '下标要沉下去')
+})
+
+test('导出样式漂移门：底色与 sup/sub 五项逐项读 src/styles.css 对照', () => {
+  const css = readFileSync('src/styles.css', 'utf8')
+  const rules: CssRule[] = [...css.matchAll(/([^{}]*)\{([^{}]*)\}/g)].map((match) => ({
+    selector: match[1].replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\s+/g, ' ').trim(),
+    body: match[2].replace(/\s+/g, ' '),
+    at: match.index ?? 0,
+  }))
+  const vars = (selector: string): Map<string, string> => {
+    const rule = rules.find((candidate) => candidate.selector === selector)
+    assert.ok(rule, `styles.css 里找不到「${selector}」变量块`)
+    return declarations(rule)
+  }
+  const light = vars(':root')
+  const dark = vars("html[data-theme='dark']")
+
+  // 三个 token 就是导出页上的三处底色
+  assert.equal(vars('.doc-body .sl-eq').get('background'), 'var(--mark-bg)')
+  assert.equal(declarations(syntaxRules('.sl-eq', 3)[0]).get('background'), light.get('--mark-bg'))
+  assert.equal(declarations(syntaxRules('.sl-eq', 3)[1]).get('background'), dark.get('--mark-bg'))
+
+  for (const selector of ['.sl-sup', '.sl-sub']) {
+    const screenRule = rules.find((rule) => rule.selector === `.doc-body ${selector}`)
+    assert.ok(screenRule, `styles.css 里找不到「.doc-body ${selector}」`)
+    const screen = declarations(screenRule)
+    const exported = declarations(syntaxRules(selector)[0])
+    const properties = ['font-size', 'line-height', 'position', 'vertical-align', selector === '.sl-sup' ? 'top' : 'bottom']
+    for (const property of properties) {
+      assert.equal(exported.get(property), screen.get(property), `${selector} 的 ${property} 与屏幕不一致`)
+    }
+  }
 })

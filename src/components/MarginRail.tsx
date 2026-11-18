@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import type { Annotation, DocNote } from '../lib/annotations.ts'
+import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
 import { InlineText } from './InlineText.tsx'
 
 type Props = {
@@ -23,6 +24,8 @@ type Props = {
   searchReady: boolean
   onHover: (id: string | null) => void
   onFocusNote: (annotation: Annotation) => void
+  /** 卡片拿到焦点后按 Enter：跳到正文里对应的句子（第 86 轮 B-141） */
+  onJumpToNote: (annotation: Annotation) => void
   onDiscuss: (annotation: Annotation, text: string) => void
   onVerify: (annotation: Annotation) => void
   onRefine: (annotation: Annotation) => void
@@ -49,6 +52,7 @@ export function MarginRail({
   searchReady,
   onHover,
   onFocusNote,
+  onJumpToNote,
   onDiscuss,
   onVerify,
   onRefine,
@@ -112,6 +116,15 @@ export function MarginRail({
           ref={(node) => registerRef(annotation.id, node)}
           className={`note note-${annotation.kind}${activeId === annotation.id ? ' is-active' : ''}`}
           style={{ top: `${tops[annotation.id] ?? 0}px` }}
+          // 第 86 轮 B-141：卡片自己成为一个 Tab 站，读屏拿到「第 N 处 + 类型 + 引文」
+          tabIndex={0}
+          role="group"
+          aria-label={noteAriaLabel(index, annotation)}
+          onKeyDown={(event) => {
+            if (!noteJumpKey(event)) return
+            event.preventDefault()
+            onJumpToNote(annotation)
+          }}
           onClick={() => onFocusNote(annotation)}
           onMouseEnter={() => onHover(annotation.id)}
           onMouseLeave={() => onHover(null)}

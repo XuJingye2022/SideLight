@@ -1,4 +1,4 @@
-import { Mark, markInputRule } from '@tiptap/core'
+import { Mark, markInputRule, markPasteRule } from '@tiptap/core'
 import type {
   JSONContent,
   MarkdownParseHelpers,
@@ -41,6 +41,13 @@ type SyntaxSpec = {
    */
   typed: RegExp
   /**
+   * 粘贴规则用的全局形状（第 86 轮 B-215）：守卫与 `typed` 同一套，但**不**尾锚定——
+   * 一次粘贴里可能有多对（`==a== 与 ==b==`），`pasteMatches` 用 `matchAll` 逐对取，
+   * 每对都回 `{index,text,replaceWith}` 交给 tiptap 的 `markPasteRule`。
+   * 这里只存源串、不带 `g`，调用时新建（不留 `lastIndex` 状态）。
+   */
+  pasted: RegExp
+  /**
    * 连续符号段守卫：候选位同符号连续 ≥N 个时整段按字面吃（`====` 的第三、四个 `=` 不再当开定界符）。
    * `~` 不守：`~~…~~` 是删除线，必须留给 marked 的 del 规则。
    */
@@ -56,6 +63,7 @@ export const INLINE_SYNTAX: readonly SyntaxSpec[] = [
     whole: /^==(?![=\s])([^\n=]+?)(?<!\s)==(?!==)/,
     candidate: /==/,
     typed: /(?<![\\=])==(?![=\s])([^=\n]+?)(?<!\s)==$/,
+    pasted: /(?<![\\=])==(?![=\s])([^=\n]+?)(?<!\s)==/,
     literalRun: /^={3,}/,
   },
   {
@@ -65,6 +73,7 @@ export const INLINE_SYNTAX: readonly SyntaxSpec[] = [
     whole: /^\^(?![\s^])([^\n^]+?)(?<!\s)\^/,
     candidate: /\^/,
     typed: /(?<![\\^])\^(?![\s^])([^\n^]+?)(?<!\s)\^$/,
+    pasted: /(?<![\\^])\^(?![\s^])([^\n^]+?)(?<!\s)\^/,
     literalRun: /^\^{2,}/,
   },
   {
@@ -74,6 +83,7 @@ export const INLINE_SYNTAX: readonly SyntaxSpec[] = [
     whole: /^(?<!~)~(?![\s~])([^\n~]+?)(?<!\s)~(?!~)/,
     candidate: /(?<!~)~(?!~)/,
     typed: /(?<!~)~(?![\s~])([^\n~]+?)(?<!\s)~(?!~)$/,
+    pasted: /(?<!~)~(?![\s~])([^\n~]+?)(?<!\s)~(?!~)/,
     literalRun: null,
   },
 ]
@@ -133,6 +143,25 @@ function syntaxMark(spec: SyntaxSpec, isEnabled: () => boolean) {
         }),
       ]
     },
+    /**
+     * 粘贴也生效（第 86 轮 B-215）：手打有输入规则，粘贴却是「整段文字一次性落进文档」，
+     * 输入规则不跑，`==红==` 只能等重开文档才渲染。这里给同一枚 mark 挂 tiptap 的粘贴规则：
+     * 一次粘贴里的**每一对**都加 mark，定界符删掉（写回由 renderMarkdown 补同一对符号）。
+     *
+     * 围栏代码块：`run` 在 `node.type.spec.code` 处 return，块内文本节点 `contentSize` 是 0
+     * （`0 ?? nodeSize` 仍是 0）也会提前 return —— 不匹配，字面保留。
+     * 行内代码：`markPasteRule` 自身会查 `getMarksBetween` 里 excluded 的 code mark，命中即 return null
+     * （不删字符、不加 mark）。
+     * 编辑器内部复制粘贴（HTML 带 `data-pm-slice`）整条规则不跑，这是 tiptap 的既有语义。
+     */
+    addPasteRules() {
+      return [
+        markPasteRule({
+          find: (text: string) => (isEnabled() ? pasteMatches(spec.kind, text) : []),
+          type: this.type,
+        }),
+      ]
+    },
   })
 }
 
@@ -151,6 +180,33 @@ export function typedMatch(
   const match = spec.typed.exec(text)
   if (!match || match.index === undefined) return null
   return { index: match.index, text: match[0], replaceWith: match[1] }
+}
+
+/**
+ * 粘贴规则的判定（纯函数）：入参是「这次粘贴落进文档的那段文字」，返回**全部**不重叠的命中。
+ * 与 `typedMatch` 共用守卫（不贴空白、`\` 与同类符号不算开定界符、`~~` 留给删除线），
+ * 区别只在不尾锚定，所以一行里有多对时每对都出；`index` 是每对在入参里的起点。
+ *
+ * 每次调用新建 `g` 正则：同一个 `pasted` 源串反复用不会留 `lastIndex` 状态。
+ */
+export function pasteMatches(
+  kind: InlineSyntaxKind,
+  text: string,
+): Array<{ index: number; text: string; replaceWith: string }> {
+  const spec = INLINE_SYNTAX.find((item) => item.kind === kind)
+  if (!spec) return []
+  const pattern = new RegExp(spec.pasted.source, 'g')
+  const out: Array<{ index: number; text: string; replaceWith: string }> = []
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(text)) !== null) {
+    // 内容组一定有 ≥1 字（正则里是 `+?`），零长度只是防御：不前进就会死循环
+    if (match[0].length === 0) {
+      pattern.lastIndex += 1
+      continue
+    }
+    out.push({ index: match.index, text: match[0], replaceWith: match[1] })
+  }
+  return out
 }
 
 /** 三个 mark + 转义用的 eqEscaped：与 App 的行内 HTML mark 一次注册进 schema */

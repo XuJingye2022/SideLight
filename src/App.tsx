@@ -6113,6 +6113,16 @@ export default function App() {
                   editor.commands.scrollIntoView()
                   setActiveId(annotation.id)
                 }}
+                onJumpToNote={(annotation) => {
+                  // 第 86 轮 B-141：卡片上按 Enter 跳到正文那句。先 focus 再 setTextSelection——
+                  // proseMirror 的 focus() 会把选区放回上次的落点，反序会把刚设的区间冲掉。
+                  setActiveId(annotation.id)
+                  // 源码/预览态不夺焦点（焦点在 textarea.source-editor 上时，Enter 仍是换行）
+                  if (!editor || viewMode !== 'edit') return
+                  editor.commands.focus()
+                  editor.commands.setTextSelection({ from: annotation.from, to: annotation.to })
+                  editor.commands.scrollIntoView()
+                }}
                 onAccept={accept}
                 onDismiss={dismiss}
                 registerRef={(id, node) => {

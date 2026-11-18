@@ -2,7 +2,14 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–85 轮，未发版）
+## Unreleased（第 29–86 轮，未发版）
+
+**第 86 轮（同一未发版区间）**
+
+- 粘贴 `==红==` / `^上^` / `~下~` 也出 mark（A1，B-215）：`src/lib/inlineSyntax.ts` 的 `SyntaxSpec` 加全局 `pasted`（守卫同 `typed`、去尾锚定、`~` 留 `(?!~)`/`(?<!~)`），新增纯函数 `pasteMatches(kind, text)`（逐对返回、每次新建 `g` 正则不留 `lastIndex`），三枚 mark 的 `addPasteRules()` 用 tiptap `markPasteRule`；围栏内（`spec.code` 提前 return）与行内代码内（excluded 守卫）不转，写回仍由 `renderMarkdown` 补定界符。`inlineSyntax.test.ts` 30→**37** 条。真机（ego CDP 54280）粘贴 `==红== 与 ^上^ 与 ~下~` → 1/1/1、`==a== 与 ==b==` → 2、四条负向 0、`~~删除线~~` → strike 1 且 `.sl-sub` 0；硬门：围栏内粘 `==红==`、行内代码内粘 `^上^` → mark 0 且 `Ctrl+S` 落盘 = 基线 + 字面（去掉这段逐字节 = 基线）。
+- HTML 导出补三条行内语法样式（A2，B-216）：`src/lib/export.ts` 的 `STYLES` 加 `.sl-eq`（`#f0e0bd` / `padding:0 1px` / `border-radius:2px`，深色 `#453618`、打印回 `#f0e0bd`）与 `.sl-sup` / `.sl-sub` 五项；`export.test.ts` 27→**30** 条（三块声明 + 读 `src/styles.css` 的漂移门）。真机（拦 `createObjectURL`）：导出串三个 class 各 1、三条规则在；导出页 `.sl-eq` 背景 `rgb(240, 224, 189)`、`.sl-sup` 12.75px < body 17px、`top −6.375px`。
+- 批注卡可键盘聚焦并按 Enter 跳句（A3，B-141）：新 `src/lib/noteA11y.ts`（`noteAriaLabel` = 「第 N 处 修订/评价：「引文」」，换行压空格、>20 字加省略号、空引文退回批注首句；`noteJumpKey` 只认卡片自身 Enter）＋ `MarginRail.tsx` 的 `article.note` 加 `tabIndex=0` / `role="group"` / `aria-label` / `onKeyDown`，`App.tsx` 的 `onJumpToNote` 只在编辑视图 `focus()` + `setTextSelection`；`noteA11y.test.ts` 8 条挂 test 链尾（50→51 文件）。真机：`card.focus()` 落卡、真实 Tab 落卡且焦点环 2px solid、Enter 后 activeElement=`.ProseMirror:not(.preview-pane)` 且选区 = 引文、「追问」上 Enter 不改选区、源码态 Enter 不夺 `textarea.source-editor` 焦点。
+- 门禁：首屏 gzip **306,276 B**（余 3,724 / 13,724）；`npm test` **51 文件 659 条 0 fail**（基线 50/641）；`roundtrip` rich 7/9 + source 9/9（同第 84 轮）。tester 独立验收（未读 `impl.md`；CDP 9222–9226 无监听 → ego-browser CDP 54280，自写 `.tmp/r86-tester-e2e.mjs` 30/30、0 pageerror），见 `docs/iteration/round-86/test.md`。
 
 **第 85 轮（同一未发版区间）**
 
