@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { FIND_NOTE_ID, findBarControls } from './findBarState.ts'
+import { FIND_NOTE_ID, findBarControls, replaceNoticeText } from './findBarState.ts'
 
 const SOURCE_REASON = '源码模式下不支持查找定位与替换：切回富文本（Ctrl+/）再查'
 const PREVIEW_REASON = '预览是只读视图，不支持查找与替换：切回编辑（Ctrl+Shift+P）再查'
@@ -58,4 +58,11 @@ test('未锁且有命中：什么都不锁', () => {
 
 test('说明文字的 id 稳定（输入框 aria-describedby 指着它）', () => {
   assert.equal(FIND_NOTE_ID, 'find-locked-note')
+})
+
+test('替换提示：1 / 3 处成功，0 与负数为没有可替换的匹配', () => {
+  assert.equal(replaceNoticeText(1), '替换了 1 处')
+  assert.equal(replaceNoticeText(3), '替换了 3 处')
+  assert.equal(replaceNoticeText(0), '没有可替换的匹配')
+  assert.equal(replaceNoticeText(-1), '没有可替换的匹配')
 })

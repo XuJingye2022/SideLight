@@ -36,3 +36,16 @@ export function findBarControls(reason: string | undefined, matchCount: number):
     togglesDisabled: locked,
   }
 }
+
+/**
+ * 替换后的提示文案（第 85 轮 B-211）。
+ *
+ * 第 54 轮起「替换」与「全部替换」只 dispatch 事务，没有任何提示：命中数直接变「无结果」，
+ * 用户不知道按钮是否生效。这里把句式的唯一来源放在纯函数里，成功与 0 命中共用一套说法。
+ *
+ * @param replaced 实际替换的处数；0（或异常负数）表示没有可替换的匹配
+ */
+export function replaceNoticeText(replaced: number): string {
+  if (replaced > 0) return `替换了 ${replaced} 处`
+  return '没有可替换的匹配'
+}

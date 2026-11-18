@@ -2,7 +2,14 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–74 轮，未发版）
+## Unreleased（第 29–85 轮，未发版）
+
+**第 85 轮（同一未发版区间）**
+
+- 替换后的反馈不再静默（A1，B-211）：`src/lib/findBarState.ts` 新增 `replaceNoticeText(replaced)`（>0「替换了 N 处」，否则「没有可替换的匹配」）；`src/App.tsx` 的 `replaceCurrent` 在 0 命中时提示并早退、成功后提示 1 处，`replaceEvery` 两条成功出口按命中数提示（0 命中仍由按钮 disabled 拦住）。`findBarState.test.ts` 7→**8** 条。真机（ego CDP 54280）三场景：「全部替换」3 处 →「替换了 3 处」、「替换」→「替换了 1 处」、0 命中在「替换为」框按 Enter →「没有可替换的匹配」且正文不动。
+- `npm run build` 同步宿主 www（A2，B-126）：新 `scripts/host-www.mjs`（零依赖）无参镜像 dist → `host/bin/www`，先拷全部（`index.html` 最后）、全成功后才删多余，失败停在并存且警告后 exit 0；`--check` 只比 dist 侧路径与内容字节，缺/差定退出码、多余只报告，任一边缺失「跳过」exit 0。build 链尾接上该脚本；真机 `--check` exit 0（98 文件逐字节同、多余 0）。
+- CHANGELOG 标题区间机械门（A3，B-140）：标题上界改到同节正文最高轮次，新增 `src/lib/changelog.test.ts` 3 条（格式 / 上界 = 正文最大轮次 / 下界 ≤ 最早轮次）挂在 `npm test` 链尾；负向把上界改回 74 → 1 红且报文给出 74 与 84。
+- 门禁：首屏 gzip **306,144 B**（余 3,856 / 13,856）；`npm test` **50 文件 641 条 0 fail**；`roundtrip` 未跑（未动编辑器/序列化）。tester 自写脚本独立复验，见 `docs/iteration/round-85/test.md`。
 
 **第 84 轮（同一未发版区间）**
 

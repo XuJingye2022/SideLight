@@ -79,6 +79,7 @@ import { nextRestoreEntry, restoreLabel, type RestoreEntry } from './lib/restore
 import { eqDelimiterReveal, mathReveal } from './lib/mathReveal.ts'
 import { hasTocSource } from './lib/toc.ts'
 import { findAll, type Match } from './lib/find.ts'
+import { replaceNoticeText } from './lib/findBarState.ts'
 import type { SearchHit } from './lib/globalSearch.ts'
 import { applyReplacements, type ReplaceRange } from './lib/replaceRanges.ts'
 import { extractFootnotes, joinFootnotes } from './lib/footnotes.ts'
@@ -2138,11 +2139,18 @@ export default function App() {
   const replaceCurrent = useCallback(() => {
     // 预览是只读视图：查找条已锁，调用点也可能绕过它，这里兜底（第 42 轮）
     if (previewMode) return
-    if (!editor || matches.length === 0) return
+    if (!editor) return
+    // 0 命中时「替换为」框的 Enter 照调这里（按钮 disabled 拦不住输入框的 Enter）：
+    // 明确说没有可替换的，别让用户以为按钮坏了（第 85 轮 B-211）
+    if (matches.length === 0) {
+      show(replaceNoticeText(0))
+      return
+    }
     const match = matches[matchIndex]
     // 批注位置由事务映射自动跟随；也不抢焦点，避免打断连续查找
     editor.commands.insertContentAt({ from: match.from, to: match.to }, replacement)
-  }, [editor, matches, matchIndex, replacement, previewMode])
+    show(replaceNoticeText(1))
+  }, [editor, matches, matchIndex, replacement, previewMode, show])
 
   const replaceEvery = useCallback(() => {
     if (previewMode) return
@@ -2205,6 +2213,7 @@ export default function App() {
       }
       editor.view.dispatch(transaction)
       editor.commands.focus()
+      show(replaceNoticeText(matches.length))
       return
     }
     const transaction = editor.state.tr
@@ -2228,7 +2237,8 @@ export default function App() {
     }
     editor.view.dispatch(transaction)
     editor.commands.focus()
-  }, [annotations, editor, matches, replacement, previewMode])
+    show(replaceNoticeText(matches.length))
+  }, [annotations, editor, matches, replacement, previewMode, show])
 
   /* ---------- 滚动与页边定位 ---------- */
 
