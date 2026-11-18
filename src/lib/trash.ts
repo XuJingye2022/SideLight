@@ -332,10 +332,13 @@ export async function deleteDocumentToTrash(
   return result
 }
 
-/** 撤销文档：正文先回原位，再把 trash 里的缓存搬回原键 */
+/**
+ * 撤销文档：正文先回原位，再把 trash 里的缓存搬回原键。
+ * 参数只要「名字 + 路径」：状态栏常驻的恢复入口（第 84 轮 B-142）保存的就是这两项，没有句柄。
+ */
 export async function restoreDocumentFromTrash(
   root: FileSystemDirectoryHandle,
-  node: WorkspaceFileNode,
+  node: Pick<WorkspaceFileNode, 'name' | 'path'>,
   trashNameValue: string,
 ): Promise<TrashResult> {
   const restored = await restoreFromTrash(root, trashNameValue, node.path)

@@ -21,6 +21,13 @@ type Props = {
   /** 整页缩放百分比；100 时不显示 */
   pageZoom?: number
   onZoomReset?: () => void
+  /**
+   * 删除后的恢复入口（第 84 轮 B-142）：文案来自 `restoreEntry.ts` 的 `restoreLabel`，
+   * 空串/缺省时不渲染。它与 toast 分开保存，所以保存提示换掉 toast 后这里仍可撤销。
+   */
+  restoreLabel?: string
+  onRestore?: () => void
+  onDismissRestore?: () => void
 }
 
 export function StatusBar({
@@ -39,6 +46,9 @@ export function StatusBar({
   selectionWords = 0,
   pageZoom = 100,
   onZoomReset,
+  restoreLabel,
+  onRestore,
+  onDismissRestore,
 }: Props) {
   return (
     <footer className="status-bar">
@@ -74,6 +84,23 @@ export function StatusBar({
         {autoSaveLabel && (
           <span className={`status-chip auto-save-chip auto-save-${autoSaveTone}`} title="停笔 2 秒自动保存；有格式损失时只提示">
             {autoSaveLabel}
+          </span>
+        )}
+        {restoreLabel && (
+          <span className="status-restore" title={`${restoreLabel}：点「撤销」把文件搬回原位置`}>
+            <span className="status-restore-text">{restoreLabel}</span>
+            <button type="button" className="status-restore-undo" onClick={onRestore}>
+              撤销
+            </button>
+            <button
+              type="button"
+              className="status-restore-close"
+              aria-label="关闭删除恢复入口"
+              title="不再提供撤销（文件仍在回收站文件夹里）"
+              onClick={onDismissRestore}
+            >
+              ×
+            </button>
           </span>
         )}
       </span>

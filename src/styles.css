@@ -1998,6 +1998,50 @@ button:disabled {
   color: var(--ink-faint);
 }
 
+/* 删除后的恢复入口（第 84 轮 B-142）：常驻状态栏，toast 被下一条提示顶掉也不消失。
+   宽度可压缩（min-width:0 + 省略号），两枚按钮固定 24×24，窄窗不挤掉右侧计数。 */
+.status-restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 36ch;
+  padding-right: 3px;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+.status-restore-text {
+  min-width: 0;
+  padding: 1px 0 1px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-restore button {
+  flex: 0 0 auto;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.status-restore button:hover {
+  background: color-mix(in srgb, var(--accent-ink) 12%, transparent);
+}
+
+.status-restore-close {
+  font-size: 14px;
+  line-height: 1;
+}
+
 /* ---------- 保存前对比 ---------- */
 
 .save-dialog {

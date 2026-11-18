@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import type { Mark } from '@tiptap/core'
 import { MarkdownManager } from '@tiptap/markdown'
 import { StarterKit } from '@tiptap/starter-kit'
 
 import { escapeHtmlForParse } from './html.ts'
-import { inlineSyntaxMarks } from './inlineSyntax.ts'
+import { inlineSyntaxMarks, typedMatch } from './inlineSyntax.ts'
 import { serializeDocumentBody } from './serializeDocument.ts'
 import { disableSingleTildeStrike } from './tilde.ts'
 
@@ -16,7 +17,9 @@ import { disableSingleTildeStrike } from './tilde.ts'
  * 所以本文件只建一个 manager，用例之间只改闸门（第 55 轮实测）。
  */
 let enabled = false
-const manager = new MarkdownManager({ extensions: [StarterKit, ...inlineSyntaxMarks()] })
+/** 第 84 轮 B-214：输入规则的闸门与解析同一个 ref（App 传 `() => inlineSyntaxRef.current`） */
+const SYNTAX_MARKS = inlineSyntaxMarks(() => enabled)
+const manager = new MarkdownManager({ extensions: [StarterKit, ...SYNTAX_MARKS] })
 disableSingleTildeStrike(manager, () => enabled)
 
 /** 与 App 保存链同口径：解析前转义标签形状的 `<`，序列化后过 serializeDocument 的 repair 链 */
@@ -39,6 +42,35 @@ function markedText(node: Json, type: string): string[] {
   if (node.type === 'text' && (node.marks ?? []).some((mark) => mark.type === type)) out.push(node.text ?? '')
   for (const child of node.content ?? []) out.push(...markedText(child, type))
   return out
+}
+
+type RuleFinder = (text: string) => { index: number; text: string; replaceWith?: string } | null
+
+/**
+ * 取一枚 mark 的输入规则。Tiptap 在 `addInputRules` 里读 `this.type` 建 mark；这里只测 `find`，
+ * 给 `type: null` 就够（handler 里的 type.create 不会被调用）。
+ */
+function inputRulesOf(mark: Mark): Array<{ find: RuleFinder | RegExp }> {
+  const add = mark.config.addInputRules as unknown as
+    | ((this: { type: unknown }) => Array<{ find: RuleFinder | RegExp }>)
+    | undefined
+  assert.equal(typeof add, 'function', `${mark.name} 应有 addInputRules`)
+  if (typeof add !== 'function') throw new Error(`${mark.name} 缺 addInputRules`)
+  return add.call({ type: null })
+}
+
+function finderOf(mark: Mark): RuleFinder {
+  const rules = inputRulesOf(mark)
+  assert.equal(rules.length, 1, `${mark.name} 应恰有 1 条输入规则`)
+  const find = rules[0].find
+  assert.equal(typeof find, 'function', `${mark.name} 的规则要能吃「光标前文本」字符串（函数式 finder）`)
+  return find as RuleFinder
+}
+
+function markNamed(name: string): Mark {
+  const found = SYNTAX_MARKS.find((mark) => mark.name === name)
+  assert.ok(found, `没有 ${name}`)
+  return found
 }
 
 /** 关时四例：四条互不相同的行，各自成段 */
@@ -228,4 +260,113 @@ test('A2：开关关着 \\= 也保真，行内代码里的 \\= 不产生 mark', 
   assert.equal(countMark(manager.parse(escapeHtmlForParse(code)) as Json, 'eqEscaped'), 0)
   assert.equal(roundTrip(code), code)
   enabled = true
+})
+
+
+/**
+ * 第 84 轮 B-214：手打不渲染（真机 `.sl-eq`/`.sl-sup`/`.sl-sub` 0/0/0，重解析才 1/1/1）。
+ * 现在三枚 mark 带输入规则：Tiptap 把「光标前的整段文本」交给 finder，只有匹配正好结束在光标处
+ * （入参末尾）才转换；`markInputRule` 删两端定界符、写回由 renderMarkdown 补。
+ * 下面按「光标状态」喂前缀串，直接测 finder 的判定。
+ */
+test('输入规则：==红== 与 甲==乙== 命中，replaceWith 是内容', () => {
+  enabled = true
+  const hit = typedMatch('eqHighlight', '==红==')
+  assert.deepEqual(hit, { index: 0, text: '==红==', replaceWith: '红' })
+  // 前面还有别的字：只吃最后一对
+  assert.deepEqual(typedMatch('eqHighlight', '甲==乙=='), { index: 1, text: '==乙==', replaceWith: '乙' })
+})
+
+test('输入规则：x^上^ / H~2~ / ~a~ ~b~ 命中，只吃最后一对', () => {
+  enabled = true
+  assert.deepEqual(typedMatch('caretSup', 'x^上^'), { index: 1, text: '^上^', replaceWith: '上' })
+  assert.deepEqual(typedMatch('tildeSub', 'H~2~'), { index: 1, text: '~2~', replaceWith: '2' })
+  // 前一对称号已经收尾：光标停在最后一位时只该转换最后一对
+  assert.deepEqual(typedMatch('tildeSub', '~a~ ~b~'), { index: 4, text: '~b~', replaceWith: 'b' })
+})
+
+test('输入规则负例：==== / == a == / a == b 都不命中', () => {
+  enabled = true
+  for (const text of ['====', '== a ==', 'a == b', '==不闭合']) {
+    assert.equal(typedMatch('eqHighlight', text), null, `${JSON.stringify(text)} 不该命中`)
+  }
+})
+
+test('输入规则负例：2^10 / \==a== / ~~删除线~~ 都不命中', () => {
+  enabled = true
+  assert.equal(typedMatch('caretSup', '2^10'), null)
+  assert.equal(typedMatch('eqHighlight', '\\==a=='), null)
+  assert.equal(typedMatch('tildeSub', '~~删除线~~'), null, '删除线留给 Strike')
+  assert.equal(typedMatch('tildeSub', '温度 25~'), null)
+})
+
+test('输入规则：关态（设置里关掉）规则 find 恒 null，开态才命中', () => {
+  const marks = inlineSyntaxMarks(() => enabled)
+  const eq = marks.find((mark) => mark.name === 'eqHighlight')
+  assert.ok(eq)
+  enabled = false
+  assert.equal(finderOf(eq)('==红=='), null, '关态手打保持字面')
+  enabled = true
+  assert.deepEqual(finderOf(eq)('==红=='), { index: 0, text: '==红==', replaceWith: '红' })
+})
+
+test('输入规则：三枚语法 mark 各 1 条规则，\\= 的 eqEscaped 没有', () => {
+  for (const name of ['eqHighlight', 'caretSup', 'tildeSub']) {
+    assert.equal(inputRulesOf(markNamed(name)).length, 1, `${name} 应恰 1 条`)
+  }
+  const escaped = markNamed('eqEscaped')
+  const add = escaped.config.addInputRules as unknown
+  assert.equal(add, undefined, 'eqEscaped 不该有输入规则（\\= 只走解析）')
+})
+
+test('输入规则：尾锚定——符号后面还有字（光标没停在收尾符上）不命中', () => {
+  enabled = true
+  const find = finderOf(markNamed('eqHighlight'))
+  assert.equal(find('==红== 后面还有字'), null)
+  assert.equal(find('字面文本'), null)
+  assert.deepEqual(find('==红=='), { index: 0, text: '==红==', replaceWith: '红' })
+})
+
+test('输入规则：replaceWith 一定是命中串的子串（否则 Tiptap 会 warn）', () => {
+  enabled = true
+  for (const kind of ['eqHighlight', 'caretSup', 'tildeSub'] as const) {
+    const find = finderOf(markNamed(kind))
+    const sample = kind === 'eqHighlight' ? '==内容==' : kind === 'caretSup' ? '^内容^' : '~内容~'
+    const hit = find(sample)
+    assert.ok(hit, `${kind} 应命中`)
+    assert.equal(typeof hit.replaceWith, 'string', `${kind} 缺 replaceWith`)
+    assert.ok(hit.text.includes(hit.replaceWith ?? ''), `${kind} 的 replaceWith 不是子串`)
+  }
+})
+
+test('输入规则：规则的 find 与 typedMatch 逐条一致', () => {
+  enabled = true
+  const cases: Array<[string, string]> = [
+    ['==红==', 'eqHighlight'],
+    ['甲==乙==', 'eqHighlight'],
+    ['x^上^', 'caretSup'],
+    ['H~2~', 'tildeSub'],
+    ['~a~ ~b~', 'tildeSub'],
+  ]
+  for (const [text, kind] of cases) {
+    const find = finderOf(markNamed(kind))
+    assert.deepEqual(find(text), typedMatch(kind as never, text), `${kind} 的 find 应与 typedMatch 相同：${text}`)
+  }
+})
+
+test('输入规则：手打转换后的文档与解析出来的结构同形（写回字节也同）', () => {
+  enabled = true
+  // 模拟输入规则产出的结构：定界符已删，只剩带 mark 的内容
+  const typedDoc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: '甲' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: '乙', marks: [{ type: 'eqHighlight' }] }] },
+    ],
+  }
+  const serialized = manager.serialize(typedDoc)
+  assert.equal(serialized, '甲\n\n==乙==')
+  const parsed = manager.parse(escapeHtmlForParse(serialized)) as Json
+  assert.equal(countMark(parsed, 'eqHighlight'), 1)
+  assert.deepEqual(markedText(parsed, 'eqHighlight'), ['乙'])
 })

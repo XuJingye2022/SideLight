@@ -75,6 +75,7 @@ import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDe
 import { ensureKatex } from './lib/katexLazy.ts'
 import { MermaidPreview } from './lib/mermaidPreview.ts'
 import { createToc } from './lib/tocRender.ts'
+import { nextRestoreEntry, restoreLabel, type RestoreEntry } from './lib/restoreEntry.ts'
 import { eqDelimiterReveal, mathReveal } from './lib/mathReveal.ts'
 import { hasTocSource } from './lib/toc.ts'
 import { findAll, type Match } from './lib/find.ts'
@@ -89,6 +90,7 @@ import { inlineSyntaxMarks } from './lib/inlineSyntax.ts'
 import { splitTableCellBreaks } from './lib/tableCellBreaks.ts'
 import { tableTokenizer, taskListTokenizer, type BlockTokenizer } from './lib/markdownFastPath.ts'
 import { TaskListInput } from './lib/taskListInput.ts'
+import { LinkInput } from './lib/linkInput.ts'
 import { protectMathPairs } from './lib/math.ts'
 import { disableSingleTildeStrike } from './lib/tilde.ts'
 import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline.ts'
@@ -452,6 +454,14 @@ export default function App() {
   const [analysisGoal, setAnalysisGoal] = useState('')
   const [unresolved, setUnresolved] = useState(0)
   const [notice, setNotice] = useState<Notice | null>(null)
+  /**
+   * 删除后的恢复入口（第 84 轮 B-142）：与单槽 `notice` 分开保存。
+   * toast 会被下一条保存提示换掉，这里的状态不受影响，状态栏 chip 一直可撤销。
+   */
+  const [restoreEntry, setRestoreEntry] = useState<RestoreEntry | null>(null)
+  const restoreEntryRef = useRef<RestoreEntry | null>(null)
+  // 渲染期同步（与 refreshTreeRef 同一写法）：撤销回调拿 ref 读最新入口，不必进依赖数组
+  restoreEntryRef.current = restoreEntry
   const [activeId, setActiveId] = useState<string | null>(null)
   const [selection, setSelection] = useState<SelectionState>({ chars: 0, words: 0, from: 0, to: 0, source: 'paragraph' })
   const [tops, setTops] = useState<Record<string, number>>({})
@@ -949,13 +959,13 @@ export default function App() {
     [],
   )
 
-  // 快捷行内语法（第 55 轮 B-101）同理：三个 mark 常驻 schema，开关只改解析，不重建编辑器。
-  // 已经打开的文档不重排；下一次解析（打开/拖入文档）才按当前开关决定认不认 `==a==`。
+  // 快捷行内语法（第 55 轮 B-101）同理：三个 mark 常驻 schema，开关只改解析与输入规则，不重建编辑器。
+  // 已经打开的文档不重排；下一次解析（打开/拖入文档）或下一次手打（第 84 轮 B-214）才按当前开关决定认不认 `==a==`。
   const inlineSyntaxRef = useRef(settings.inlineSyntax)
   useEffect(() => {
     inlineSyntaxRef.current = settings.inlineSyntax
   }, [settings.inlineSyntax])
-  const inlineSyntaxExtensions = useMemo(() => inlineSyntaxMarks(), [])
+  const inlineSyntaxExtensions = useMemo(() => inlineSyntaxMarks(() => inlineSyntaxRef.current), [])
 
   const shortcutExtension = useMemo(
     () =>
@@ -1016,6 +1026,9 @@ export default function App() {
         onBlockCreated: (position) => mathEditRef.current?.(position),
         onBlockedTable: () => show('表格单元格里不能放块级公式：Markdown 表格只装行内内容'),
       }),
+      // 手打的行内链接（第 84 轮 B-124）：收尾 `)` 是被智能配对「越过」的，输入规则收不到，
+      // 所以用 appendTransaction 判「光标刚跨过收尾 )」，命中就把定界符收成 link mark
+      LinkInput,
     ],
     content: '',
     contentType: 'markdown',
@@ -2589,6 +2602,8 @@ export default function App() {
         setWorkspace(next)
         setSidebarTab('files')
         setNotice(null)
+        // 换工作区：旧回收站里的凭据不再可信（第 84 轮 B-142）
+        setRestoreEntry((current) => nextRestoreEntry(current, { type: 'workspace-changed' }))
         if (next.rootHandle) {
           void import('./lib/trash.ts').then(({ ensureTrashDir }) =>
             ensureTrashDir(next.rootHandle!).then((result) => {
@@ -2813,6 +2828,30 @@ export default function App() {
   )
   refreshTreeRef.current = refreshTree
 
+  /**
+   * 恢复最近一次删除（第 84 轮 B-142）。toast 的「撤销」与状态栏常驻 chip 共用这一个回调：
+   * 入口来自独立状态 `restoreEntry`，所以保存提示把 toast 换掉之后 chip 仍能撤销。
+   * 不改 activeFile：删完可能已经切到下一篇，撤销只负责把文件搬回树里（正文不抢焦点）。
+   */
+  const restoreDeleted = useCallback(async () => {
+    const entry = restoreEntryRef.current
+    const root = workspaceRef.current?.rootHandle ?? null
+    if (!entry) return
+    if (!root) {
+      setNotice({ text: '工作区已经关闭，无法在应用内撤销：可以到回收站文件夹手动搬回。', kind: 'error' })
+      return
+    }
+    const { restoreDocumentFromTrash } = await import('./lib/trash.ts')
+    const restored = await restoreDocumentFromTrash(root, { name: entry.name, path: entry.path }, entry.trashName)
+    if (!restored.ok) {
+      setNotice({ text: restored.error ?? '恢复失败。', kind: 'error' })
+      return
+    }
+    setRestoreEntry((current) => nextRestoreEntry(current, { type: 'restored' }))
+    await refreshTreeRef.current()
+    show(`已恢复 ${entry.name}`)
+  }, [show])
+
   /** 重命名提交前：等在飞保存、停草稿计时、递增两套 generation */
   const prepareRename = useCallback(async () => {
     await waitForCommit()
@@ -2832,6 +2871,8 @@ export default function App() {
     async (oldFile: WorkspaceFileNode, newName: string) => {
       const cut = oldFile.path.lastIndexOf('/')
       const newPath = cut >= 0 ? `${oldFile.path.slice(0, cut)}/${newName}` : newName
+      // 重命名：树变了，旧的删除恢复入口不再可信（第 84 轮 B-142）
+      setRestoreEntry((current) => nextRestoreEntry(current, { type: 'tree-changed' }))
       const wasActive = activeFile?.path === oldFile.path
       loadEpochRef.current += 1
       activeDocIdRef.current += 1
@@ -2973,6 +3014,16 @@ export default function App() {
           }
         }
         const trashFile = result.trashName
+        // 恢复入口独立保存（第 84 轮 B-142）：后面的保存提示会换掉 toast，但入口要留到下一次
+        // 文件树/工作区操作，或用户自己关掉 chip
+        if (trashFile) {
+          setRestoreEntry((current) =>
+            nextRestoreEntry(current, {
+              type: 'deleted',
+              entry: { name: node.name, path: node.path, trashName: trashFile },
+            }),
+          )
+        }
         setNotice({
           text: blankFailure
             ? `已移到回收站：${node.name}（${blankFailure} 读不出，已打开空白文档）`
@@ -2983,18 +3034,7 @@ export default function App() {
             ? {
                 label: '撤销',
                 onClick: () => {
-                  void (async () => {
-                    const { restoreDocumentFromTrash } = await import('./lib/trash.ts')
-                    const restored = await restoreDocumentFromTrash(root, node, trashFile)
-                    if (restored.ok) {
-                      // 用最新一次 refreshTree（它捕获的 activeFile 是当前正文），
-                      // 不用删除那一刻的闭包，否则会把被删文件接成 activeFile
-                      await refreshTreeRef.current()
-                      show(`已恢复 ${node.name}`)
-                    } else {
-                      setNotice({ text: restored.error ?? '恢复失败。', kind: 'error' })
-                    }
-                  })()
+                  void restoreDeleted()
                 },
               }
             : undefined,
@@ -3003,7 +3043,7 @@ export default function App() {
         deletingRef.current = false
       }
     },
-    [activeFile, loadIntoEditor, refreshTree, show, waitForCommit],
+    [activeFile, loadIntoEditor, refreshTree, restoreDeleted, show, waitForCommit],
   )
 
   const nextNewName = useCallback((space: Workspace): string => {
@@ -3018,6 +3058,8 @@ export default function App() {
   /** 新建：有真实文件夹就建空文件并刷新树快照；示例/空态只换内存文档 */
   const startNewDocument = useCallback(async () => {
     await waitForHostSave()
+    // 新建文档：树里的恢复入口随之失效（第 84 轮 B-142）
+    setRestoreEntry((current) => nextRestoreEntry(current, { type: 'tree-changed' }))
     // 新建/关闭文档：始终从空白未命名文档开始，不替用户在文件夹里建文件
     loadIntoEditor('', '未命名.md', null)
     focusEditor()
@@ -3026,6 +3068,8 @@ export default function App() {
   /** 新建前先走同一套未保存确认；取消则什么都不做 */
   const createWorkspaceFile = useCallback(async () => {
     await waitForHostSave()
+    // 新建文件：树变了，旧的删除恢复入口不再可信（第 84 轮 B-142）
+    setRestoreEntry((current) => nextRestoreEntry(current, { type: 'tree-changed' }))
     const space = workspaceRef.current
     const root = space?.rootHandle
     if (!space || !root || space.root?.kind !== 'dir') {
@@ -6155,6 +6199,9 @@ export default function App() {
         }
         pageZoom={settings.pageZoom}
         onZoomReset={resetPageZoom}
+        restoreLabel={restoreLabel(restoreEntry)}
+        onRestore={() => void restoreDeleted()}
+        onDismissRestore={() => setRestoreEntry((current) => nextRestoreEntry(current, { type: 'dismissed' }))}
       />
 
       {/* 面板必须是 footer 的兄弟节点：8 个脚本用 .status-bar 整栏文本抓字数 */}

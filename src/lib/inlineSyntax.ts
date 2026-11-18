@@ -1,4 +1,4 @@
-import { Mark } from '@tiptap/core'
+import { Mark, markInputRule } from '@tiptap/core'
 import type {
   JSONContent,
   MarkdownParseHelpers,
@@ -34,6 +34,13 @@ type SyntaxSpec = {
   /** marked 的 start 语义：入参是去掉首字符后的剩余源码，返回下一个候选起点 */
   candidate: RegExp
   /**
+   * 输入规则用的尾锚定模板（第 84 轮 B-214）：收到的是「光标前的整段文本」，只有匹配正好
+   * 结束在光标处才算手打完成。左邻守卫用负向后顾（`\` 与同类符号都不算开定界符），
+   * `~` 还要 `(?!~)`/`(?<!~)`，把 `~~删除线~~` 留给 Strike。
+   * 第 1 组是内容；`markInputRule` 删掉两端定界符，写回由 renderMarkdown 补。
+   */
+  typed: RegExp
+  /**
    * 连续符号段守卫：候选位同符号连续 ≥N 个时整段按字面吃（`====` 的第三、四个 `=` 不再当开定界符）。
    * `~` 不守：`~~…~~` 是删除线，必须留给 marked 的 del 规则。
    */
@@ -48,6 +55,7 @@ export const INLINE_SYNTAX: readonly SyntaxSpec[] = [
     delimiter: '==',
     whole: /^==(?![=\s])([^\n=]+?)(?<!\s)==(?!==)/,
     candidate: /==/,
+    typed: /(?<![\\=])==(?![=\s])([^=\n]+?)(?<!\s)==$/,
     literalRun: /^={3,}/,
   },
   {
@@ -56,6 +64,7 @@ export const INLINE_SYNTAX: readonly SyntaxSpec[] = [
     delimiter: '^',
     whole: /^\^(?![\s^])([^\n^]+?)(?<!\s)\^/,
     candidate: /\^/,
+    typed: /(?<![\\^])\^(?![\s^])([^\n^]+?)(?<!\s)\^$/,
     literalRun: /^\^{2,}/,
   },
   {
@@ -64,6 +73,7 @@ export const INLINE_SYNTAX: readonly SyntaxSpec[] = [
     delimiter: '~',
     whole: /^(?<!~)~(?![\s~])([^\n~]+?)(?<!\s)~(?!~)/,
     candidate: /(?<!~)~(?!~)/,
+    typed: /(?<!~)~(?![\s~])([^\n~]+?)(?<!\s)~(?!~)$/,
     literalRun: null,
   },
 ]
@@ -96,7 +106,7 @@ const EqEscaped = Mark.create({
   },
 })
 
-function syntaxMark(spec: SyntaxSpec) {
+function syntaxMark(spec: SyntaxSpec, isEnabled: () => boolean) {
   return Mark.create({
     name: spec.kind,
     // 只可能来自 markdown token；HTML 里没有这个标签（<mark> 等仍是 inlineMarks 的）
@@ -111,12 +121,41 @@ function syntaxMark(spec: SyntaxSpec) {
     },
     // 跨节点（如夹了 <br>）时用同一对符号重新打开：写回字节仍是 ==…== / ^…^ / ~…~
     markdownOptions: { htmlReopen: { open: spec.delimiter, close: spec.delimiter } },
+    /**
+     * 手打也生效（第 84 轮 B-214）：此前三个 mark 只有 parseMarkdown，手打的 `==红==` 要等重开
+     * 文档才渲染（真机 .sl-eq 0/0/0）。输入规则与解析共用同一个开关闸门：设置关着就保持字面。
+     */
+    addInputRules() {
+      return [
+        markInputRule({
+          find: (text: string) => (isEnabled() ? typedMatch(spec.kind, text) : null),
+          type: this.type,
+        }),
+      ]
+    },
   })
 }
 
+/**
+ * 输入规则的判定（纯函数，单测直接喂「光标前的文本」）：只认**正好结束在光标处**的一段。
+ * 命中回 `{index, text, replaceWith}`：`index` 是这段在入参里的起点，`text` 是整段（含定界符），
+ * `replaceWith` 是内容——Tiptap 的 `markInputRule` 拿它算内容区间，缺了它整条规则空转
+ * （`match[match.length - 1]` 是 undefined）。内容一定是 `text` 的子串，不会触发 tiptap 的 warn。
+ */
+export function typedMatch(
+  kind: InlineSyntaxKind,
+  text: string,
+): { index: number; text: string; replaceWith: string } | null {
+  const spec = INLINE_SYNTAX.find((item) => item.kind === kind)
+  if (!spec) return null
+  const match = spec.typed.exec(text)
+  if (!match || match.index === undefined) return null
+  return { index: match.index, text: match[0], replaceWith: match[1] }
+}
+
 /** 三个 mark + 转义用的 eqEscaped：与 App 的行内 HTML mark 一次注册进 schema */
-export function inlineSyntaxMarks() {
-  return [...INLINE_SYNTAX.map(syntaxMark), EqEscaped]
+export function inlineSyntaxMarks(isEnabled: () => boolean = () => true) {
+  return [...INLINE_SYNTAX.map((spec) => syntaxMark(spec, isEnabled)), EqEscaped]
 }
 
 /**

@@ -4,6 +4,13 @@
 
 ## Unreleased（第 29–74 轮，未发版）
 
+**第 84 轮（同一未发版区间）**
+
+- `==高亮==` / `^上标^` / `~下标~` 手打即渲染（A3，B-214）：`src/lib/inlineSyntax.ts` 的 `SyntaxSpec` 加尾锚定 `typed`（左邻负向后顾 + `~` 的 `(?!~)`/`(?<!~)` 把 `~~删除线~~` 留给 Strike），新增纯函数 `typedMatch(kind, text)`，三枚 mark 的 `addInputRules()` 用 `markInputRule`；输入规则与解析共用 `() => inlineSyntaxRef.current` 闸门，设置关着仍按字面。`inlineSyntax.test.ts` 20→**30**。真机（ego CDP 54280）空文档手打 `==红== 与 ^上^ 与 ~下~` 后 `.sl-eq/.sl-sup/.sl-sub` = 1/1/1，`Ctrl+S` 落盘逐字节 = 该行 + 换行、定界符补回。
+- 手打的行内链接保存成真链接（A1，B-124）：新 `src/lib/linkInput.ts`（`typedLink` 纯判据 + `linkInputPlugin` + `LinkInput`）；收尾 `)` 被智能配对「越过」（`docChanged=false`），输入规则收不到，改用 `appendTransaction` 判「光标刚跨过收尾 `)`」，命中删定界符并加 link mark（href + title），写回由 Link 序列化补出与手打相同的字节；拒 `javascript:`/`data:`/`vbscript:`、图片、需再转义文字。`linkInput.test.ts` 16 条（含 3 负向）；新夹具 `fixtures/markdown/09-link-title.md` → roundtrip rich **7/9**、source 9/9、首存拦 1/9。真机：手打后 1 个 `<a>`（href/title 正确），`Ctrl+S` 落盘 `[乙](https://example.com "标题")\n` 无 `\[`；旧字面链接点段尾不提升、不改字节。
+- 删除后的撤销入口常驻状态栏（A2，B-142）：恢复入口与单槽 toast 分开保存（`restoreEntry` + `restoreEntryRef`），纯函数 `src/lib/restoreEntry.ts` 的 `nextRestoreEntry` 管迁移（deleted 记凭据；restored/dismissed/tree-changed/workspace-changed 清掉），抽 `restoreDeleted()` 给 toast 与状态栏 `.status-restore` chip 共用（「撤销」36×24、× 24×24）；新建/重命名/开文件夹三处清入口，保存提示、打字、刷新树不清。`restoreEntry.test.ts` 10 条。真机四步：删 q.md → toast+chip 同在；打字 + `Ctrl+S` 后 toast 变「已保存」而 chip 可点；点 chip 撤销 → 树回 q.md、chip 消失、读回文件字节 = 删除前脏正文；再删 → 新建 → chip 消失。1000×620 页面横向溢出 0、chip 两钮 ≥24×24。
+- 门禁：首屏 gzip **306,003 B**（余 3,997 / 13,997）；`npm test` **49 文件 637 条 0 fail**；`roundtrip` rich 7/9 + source 9/9 + 首存拦 1/9。tester 独立验收（未读 `impl.md`；CDP 9222–9226 无监听 → ego-browser CDP 54280，自写 `.tmp/r84-tester-e2e.mjs` 21/21、0 pageerror），见 `docs/iteration/round-84/test.md`。
+
 **第 83 轮（同一未发版区间）**
 
 - `\=` 保存后不再变成真高亮（A2，B-213）：`src/lib/inlineSyntax.ts` 加常驻 mark `eqEscaped`（`slot` 属性只防相邻 `\=\=` 并节点、不落盘；`renderHTML` → `span.sl-eq-escaped`）与只认 `\=` 的 marked 行内 tokenizer（不随开关关，序列化每枚补回 `\`）；`inlineSyntax.test.ts` 14→**20**。tester 自写探针 9/9 行字节同（`\===a===` 第二次解析 eq 仍 1、`\=\=` 不合并、`a == b` 与 `==a====b==` 不动），公式里 `\=` 不被抢。
