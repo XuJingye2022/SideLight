@@ -2525,11 +2525,22 @@ export default function App() {
         setNotice({ text: '这个文件已经不在工作区里了：先刷新文件树再搜。', kind: 'error' })
         return
       }
-      void openWorkspaceFile(node)
       setQuery(term)
       setFindOpen(true)
+      // 命中的就是当前这篇：只回填查找条，不整篇重读重解析。
+      // 1 MB 文档一次重载要冻约 3.4 s，还会把光标、滚动位置与撤销历史打回「刚打开」（第 60 轮 B-127）
+      if (activeFile?.path === node.path) {
+        // 查找条本来就开着时 FindBar 的 autoFocus 不会再触发（对话框卸载时焦点已还原），显式送回查找框
+        if (viewMode === 'edit') {
+          requestAnimationFrame(() => {
+            document.querySelector<HTMLInputElement>('.find-input')?.focus()
+          })
+        }
+        return
+      }
+      void openWorkspaceFile(node)
     },
-    [openWorkspaceFile, workspace],
+    [activeFile?.path, openWorkspaceFile, viewMode, workspace],
   )
 
   /**

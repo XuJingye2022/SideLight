@@ -40,7 +40,7 @@ powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1
 ```
 
 - `installer.ps1` 只读 `dist/` 与 `host/bin/`，版本号从 `package.json` 只读；打包含 payload 版本断言——`host\bin\Sidelight.exe` 的 FileVersion 必须等于 `package.json` 的版本，否则 exit 1（挡住 stale `host\bin`）；打印实测字节、`target=45000000 gap=`（内部预算，超了 `Write-Warning`，不 exit）、硬报警线 50,000,000 B 与 SHA256。`verify-installer.ps1` 带同一条线：超内部预算只打印 WARN，超硬线记 `Fail`。
-- `verify-installer.ps1` 开头会打印 setup 的大小/mtime/FileVersion 与 `host\bin` 的 payload 对比，不同批次就记 UNVERIFIED（不 FAIL）；可用 `-Setup <路径>` 验当轮新包（相对路径按仓库根解析），`-PreflightOnly` 只跑到「包与载荷是否同批」就退出，不安装、不写 HKCU。
+- `verify-installer.ps1` 开头会打印 setup 的大小/mtime/FileVersion 与 `host\bin` 的 payload 对比，setup 的 FileVersion 前三段与 `package.json` 版本不符就判 FAIL 并以非零码退出（payload 的 mtime 更旧只记 UNVERIFIED）；可用 `-Setup <路径>` 验当轮新包（相对路径按仓库根解析），`-PreflightOnly` 只跑到「包与载荷是否同批」就退出，不安装、不写 HKCU。
 - `verify-installer.ps1` 静默安装 → 断言目录、HKCU 卸载项 7 值、开始菜单快捷方式 → 静默卸载 → 断言清理干净且 `%LOCALAPPDATA%\Sidelight` 仍在。`%LOCALAPPDATA%` 不可写时 marker 写不进只记 UNVERIFIED，不硬退出（第 46 轮）。
 - 两条都要求先有 `host/bin`（`host\build.ps1`）与 `dist`。
 

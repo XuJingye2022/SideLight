@@ -24,28 +24,36 @@ export function GlobalSearch({ files, onOpen, onClose }: Props) {
   const [note, setNote] = useState('输入关键词后按回车，搜索整个工作区')
   const [busy, setBusy] = useState(false)
   const [searched, setSearched] = useState(false)
+  // 同步闸门：setBusy 要到下一轮渲染才生效，同一 tick 里的第二下回车读到的 busy 仍是 false，
+  // 会并发跑第二轮 collectDocs（整盘再读一遍）。按钮 disabled 只挡鼠标，挡不住键盘。
+  const busyRef = useRef(false)
 
   const run = async () => {
+    if (busyRef.current) return
     const needle = query.trim()
     if (needle === '') return
+    busyRef.current = true
     setBusy(true)
     try {
       const collected = await collectDocs(files)
       const report = searchWorkspace(collected.docs, needle)
-      setHits(report.hits)
-      setSearched(true)
-      if (report.hits.length === 0) {
-        setNote(
-          collected.docs.length === 0 ? '工作区里没有可搜的 Markdown 文件' : '没有匹配的文本',
-        )
-        return
-      }
-      const parts = [`${report.hits.length} 处`]
+      // 跳过 / 截断的说明不分「有没有命中」：0 命中时漏掉它，用户会把「文件太大没搜」
+      // 读成「全文没有这个词」（第 60 轮 B-128）
+      const parts = [
+        report.hits.length === 0
+          ? collected.docs.length === 0
+            ? '工作区里没有可搜的 Markdown 文件'
+            : '没有匹配的文本'
+          : `${report.hits.length} 处`,
+      ]
       if (report.truncated) parts.push('只显示前 200 处')
       if (collected.skipped > 0) parts.push(`跳过 ${collected.skipped} 个读不到或超过 1 MiB 的文件`)
       if (collected.capped) parts.push('文件太多，只搜了前 200 个')
+      setHits(report.hits)
+      setSearched(true)
       setNote(parts.join('；'))
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }

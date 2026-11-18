@@ -49,12 +49,20 @@ if (-not (Test-Path $setup)) {
     exit 1
 }
 
-# 1c) 批次门（第 46 轮 ship S2）：release/ 里的包可能是旧批次。
-# 打印 mtime/大小/FileVersion，与 host\bin 的 payload 对不上就 UNVERIFIED（不算 FAIL：本机 release/ 就是旧包）。
+# 1c) 批次门（第 60 轮 B-125）：release/ 里的包可能是旧批次。
+# setup 的 FileVersion 前三段必须等于 package.json 的版本；不等就说明装的不是这一批的包，判 FAIL。
+# payload 对比留作提示：版本对得上但 mtime 旧仍只记 UNVERIFIED。
 $payloadExe = Join-Path $root 'host\bin\Sidelight.exe'
 $setupInfo = Get-Item $setup
 $setupFileVersion = $setupInfo.VersionInfo.FileVersion
 Write-Host ("setup={0:N0} B  mtime={1:yyyy-MM-dd HH:mm:ss}  FileVersion={2}" -f $setupInfo.Length, $setupInfo.LastWriteTime, $setupFileVersion)
+$setupTriplet = ''
+if ($setupFileVersion) {
+    $setupTriplet = ((@($setupFileVersion -split '\.') + @('', '', ''))[0..2] -join '.')
+}
+if ($setupTriplet -ne $version) {
+    Fail ("setup 的 FileVersion 是 {0}（前三段 {1}），package.json 是 {2}：这不是本批次的安装包" -f $setupFileVersion, $setupTriplet, $version)
+}
 if (Test-Path $payloadExe) {
     $payloadInfo = Get-Item $payloadExe
     Write-Host ("payload mtime={0:yyyy-MM-dd HH:mm:ss}  FileVersion={1}" -f $payloadInfo.LastWriteTime, $payloadInfo.VersionInfo.FileVersion)
@@ -67,8 +75,12 @@ if (Test-Path $payloadExe) {
     Unverified "host\bin\Sidelight.exe 不存在：无法判断安装包是否与载荷同批"
 }
 if ($PreflightOnly) {
-    Write-Host ("summary: preflight（{0} UNVERIFIED）" -f $script:unverified)
-    exit 0
+    if ($script:failed -gt 0) {
+        Write-Host ("summary: preflight FAIL（{0} FAIL / {1} UNVERIFIED）" -f $script:failed, $script:unverified)
+    } else {
+        Write-Host ("summary: preflight PASS（{0} UNVERIFIED）" -f $script:unverified)
+    }
+    exit ([int]($script:failed -gt 0))
 }
 
 # 1b) 体积护栏：与 installer.ps1 同一条线（内部预算 45,000,000 B / 硬线 50,000,000 B）。

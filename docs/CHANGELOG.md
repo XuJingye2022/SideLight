@@ -284,6 +284,14 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **299,727 B**（比第 58 轮 +1,080，内部 310,000 / 硬线 320,000，余 20,273；全局搜索是惰性 chunk，不进首屏）；`npm test` **40 个文件 504 条**全过；`npm run roundtrip` 未跑（未动编辑器与序列化）；`tree-acceptance` 54/56，两条 FAIL 是既有过期断言（与第 58 轮同两条）。
 - UNVERIFIED（本轮）：真实 FSA 句柄与真实磁盘写回（E2E 用合成目录句柄）；中文 IME；宿主 WebView2。200 文件上限与 1 MiB 跳过的 UI 文案只有单测与代码核对。
 
+**第 60 轮（同一未发版区间）**
+
+- **全局搜索 0 命中报跳过文件**（B-128）：`GlobalSearch.tsx` 的 `run()` 先拼装 `parts` 再分支，0 命中提示同样带「跳过 N 个读不到或超过 1 MiB 的文件」/「只显示前 200 处」/「文件太多」；新增 `busyRef` 同步闸门挡同一 tick 的第二次回车（按钮 `disabled` 只挡鼠标）。E2E：2 个 >1 MiB 文件搜只在其中的词 → note「没有匹配的文本；跳过 2 个…」+「没有结果。」；同 tick 双 Enter 只读盘一轮（`getFile` 3 = 文件数 3，上限 4）。
+- **点当前文档的搜索命中不再整篇重载**（B-127）：`App.tsx` 的 `openGlobalSearchHit` 在 `activeFile?.path === node.path` 时只回填查找条并显式聚焦 `.find-input`，不再 `openWorkspaceFile`；跨文件命中路径不变。E2E（约 1 MB 文档滚到中段、查找条先关）：点命中后查找条值=「锚点词」、`sl-parse-done` 与 `getFile` 均不增、`scrollTop` 差 0；脏文档 dirty 仍真、手打内容仍在、点回正文 `Ctrl+Z` 仍能撤销（撤销历史未被重载清掉）。
+- **发布预检判 Fail + 差距表 39/4**（B-125）：`packaging/verify-installer.ps1` 的批次门改成 setup FileVersion 前三段必须等于 `package.json` 版本，不等记 `Fail`；`-PreflightOnly` 按 FAIL 数非零退出并打印 `summary: preflight FAIL`。实测 `release/Sidelight-0.32.1-win-x64-setup.exe`（FileVersion 0.31.1.0）→ FAIL + exit 1（改前 UNVERIFIED + exit 0）；`-Setup host\bin\Sidelight.exe -PreflightOnly` → PASS + exit 0。差距表改 39 有 / 4 缺（表头=行数，子节 1/1/2 合计 4），`README.md` / `AGENTS.md` / `packaging/README.md` 同步。
+- 门禁：`npm run verify` PASS，首屏 gzip **299,759 B**（比第 59 轮 +32，内部 310,000 / 硬线 320,000，余 20,241）；`npm test` **40 个文件 504 条**全过；`npm run roundtrip` 未跑（未动编辑器与序列化）；回归 `.tmp/e2e-r59-tester.mjs`（B-104 全局搜索 + B-102 列表）0 error。
+- UNVERIFIED（本轮）：`release/` 缺包/坏包的预检分支与真实静默安装（只跑 `-PreflightOnly`）；源码/预览模式下点命中（查找条锁定，本轮只验编辑模式）；真实 FSA 句柄与真实磁盘写回（E2E 用合成目录句柄）。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。
