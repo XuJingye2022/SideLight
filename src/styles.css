@@ -318,6 +318,21 @@ button:disabled {
   position: relative;
 }
 
+/* 源码模式：编辑视图保留排版、只把尺寸收成 0，不卸载编辑器。
+   用 display:none 收起 1 MB 的 44,446 块，退出时要重建 299–411 ms；收成 0 尺寸只花 35 ms（第 53 轮实测）。
+   必须 !important：全局 `[hidden] { display:none !important }`（本文件 :135），
+   这里要盖过它——`hidden` 属性仍然保留，`.ProseMirror` 的 rect 是 0、不可见、不可聚焦。
+   height:0 要配 min-height:0 与 padding:0，否则 `.doc-layout` 的 min-height:100% 与 52/220 padding 会留着布局高度。 */
+.doc-layout[hidden].source-hidden {
+  display: grid !important;
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transform: scale(0);
+}
+
 .editor-placeholder {
   position: absolute;
   top: 0;

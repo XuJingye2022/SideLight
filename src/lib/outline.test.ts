@@ -5,7 +5,7 @@ import { getSchema, type JSONContent } from '@tiptap/core'
 import { StarterKit } from '@tiptap/starter-kit'
 
 import { activeOutlineId, extractOutline } from './outline.ts'
-import { buildOutlineTree, expandAncestors, visibleActiveId } from './outlineTree.ts'
+import { buildOutlineTree, expandAncestors, nearestScrollTop, visibleActiveId } from './outlineTree.ts'
 
 const schema = getSchema([StarterKit])
 
@@ -174,4 +174,44 @@ test('当前节被折叠时高亮最外层被折叠的祖先，展开后回到�
   assert.equal(visibleActiveId(nodes, new Set(['h-13']), 'h-30'), 'h-13')
   assert.equal(visibleActiveId(nodes, new Set(), 'h-30'), 'h-30')
   assert.equal(visibleActiveId(nodes, new Set(), null), null)
+})
+
+/* ---------- 跟随滚动 ---------- */
+
+/** 可视区 100–300（高 200），容器还能滚到 1000 */
+const viewport = { containerTop: 100, containerBottom: 300, maxScrollTop: 1000 }
+
+test('当前节在可见区下方：往下补最小距离，条目贴到底边', () => {
+  // 条目 400–424，比容器底边低 124
+  const next = nearestScrollTop({ ...viewport, scrollTop: 0, itemTop: 400, itemBottom: 424 })
+
+  assert.equal(next, 124)
+})
+
+test('当前节在可见区上方：往上补最小距离，条目贴到顶边', () => {
+  // 条目 -50 ~ -26，比容器顶边高 150
+  const next = nearestScrollTop({ ...viewport, scrollTop: 500, itemTop: -50, itemBottom: -26 })
+
+  assert.equal(next, 350)
+})
+
+test('当前节已经可见：原样返回，手滚的位置不被抢回去', () => {
+  const next = nearestScrollTop({ ...viewport, scrollTop: 640, itemTop: 150, itemBottom: 174 })
+
+  assert.equal(next, 640)
+  // 贴着上下边界（±1 px 容差内）也算可见
+  assert.equal(nearestScrollTop({ ...viewport, scrollTop: 640, itemTop: 99, itemBottom: 123 }), 640)
+  assert.equal(nearestScrollTop({ ...viewport, scrollTop: 640, itemTop: 277, itemBottom: 301 }), 640)
+})
+
+test('滚到尽头时夹住：结果不低于 0、不超过 maxScrollTop', () => {
+  // 已滚到底，条目还在下方：不再往下滚
+  assert.equal(nearestScrollTop({ ...viewport, scrollTop: 1000, itemTop: 500, itemBottom: 524 }), 1000)
+  // 条目在最上面、scrollTop 已经很小：不会滚成负数
+  assert.equal(nearestScrollTop({ ...viewport, scrollTop: 0, itemTop: 20, itemBottom: 44 }), 0)
+  // 容器没有可见高度（面板隐藏/收窄）：不动
+  assert.equal(
+    nearestScrollTop({ scrollTop: 42, containerTop: 0, containerBottom: 0, itemTop: 500, itemBottom: 524, maxScrollTop: 1000 }),
+    42,
+  )
 })

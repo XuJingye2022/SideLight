@@ -315,6 +315,13 @@
 - 门禁：`npm run verify` PASS，首屏 gzip **300,841 B**（内部 310,000 / 硬线 320,000，余 19,159）；`npm test` **40 个文件 513 条**全过；roundtrip 未跑（未动编辑器/序列化）；回归 `stale-save-acceptance` 4/4。
 - UNVERIFIED（本轮）：wrap=off 的 7 轮 p50 与「可编辑 / `Ctrl+S` 同源 / 横向滚动」取自执行方脚本（tester 3 轮复测趋势一致）；真实 FSA 与宿主 WebView2 下的 2500 ms 兜底；B-115 的最终实现未做。
 
+**第 64 轮（同一未发版区间）**
+
+- **1 MB 进出源码不再重建 44,446 块**（B-115）：源码态下编辑块 `hidden` 常驻，用 `.source-hidden`（`display:grid !important` + 高度/padding 归零 + visibility/scale）收成 0 尺寸，预览仍整块卸载；进源码前记 `scrollTop`，退出到编辑后双 rAF 还原（`src/App.tsx:575,580,4376,4399,5625`、`src/styles.css:326`）。夹具 A 7 轮：进 p50 **1,210** / 退 **298** ms（改前 9,826 / 2,121）；每轮 1 条 >500 ms long task，max 1,177 / 218（改前 8.6–9.0 s）；`scrollDiff` 全 0、`sl-parse-done` 3→3、0 控制台错误；门槛按实测重定为进 ≤1,500 / 退 ≤600；100 KB 20 轮进 120 / 退 54 ms；`Ctrl+Z` 仍按既有设计不撤销源码写入。
+- **大纲跟随当前章节**（B-137）：`Outline.tsx` 行加 `data-outline-id`，`visibleId` 变化时用 `nearestScrollTop`（`outlineTree.ts:79`）按容器/条目矩形差只补最小距离（越界才滚），容器取 `.outline` 的 `parentElement`、单 rAF；手滚不抢、面板不可见跳过。单测 +4；E2E 26/26（点正文 h2 后 `scrollTop=466`、当前条全在容器内；点 h1 回顶）。
+- 门禁：`npm run verify` PASS，首屏 gzip **300,971 B**（内部 310,000 / 硬线 320,000，余 19,029）；`npm test` **40 个文件 517 条**全过；roundtrip 未跑（未动编辑器/序列化）。
+- UNVERIFIED（本轮）：真宿主 WebView2 内 1 MB 进出源码与滚动还原；真实中文 IME 下的源码态切换；150% / 200% 缩放下的 `.source-hidden`；真实 FSA / 更长文档下的大纲跟随。
+
 ## 0.32.1 — 2026-11-16
 
 用户报的三个问题：首次启动空白、关闭文档、工作区里的原地保存。

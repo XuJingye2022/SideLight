@@ -571,9 +571,13 @@ export default function App() {
   const sourceBaselineRef = useRef('')
   /** 载入后直接进源码（原文件）：未编辑时不能被富文本序列化基线判成 dirty */
   const sourceOriginalEntryRef = useRef(false)
+  /** 进源码前的阅读位置：源码态把编辑视图收成 0 尺寸后 scrollTop 会夹到 0，退出时还回去（第 64 轮 B-115） */
+  const sourceScrollTopRef = useRef<number | null>(null)
 
   /** 进源码模式的唯一入口：seed 源码框与基线，再切视图（漏 seed 会让 Ctrl+S 写空文件） */
   const enterSourceFor = useCallback((text: string, fromLoad = false, caretRatio?: number) => {
+    // 载入即源码不算「进源码」：那时 scrollTop 还是上一篇的，退出时还原会跳错位置
+    if (!fromLoad && scrollRef.current) sourceScrollTopRef.current = scrollRef.current.scrollTop
     setSourceText(text)
     sourceBaselineRef.current = text
     sourceOriginalEntryRef.current = fromLoad
@@ -4365,6 +4369,23 @@ export default function App() {
   }, [editor, sourceText, setMarkdown, syncDocInfo, serializeBodyNow, originalText])
 
   /**
+   * 退出源码：把阅读位置还回去。
+   * 源码态编辑视图只是收尺寸，`scrollTop` 会被夹到 0；`focus()` 引起的滚动又排在 rAF 之后，
+   * 所以查两次 rAF（第 53 轮实测：只查一次时 100 KB 绿、1 MB 红）。
+   */
+  const restoreSourceScroll = useCallback(() => {
+    const target = sourceScrollTopRef.current
+    sourceScrollTopRef.current = null
+    if (target === null) return
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const element = scrollRef.current
+        if (element && Math.abs(Math.round(element.scrollTop) - target) > 1) element.scrollTop = target
+      })
+    })
+  }, [])
+
+  /**
    * 三种视图统一在这里切：离开源码时先把源码写回正文，
    * 否则「源码 → 预览 / 源码 → 源码」会把刚改的字弄丢。
    */
@@ -4374,6 +4395,8 @@ export default function App() {
       const leavingSource = viewMode === 'source' && next !== 'source'
       if (leavingSource) applySource()
       if (next === 'source') {
+        // 进源码前记下阅读位置（退出时还原）；已在源码里再切源码不用重记
+        if (viewMode !== 'source' && scrollRef.current) sourceScrollTopRef.current = scrollRef.current.scrollTop
         // 未编辑时显示文件原文（引用式链接定义还在）；编辑过才显示当前内容
         const text =
           viewMode === 'source'
@@ -4396,9 +4419,12 @@ export default function App() {
       // 预览不是聚焦目标：PreviewPane 是 contentEditable=false 且无 tabindex
       // 按富文本光标的比例落 caret：长文进源码不再把视野甩到文首或文末（第 37 轮）
       if (next === 'source') focusSourceEditor(caretRatioOf(editor))
-      else if (leavingSource && next === 'edit') focusEditor()
+      else if (leavingSource && next === 'edit') {
+        focusEditor()
+        restoreSourceScroll()
+      }
     },
-    [editor, viewMode, sourceText, dirty, draftRestored, currentMarkdown, applySource],
+    [editor, viewMode, sourceText, dirty, draftRestored, currentMarkdown, applySource, restoreSourceScroll],
   )
 
   const toggleSource = useCallback(() => {
@@ -5556,7 +5582,7 @@ export default function App() {
             </div>
           )}
 
-          {sourceMode ? (
+          {sourceMode && (
             <div className="doc-layout source-layout">
               <div className="source-note" role="region" aria-label="源码模式说明">
                 <span>
@@ -5578,7 +5604,8 @@ export default function App() {
                 onChange={(event) => setSourceText(event.target.value)}
               />
             </div>
-          ) : previewMode ? (
+          )}
+          {previewMode && (
             (() => {
               const bodyHtml = editor?.getHTML() ?? ''
               // 原文有 [TOC] 才在预览里挂目录；转义的 \[TOC\] 留字面（第 61 轮 B2）
@@ -5591,8 +5618,11 @@ export default function App() {
                 />
               )
             })()
-          ) : (
-            <div className="doc-layout">
+          )}
+          {!previewMode && (
+            // 源码模式只收尺寸、不卸载：编辑器（含 44,446 块）重建一次要 300–400 ms，
+            // 退出源码的卡顿就来自这里（第 53 轮实测，`.source-hidden` 见 styles.css）
+            <div className={sourceMode ? 'doc-layout source-hidden' : 'doc-layout'} hidden={sourceMode}>
               <div className="doc-column">
                 {!sourceMode && !previewMode && stats.chars === 0 && (
                   <div className="editor-placeholder" aria-hidden="true">从这一句开始写</div>

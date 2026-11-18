@@ -57,3 +57,31 @@ export function visibleActiveId(nodes: OutlineNode[], collapsed: Set<string>, ac
   }
   return outermost ?? activeId
 }
+
+/** 跟随滚动的几何量：容器与目标条目都用 getBoundingClientRect 的视口坐标 */
+export type FollowGeometry = {
+  /** 容器当前的 scrollTop */
+  scrollTop: number
+  containerTop: number
+  containerBottom: number
+  itemTop: number
+  itemBottom: number
+  /** 容器还能再滚多少（scrollHeight - clientHeight） */
+  maxScrollTop: number
+}
+
+/**
+ * 算出把目标条目「最近地」滚进容器所需的 scrollTop。
+ * 条目已经在可见区（留 1 px 容差）就原样返回——越界才滚，手滚大纲不会被抢回去；
+ * 越界时只补最小距离（贴到最近的一边），结果夹在 [0, maxScrollTop]。
+ * 纯函数：面板组件只负责量矩形，判定与算术都在这里单测。
+ */
+export function nearestScrollTop(geometry: FollowGeometry): number {
+  const { scrollTop, containerTop, containerBottom, itemTop, itemBottom, maxScrollTop } = geometry
+  // 面板收窄/隐藏时矩形全是 0：没有可见区可谈，不动
+  if (containerBottom <= containerTop) return scrollTop
+  if (itemTop >= containerTop - 1 && itemBottom <= containerBottom + 1) return scrollTop
+  const delta = itemTop < containerTop ? itemTop - containerTop : itemBottom - containerBottom
+  return Math.min(Math.max(0, maxScrollTop), Math.max(0, scrollTop + delta))
+}
+
