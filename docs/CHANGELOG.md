@@ -4,6 +4,13 @@
 
 ## Unreleased（第 29–74 轮，未发版）
 
+**第 79 轮（同一未发版区间）**
+
+- `==` 露出定界符改用 widget（A1，B-161）：`decorateEqReveal` 每区间发 2 条 `Decoration.widget`（`from` side −1 / `to` side +1、`marks:[]`、key 带位置；`src/lib/mathReveal.ts:164,179-192`），CSS 四条伪元素规则换一条 `.doc-body .sl-eq-delim`（`src/styles.css:860-865`），print 块删两条 `sl-eq-revealed` 恢复、加 `.sl-eq-delim{display:none}`；`mathReveal.test.ts` 改断 2 条 widget + 新增「三文本节点仍 2 枚」（10 条）、`mathStyle.test.ts` 屏幕 7/7、print 公式定界符 2 条 + delim `display:none`（4 条）。真机 17/17：`.sl-eq` 三个独立 mark、露出时 delim 恰 2 且夹住 `abc`、保存逐字节、print 藏掉；截图 `shots/round-79/eq-delim.png`。
+- HTML 导出目录真机复核（A2，B-134）：HEAD 已修（`src/App.tsx:4822-4826`、`src/lib/export.ts:33,110`），真机导出 3,788 B 含 `<nav class="sl-toc"` 1、2 个 `<h1 id="sl-toc-k">`、`href` 2、点第 2 条落 `#sl-toc-1`；BACKLOG 行号 `:4521` → `:4826` 已核正。同页 B-157 两条浏览器门槛项通过（`$\alpha$` 点开→Esc 不露源码、手打 `$x^2$` 建 atom 不露源码）。
+- 批注卡动作钮高度（A3，B-110 部分修）：`.note-actions button` 加 `min-height: 24px`（`src/styles.css:1388-1395`），真机 3 钮 54×24 / 42×24 / 66×24、卡片无横向溢出；剩斜体 `I` 与 `.stats-trigger` 两项仍 `open`。
+- 门禁：首屏 gzip **303,914 B**（余 6,086）；`npm test` **45 文件 579 条 0 fail**（基线 578）；roundtrip rich 6/8 + source 8/8。tester 独立复验（ego-browser CDP 54280，自写 `.tmp/r79-tester-e2e.mjs` + `.tmp/r79-tester-a1-cont.mjs`）：A1/A2/A3 全过（44 条里唯一红是 tester 自己的 DOM 假设，修正后 A1 补测 6/6）。回归 `scripts/annotation-flow.mjs` 纯函数 5/5；route 段 0/3 因脚本假设首启有示例文档（现首启空白），同路径诊断 cards 1→1 不翻倍、overall 1、unresolved 1（脚本过期，非回归）。UNVERIFIED：原生打印预览/另存 PDF（只切 print 媒体）、真实 FSA/IME/WebView2，见 `docs/iteration/round-79/test.md`。
+
 **第 78 轮（同一未发版区间）**
 
 - 两条回归脚本断言过期（A1，B-209）：`scripts/bigfile-acceptance.mjs:127` 改断「超过 5.5 MiB」+ 文件名（删「文件太大」）；`scripts/keyboard-acceptance.mjs:179` 在 Ctrl+Shift+S 段前等旧 toast（`ttl:1500`）过期再取基线，`waitForFunction` 带 `.catch(() => {})`。真机（ego-browser CDP 54280）bigfile **3/3**、keyboard **52/52**，均 exit 0。

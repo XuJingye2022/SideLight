@@ -172,7 +172,7 @@ test('revealIndexesTouching：光标贴两端也算进入，隔一个字就收�
   assert.deepEqual(revealIndexes(ranges, 3, 3), [])
 })
 
-test('eq 插件：光标进高亮画一个行内装饰，贴末端仍露，移开归零', () => {
+test('eq 插件：光标进高亮画两枚定界符 widget（前后各一），贴末端仍露，移开归零', () => {
   let state = EditorState.create({ schema, doc: eqDoc(), plugins: [eqPlugin()] })
   const away = eqRevealKey.getState(state)
   assert.ok(away)
@@ -182,10 +182,18 @@ test('eq 插件：光标进高亮画一个行内装饰，贴末端仍露，移�
   assert.ok(current)
   assert.deepEqual(current.revealed, [0])
   const found = current.set.find()
-  assert.equal(found.length, 1)
-  assert.equal(found[0].from, 3)
-  assert.equal(found[0].to, 5)
-  assert.deepEqual((found[0] as unknown as { type: { attrs: Record<string, unknown> } }).type.attrs, { class: 'sl-eq-revealed' })
+  assert.equal(found.length, 2, '第 79 轮 B-161：一个高亮区间恰两枚定界符（旧实现是 1 条行内装饰）')
+  const shape = (decoration: (typeof found)[number]) => ({
+    from: decoration.from,
+    to: decoration.to,
+    side: (decoration as unknown as { type: { side: number } }).type.side,
+    widget: (decoration as unknown as { widget: boolean }).widget,
+  })
+  // 区间 3..5：起点一枚 side −1、终点一枚 side +1；widget 的 from 与 to 相同
+  assert.deepEqual(found.map(shape), [
+    { from: 3, to: 3, side: -1, widget: true },
+    { from: 5, to: 5, side: 1, widget: true },
+  ])
   state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 5)))
   assert.deepEqual(eqRevealKey.getState(state)?.revealed, [0])
   state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 6)))
@@ -193,6 +201,36 @@ test('eq 插件：光标进高亮画一个行内装饰，贴末端仍露，移�
   assert.ok(awayAgain)
   assert.deepEqual(awayAgain.revealed, [])
   assert.equal(awayAgain.set.find().length, 0)
+})
+
+test('`==a**b**c==`（三个文本节点同一区间）仍只画 2 枚 widget —— 第 79 轮 B-161', () => {
+  const split = schema.node('doc', null, [
+    schema.node('paragraph', null, [
+      schema.text('a', [eqMark]),
+      schema.text('b', [eqMark, schema.marks.strong.create()]),
+      schema.text('c', [eqMark]),
+    ]),
+  ])
+  const ranges = collectEqRanges(split)
+  assert.equal(ranges.length, 1)
+  assert.equal(ranges[0].to - ranges[0].from, 3)
+  let state = EditorState.create({ schema, doc: split, plugins: [eqPlugin()] })
+  state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 2)))
+  const current = eqRevealKey.getState(state)
+  assert.ok(current)
+  assert.deepEqual(current.revealed, [0])
+  const found = current.set.find()
+  assert.equal(found.length, 2, '三个文本节点也只该有两枚定界符：inline 装饰会让伪元素逐 span 重画')
+  assert.deepEqual(
+    found.map((decoration) => ({
+      from: decoration.from,
+      side: (decoration as unknown as { type: { side: number } }).type.side,
+    })),
+    [
+      { from: 1, side: -1 },
+      { from: 4, side: 1 },
+    ],
+  )
 })
 
 test('eq 插件：区间里插字重扫并收进来，区外插字只映射（不重扫）', () => {

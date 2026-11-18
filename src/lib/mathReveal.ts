@@ -18,9 +18,11 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
  * 上一个 state（同一个 DecorationSet 引用）；改文档时只有「片段里有公式 / 步的替换区间
  * 命中公式 / 新造公式」才重扫全篇，其余只做位置映射（TOC 同一套快路径，第 61 轮 B1）。
  *
- * 第 74 轮 B2 复用同一套工厂：`==高亮==` 的 mark 连续区间挂 `sl-eq-revealed`，伪元素画
- * `==`；判定换成「相交或贴边」（光标停在高亮两端也算进入）。高亮是 mark 不是 atom，
- * 扫描要遍历文本节点并合并相邻区间，装饰用 `Decoration.inline`。
+ * 第 74 轮 B2 复用同一套工厂：`==高亮==` 的 mark 连续区间画两枚定界符；判定换成
+ * 「相交或贴边」（光标停在高亮两端也算进入）。高亮是 mark 不是 atom，扫描要遍历文本节点
+ * 并合并相邻区间。第 79 轮 B-161 把 `Decoration.inline` + 伪元素换成 2 条 `Decoration.widget`
+ * （`sl-eq-delim`）：`==a**b**c==` 是三个文本节点，inline 装饰会逐节点包 span、伪元素跟着
+ * 画 6 个 `==`；widget 与文本节点数无关，一段区间恰好两枚。
  */
 
 /** 一段要露源码的区间（公式 atom 在文档里占 1 个位置宽） */
@@ -155,13 +157,37 @@ export function collectEqRanges(doc: ProseMirrorNode): RevealRange[] {
   return ranges
 }
 
-/** 高亮是行内 mark，装饰用 `Decoration.inline` 包文字；伪元素画在包出来的 span 上 */
+/**
+ * 第 79 轮 B-161：`==高亮==` 定界符的 DOM。做装饰 widget，不是伪元素——一个区间只画两枚，
+ * 与区间里夹了几个文本节点（`==a**b**c==`）无关；`user-select:none` 由 CSS 给。
+ */
+function eqDelimiterDom(): HTMLElement {
+  const span = document.createElement('span')
+  span.className = 'sl-eq-delim'
+  span.setAttribute('contenteditable', 'false')
+  span.setAttribute('aria-hidden', 'true')
+  span.textContent = '=='
+  return span
+}
+
+/**
+ * 高亮是行内 mark：每段区间只画两枚定界符 widget。
+ * `from` 一枚在文字前（`side:-1`）、`to` 一枚在文字后（`side:1`），side 只决定同位置上的
+ * 排序，不偏移位置；`marks:[]` 防止 widget 继承相邻节点的粗体等样式。
+ * 定界符是装饰 DOM，不进文档、不进序列化，写回仍是原文的 `==`。
+ */
 export function decorateEqReveal(doc: ProseMirrorNode, ranges: RevealRange[], revealed: number[]): DecorationSet {
   if (revealed.length === 0) return DecorationSet.empty
-  return DecorationSet.create(
-    doc,
-    revealed.map((index) => Decoration.inline(ranges[index].from, ranges[index].to, { class: 'sl-eq-revealed' })),
-  )
+  const decorations: Decoration[] = []
+  for (const index of revealed) {
+    const { from, to } = ranges[index]
+    decorations.push(
+      // key 带上位置：同一文档多处露出时互不撞键，映射后也不会复用错 DOM
+      Decoration.widget(from, eqDelimiterDom, { side: -1, marks: [], key: `sl-eq-open@${from}` }),
+      Decoration.widget(to, eqDelimiterDom, { side: 1, marks: [], key: `sl-eq-close@${to}` }),
+    )
+  }
+  return DecorationSet.create(doc, decorations)
 }
 
 const sliceHasEq = (slice: { content: { size: number; descendants: (f: (node: ProseMirrorNode) => boolean) => void } }) => {

@@ -853,21 +853,15 @@ button:disabled {
   border-radius: 2px;
 }
 
-/* 第 74 轮 B2：选区进到 `==高亮==` 里（或贴在两端）时，把两个定界符画回来。
-   定界符不占正文字符——伪元素只是显示，写回仍是原符号；移开选区类就撤掉。 */
-.doc-body .sl-eq-revealed::before,
-.doc-body .sl-eq-revealed::after {
+/* 第 74 轮 B2 / 第 79 轮 B-161：选区进到 `==高亮==` 里（或贴在两端）时，把两个定界符画回来。
+   定界符是两条 `Decoration.widget`（真 DOM，类名 `sl-eq-delim`），不是伪元素：`==a**b**c==`
+   是三个文本节点，行内装饰会让伪元素跟着每个 span 各画一遍。定界符不占正文字符——写回仍是
+   原文的 `==`；移开选区 widget 就撤掉。 */
+.doc-body .sl-eq-delim {
   color: var(--ink-faint);
   font-family: var(--font-mono);
   font-size: 0.92em;
-}
-
-.doc-body .sl-eq-revealed::before {
-  content: '==';
-}
-
-.doc-body .sl-eq-revealed::after {
-  content: '==';
+  user-select: none;
 }
 
 .doc-body .sl-sup {
@@ -1392,6 +1386,9 @@ button:disabled {
 }
 
 .note-actions button {
+  /* 第 79 轮 B-110：动作钮实测 22 px 高（知道了 54×22 / 追问 42×22 / 联网核对 66×22），
+     低于 24×24 的目标尺寸；这里只补最小高度，宽度与文字靠 padding 自然撑开不变 */
+  min-height: 24px;
   padding: 2px 8px;
   font-size: 12px;
   color: var(--ink-faint);
@@ -2525,8 +2522,9 @@ button:disabled {
   }
 
   /* 第 78 轮 B-160：露出定界符是屏幕上「选中即露源码」的装饰（第 73/74 轮），纸面不该有。
-     选择器逐字照屏幕那几条；@media 不加权重，靠本块在 :858 / :2132 之后胜出。
-     `.sl-math-reveal` 只在选区落在公式上时才存在，这里恢复的是「万一正在露出」时的纸面表现。 */
+     选择器逐字照屏幕那几条；@media 不加权重，靠本块在 :856 / :2129 之后胜出。
+     `.sl-math-reveal` 只在选区落在公式上时才存在，这里恢复的是「万一正在露出」时的纸面表现；
+     `==` 的定界符自第 79 轮 B-161 起是 `.sl-eq-delim` widget，直接 display:none 即可。 */
   .doc-body .tiptap-mathematics-render.sl-math-reveal {
     font-family: inherit;
     font-size: inherit;
@@ -2539,10 +2537,12 @@ button:disabled {
   }
 
   .doc-body .tiptap-mathematics-render.sl-math-reveal[data-type='inline-math']::after,
-  .doc-body .tiptap-mathematics-render.sl-math-reveal[data-type='block-math']::after,
-  .doc-body .sl-eq-revealed::before,
-  .doc-body .sl-eq-revealed::after {
+  .doc-body .tiptap-mathematics-render.sl-math-reveal[data-type='block-math']::after {
     content: none;
+  }
+
+  .doc-body .sl-eq-delim {
+    display: none;
   }
 
   .doc-body .tiptap-mathematics-render.sl-math-reveal > .katex {
