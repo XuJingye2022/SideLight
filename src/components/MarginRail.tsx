@@ -164,12 +164,15 @@ export function MarginRail({
     resetChat()
   }, [docName])
 
-  // 新内容贴底（用户可能已经往上翻了，这里不强制——只在整轮变化时滚一次）
+  // 新内容贴底（用户可能已经往上翻了，这里不强制——只在整轮变化时滚一次）。
+  // 第 104 轮 B-232：「生成批注」也会往记录里添一句，而那时面板是 hidden（scrollHeight 恒 0，
+  // 当场滚等于白滚）。切回对话页签时再贴底，否则末条在新的高 log 里看不见。
   useEffect(() => {
+    if (railTab !== 'chat') return
     const log = logRef.current
     if (!log) return
     log.scrollTop = log.scrollHeight
-  }, [turns])
+  }, [turns, railTab])
 
   const send = async () => {
     const text = chatDraft.trim()
@@ -208,6 +211,9 @@ export function MarginRail({
   const generateNotes = () => {
     const instruction = chatDraft.trim()
     if (!instruction || busy || analyzing || !canGenerate) return
+    // 第 104 轮 B-232：这句指令留在对话记录里。它没有送模型（只作分析偏好），
+    // 但失败/早退（Key 错、正文太短）时读者还能照着这句重来，不是凭空清空。
+    setTurns((previous) => pushTurn(previous, 'user', instruction))
     setChatDraft('')
     setChatError('')
     onGenerateNotes(instruction)

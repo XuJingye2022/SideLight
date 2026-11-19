@@ -2,7 +2,12 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–103 轮，未发版）
+## Unreleased（第 29–104 轮，未发版）
+
+**第 104 轮（同一未发版区间）**
+
+- 「生成批注」把输入的那句留在对话记录里（A1，P2，B-232，用户 2026-11-20 队列「对话区」缺陷）：`src/components/MarginRail.tsx` 的 `generateNotes()` 在清空输入前 `setTurns((previous) => pushTurn(previous, 'user', instruction))`——这句只作分析偏好、不进对话请求，但 Key 错/正文太短等早退后读者还能照着它重来；贴底 effect deps 改 `[turns, railTab]` 且非对话页签直接 return（生成时面板 hidden，scrollHeight 恒 0），切回对话仍贴底。`git diff --stat` 只此一个源文件（8+/2−）。
+- 门禁与验收：首屏门 gzip **315,149 B**（plan 315,151 ±100 内；`--max 320000` PASS、余硬线 4,851）；常驻 `MarginRail` chunk gzip **6,700 → 6,717**（+17，≤6,850）；真实首载 **321,866 B**（超硬线 1,866，B-229 仍 open、本批只记）。`npm test` **61 文件 865 条 0 fail**；tester 独立（未读 `impl.md`）静态：形态门 `pushTurn(..., 'user', instruction)` HEAD **0 → 1**、单文件 `pushTurn` **2 → 3**；自写 E2E `.tmp/r104-tester-indep.mjs` **25/25**、0 pageerror（ego CDP 57270、1440×900、假 FSA + 假 SSE）：生成后切回对话 3 条、末条逐字等于指令、助理仍 1 条、输入空、两钮 disabled、生成这一步 `/chat/completions` 只 +1（没多发对话请求）、焦点仍落 `#rail-tab-notes`；401 后指令仍可找回；页签往返/新对话/换文档清空正确；3 卡间隔仍 12±2。交付 A2 脚本现场复跑 40/40。回归 `r96` **42/42**、`r103` **19/19**（跑完还原 `shots/round-103/`）。已知边界：留下的 user turn 无回复标记，交 B-233。见 `docs/iteration/round-104/test.md`。
 
 **第 103 轮（同一未发版区间）**
 
