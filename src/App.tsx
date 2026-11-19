@@ -78,6 +78,7 @@ import { ensureKatex } from './lib/katexLazy.ts'
 import { MermaidPreview } from './lib/mermaidPreview.ts'
 import { createToc } from './lib/tocRender.ts'
 import { nextRestoreEntry, restoreLabel, type RestoreEntry } from './lib/restoreEntry.ts'
+import { migrateAnnotations, migrationOf, writeRevision } from './lib/revisions.ts'
 import { eqDelimiterReveal, mathReveal } from './lib/mathReveal.ts'
 import { SidelightBlockMath, SidelightInlineMath, enterMathEdit } from './lib/mathNodeView.ts'
 import { SidelightCodeBlock } from './lib/codeBlockLang.ts'
@@ -463,6 +464,9 @@ export default function App() {
   const annotationsRef = useRef<Annotation[]>([])
   annotationsRef.current = annotations
   const [docNotes, setDocNotes] = useState<DocNote[]>([])
+  /** 渲染期同步的未定位条目快照：保存时写快照要拿最新的一份（第 99 轮 B-226） */
+  const docNotesRef = useRef<DocNote[]>([])
+  docNotesRef.current = docNotes
   const [analyzing, setAnalyzing] = useState(false)
   const [discussingId, setDiscussingId] = useState<string | null>(null)
   const [verifyingId, setVerifyingId] = useState<string | null>(null)
@@ -3373,6 +3377,24 @@ export default function App() {
     [finishSaved, nextNewName, refreshTree],
   )
 
+  /**
+   * 保存成功后留一份修订快照（第 99 轮 B-226）。正文不落盘，只留 digest、字节数与当时的批注；
+   * 快照是后台附加物，任何失败都不影响保存结果，所以整条 fire-and-forget。
+   */
+  const recordRevision = useCallback(
+    (key: string, text: string, bytesText: string) => {
+      // 先同步拍批注快照：异步里再读 ref 会拿到后来重跑过的那批
+      const annotations = annotationsRef.current
+      const notes = docNotesRef.current
+      void (async () => {
+        const dir = await cacheDirFor()
+        if (!dir) return
+        await writeRevision(dir, key, text, annotations, notes, bytesText)
+      })()
+    },
+    [cacheDirFor],
+  )
+
   const performCommit = useCallback(
     async (normalized: string, withEol: string, keepLosses = false) => {
       setDraftShown(false)
@@ -3465,6 +3487,8 @@ export default function App() {
             docId: startedDocId,
             path: startedPath,
           })
+          // digest 用 LF 规范形、字节数用真正写盘的 withEol（CRLF 文件字节更长）
+          if (ok) recordRevision(cacheKey(target.name), normalized, withEol)
           return ok
         }
 
@@ -3494,7 +3518,7 @@ export default function App() {
         return false
       }
     },
-    [activeFile, discardDraftFor, docName, finishSaved, saveBlob, saveIntoWorkspace],
+    [activeFile, discardDraftFor, docName, finishSaved, recordRevision, saveBlob, saveIntoWorkspace],
   )
 
   /**
@@ -4773,13 +4797,20 @@ export default function App() {
       text === sourceBaselineRef.current &&
       normalizedSource === serializeBodyNow().replace(/\r\n/g, '\n')
     if (!skipReparse) {
+      // 整篇重解析前拍旧索引：引文失配时按这一次单点编辑平移批注（第 99 轮 B-226）
+      const oldIndex = buildTextIndex(editor.state.doc)
+      const oldSize = editor.state.doc.content.size
       setMarkdown(footnoteSplit.body)
-      // 源码往返不清空批注：按引文在当前正文里重新定位，找不到的才丢
+      // 源码往返不清空批注：按引文在当前正文里重新定位，找不到的按编辑点平移，平不动才丢
       const index = buildTextIndex(editor.state.doc)
+      const docSize = editor.state.doc.content.size
+      const move = migrationOf(oldIndex, index, oldSize, docSize)
       setAnnotations((previous) =>
         previous.flatMap((item) => {
           const hit = findRange(index, item.quote, 0)
-          return hit ? [{ ...item, from: hit.from, to: hit.to }] : []
+          if (hit) return [{ ...item, from: hit.from, to: hit.to }]
+          const moved = migrateAnnotations([item], move, docSize)[0]
+          return moved ? [moved] : []
         }),
       )
       // 正文真的换了才重算大纲 / 字数 / 当前章节：跳过支里正文一字未变，重算是白算

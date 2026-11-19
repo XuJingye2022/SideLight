@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–98 轮，未发版）
+## Unreleased（第 29–99 轮，未发版）
+
+**第 99 轮（同一未发版区间）**
+
+- 修订快照（A1，B-226，用户 2026-11-20 队列第 6 条）：新 `src/lib/revisions.ts`——`revisionDigest` 对 `key\0` + LF 正文算 FNV-1a 得 8 位 id；`buildRevision` 只存 `{v:1,id,key,savedAt,bytes,annotations,notes}`、**不存正文**，`bytes` 按写盘文本的 UTF-8 字节算；`parseRevision` 坏 JSON / `v!==1` / 缺 id 回 null 且批注走 `parseAnnotationStore` 归一；`migrationOf` 用公共前后缀夹出单点编辑（含换行、>512 字、尺寸差≠delta、前缀位置不等一律 null）；`migrateAnnotations` 平移后丢出界与「起点被删」；`pruneRevisions` 同键留最近 8 份、`keep` 必留；`writeRevision` 同 id 幂等、写完清旧、错误全吞。`revisions.test.ts` **24 条**挂 `npm test` 链尾（58→**59 文件**、810→**834 条**）。
+- 接线（A2）：`App.tsx` 加 `docNotesRef` 与 `recordRevision`（先同步拍批注快照，再挂 `performCommit` 的成功分支；digest 用 LF 规范形、bytes 用真正写盘的文本），`applySource` 在 `setMarkdown` 前后拍文本索引与 `content.size`，引文重定位失配时按单点编辑迁移批注、平不动才丢（`annotations.ts` 未改）。
+- 门禁与验收：首屏 gzip **314,726 B**（净 **+838 B**，距硬线 320,000 余 5,274；`--max 315500` exit 0）；tester 独立（未读 `impl.md`）自写 `.tmp/r99-tester-a.mjs`（ego CDP 57270、1440×900、独立假 FSA）**32/32**、0 pageerror：S1 保存前 0 write → 1 个 7 字段无正文 json（`v 1`/`key a`/`bytes 73`=磁盘/quote 同卡片）、无改动再存「没有改动，未写入。」仍 1 个；S2 `from/to` 1/23→**2/24** 且 `.annot` 盖引文、同长替换不变、删整段（含换行）`.note`/`.annot` 归 0；S3 连存 10 次该 key **8 份**；回归 `.tmp/r98-tester-agent.mjs` **38/38**、`.tmp/e2e-r97-a1-status.mjs` **44/44**；`npm test` 59 文件 834 条 0 fail。见 `docs/iteration/round-99/test.md`。
 
 **第 98 轮（同一未发版区间）**
 
