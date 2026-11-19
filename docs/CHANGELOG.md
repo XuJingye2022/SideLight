@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–107 轮，未发版）
+## Unreleased（第 29–108 轮，未发版）
+
+**第 108 轮（同一未发版区间）**
+
+- 对话流式期间关 live、收流再开（A1，B-237，用户 2026-11-20 队列「对话区」残留）：`src/components/MarginRail.tsx:704` 的 `.rail-chat-log` 由静态 `aria-live="polite"` 改 `aria-live={busy ? 'off' : 'polite'}` + `aria-busy={busy}`；`role="log"` / `aria-label="对话记录"` / ref / 渲染结构、`styles.css`、`ai.ts`、`App.tsx` 均不动。
+- 机械门：`src/lib/chat.test.ts` 12→**13 条**（读源码切 `.rail-chat-log` 开标签，断动态 live、`aria-busy`、无静态 polite、role/aria-label），挂 `npm test` 链尾。负向对照：HEAD 版 `MarginRail.tsx` 副本 + 同一测试 → **1 红 exit 1**。
+- 门禁与验收：`npm run verify` PASS；首屏门 gzip **315,171 B**（`--max 315183` exit 0、余硬线 4,829）、`MarginRail-*.js` gzip9 **6,778**（改前 6,762、+16、≤6,825）、合计 **321,949**（改前 321,935、+14、≤322,010；超硬线 1,949，**B-229 仍 open**，只记）；`npm test` **62 文件 873 条 0 fail**。真机（ego CDP 57270、1440×900、无 Key mock）自写脚本 **22/22**、0 pageerror：characterData 16、≥10 条时 off/true、末批 1 条与属性切换同批（允许并记录）、收流 polite/false、恰 2 turn / 1 assistant、「看看这一段」在 assistant 内恰 1 次、焦点回输入框、发送 disabled、role/label 不变；交付脚本 **17/17**；回归 r96 **42/42**；截图 `shots/round-108/chat-live-off.png`。已知后果（CR-2 ②，另立 B-238）：off 期间累积文本多数读屏不缓存、切回 polite 不重播，最坏整条听不到；本轮不声称修复播报完整性。见 `docs/iteration/round-108/test.md`。
 
 **第 107 轮（同一未发版区间）**
 

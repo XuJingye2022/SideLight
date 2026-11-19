@@ -701,7 +701,7 @@ export function MarginRail({
 
         {simulated && <p className="rail-chat-mock">未配置 API Key，回答是本地模拟的，不调用模型</p>}
 
-        <div className="rail-chat-log" role="log" aria-live="polite" aria-label="对话记录" ref={logRef}>
+        <div className="rail-chat-log" role="log" aria-live={busy ? 'off' : 'polite'} aria-busy={busy} aria-label="对话记录" ref={logRef}>
           {turns.length === 0 && (
             <div className="rail-empty rail-chat-empty">
               <p className="rail-empty-title">和侧灯说一句</p>
