@@ -1,6 +1,12 @@
 import { useState } from 'react'
 
-import type { Annotation, DocNote } from '../lib/annotations.ts'
+import {
+  ANNOTATION_PRIORITIES,
+  ANNOTATION_PRIORITY_LABELS,
+  type Annotation,
+  type AnnotationPriority,
+  type DocNote,
+} from '../lib/annotations.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
 import { InlineText } from './InlineText.tsx'
 
@@ -36,6 +42,8 @@ type Props = {
   onRequestLayout: () => void
   onAccept: (annotation: Annotation) => void
   onDismiss: (annotation: Annotation) => void
+  /** 卡头下拉改档位（第 95 轮 B-222）：手改过的档位重跑时保留 */
+  onSetPriority: (annotation: Annotation, priority: AnnotationPriority) => void
   registerRef: (id: string, node: HTMLElement | null) => void
   railRef: React.RefObject<HTMLDivElement | null>
 }
@@ -63,6 +71,7 @@ export function MarginRail({
   onRequestLayout,
   onAccept,
   onDismiss,
+  onSetPriority,
   registerRef,
   railRef,
   railSpace,
@@ -181,6 +190,23 @@ export function MarginRail({
               {annotation.kind === 'revision' ? '修订' : '评价'}
             </span>
             {simulated && <span className="note-kind note-kind-mock">模拟</span>}
+            {/* 五档紧急度：原生 select 自带键盘与读屏支持，底色由 class 给。
+                click 必须 stopPropagation——冒泡到卡片会调 onFocusNote 改正文选区 */}
+            <select
+              className={`note-priority note-priority-${annotation.priority}`}
+              value={annotation.priority}
+              aria-label={`第 ${index + 1} 处紧急度`}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) =>
+                onSetPriority(annotation, event.target.value as AnnotationPriority)
+              }
+            >
+              {ANNOTATION_PRIORITIES.map((priority) => (
+                <option key={priority} value={priority}>
+                  {ANNOTATION_PRIORITY_LABELS[priority]}
+                </option>
+              ))}
+            </select>
             <span className="note-index">第 {index + 1} 处</span>
           </header>
 

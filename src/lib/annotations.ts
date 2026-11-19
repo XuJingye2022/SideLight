@@ -3,6 +3,28 @@ import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 export type AnnotationKind = 'revision' | 'evaluation'
 export type AnnotationStatus = 'pending' | 'accepted' | 'dismissed'
 
+/* ---------- 紧急度（第 95 轮 B-222） ---------- */
+
+/** 五档紧急度：从「不标」到「立刻改」。顺序就是卡头下拉的显示顺序 */
+export const ANNOTATION_PRIORITIES = ['none', 'low', 'medium', 'high', 'urgent'] as const
+export type AnnotationPriority = (typeof ANNOTATION_PRIORITIES)[number]
+
+/** 下拉里的文案：none 显示成 `-`，其余用英文档名（与用户队列的写法一致） */
+export const ANNOTATION_PRIORITY_LABELS: Record<AnnotationPriority, string> = {
+  none: '-',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  urgent: 'Urgent',
+}
+
+/** 任何来源的档位都过这里：缺字段、`p0`、数字、别的字符串一律回 none */
+export function normalizePriority(value: unknown): AnnotationPriority {
+  return typeof value === 'string' && (ANNOTATION_PRIORITIES as readonly string[]).includes(value)
+    ? (value as AnnotationPriority)
+    : 'none'
+}
+
 /** 模型先给一条意图说明，再给批注；overall 是不锚定的全文总评 */
 export type ParsedKind = AnnotationKind | 'meta' | 'overall'
 
@@ -11,6 +33,8 @@ export type ParsedAnnotation = {
   quote: string
   note: string
   replacement?: string
+  /** 只有模型给了合法档位才有这个字段；缺省表示「没判断」，落库时归一成 none */
+  priority?: AnnotationPriority
 }
 
 /** 不写正文的页边条目：全文总评或未定位的批注 */
@@ -37,6 +61,10 @@ export type Annotation = {
   quote: string
   note: string
   replacement?: string
+  /** 五档紧急度；旧档没有这个字段，读进来归一成 none */
+  priority: AnnotationPriority
+  /** 用户手动改过档位：重跑时保留，不被模型的新判断覆盖 */
+  priorityManual?: true
   /** 用户与这条批注的追问记录 */
   thread?: ChatTurn[]
   /** 联网核对拿回来的出处 */
@@ -83,6 +111,7 @@ function stripFence(line: string): string {
  * 解析一行。任何不合格的输入都返回 null，不抛异常：
  * kind 必须是两个值之一，quote 与 note 必须是非空字符串，
  * revision 必须带非空 replacement（空串表示删掉整段，按产品约定丢弃）。
+ * priority 是可选的：只有命中五档才写进结果，缺省/非法不写（落库时归一成 none）。
  */
 function readLine(line: string): ParsedAnnotation | null {
   let value: unknown
@@ -107,11 +136,22 @@ function readLine(line: string): ParsedAnnotation | null {
   const quote = record.quote
   if (typeof quote !== 'string' || quote.trim() === '') return null
 
-  if (kind === 'evaluation') return { kind, quote, note }
+  const parsedPriority = readPriority(record.priority)
+  const withPriority = parsedPriority ? { priority: parsedPriority } : {}
+
+  if (kind === 'evaluation') return { kind, quote, note, ...withPriority }
 
   const replacement = record.replacement
   if (typeof replacement !== 'string' || replacement === '') return null
-  return { kind, quote, note, replacement }
+  return { kind, quote, note, replacement, ...withPriority }
+}
+
+/** 缺失/非法档位返回 undefined，好让调用方「不写这个字段」 */
+function readPriority(value: unknown): AnnotationPriority | undefined {
+  if (typeof value !== 'string') return undefined
+  return (ANNOTATION_PRIORITIES as readonly string[]).includes(value)
+    ? (value as AnnotationPriority)
+    : undefined
 }
 
 /**
@@ -260,6 +300,8 @@ export function resolveAnnotations(
       to: range.to,
       quote: item.quote,
       note: item.note,
+      // 模型没给档位就是 none：卡头下拉永远有一个合法选中项
+      priority: normalizePriority(item.priority),
     }
     if (item.replacement !== undefined) annotation.replacement = item.replacement
     annotations.push(annotation)
@@ -270,19 +312,23 @@ export function resolveAnnotations(
 
 /**
  * v2 协议：解析批注 + 把定位失败/overall 收进 DocNote；旧数组读成 v2 不丢内容。
+ * 旧档条目的 priority 在这里逐条归一（v 仍是 2）：缺字段的旧文件读进来是 none，
+ * 条目本身一条不少；手改标记 priorityManual 由 spread 原样带过。
  */
 export function parseAnnotationStore(raw: string | null): AnnotationStore {
   if (!raw) return { v: 2, annotations: [], notes: [] }
   try {
     const value = JSON.parse(raw) as unknown
     if (Array.isArray(value)) {
-      return { v: 2, annotations: value as Annotation[], notes: [] }
+      return { v: 2, annotations: value.map(normalizeStoredAnnotation), notes: [] }
     }
     if (value && typeof value === 'object' && (value as { v?: number }).v === 2) {
       const store = value as Partial<AnnotationStore>
       return {
         v: 2,
-        annotations: Array.isArray(store.annotations) ? store.annotations : [],
+        annotations: Array.isArray(store.annotations)
+          ? store.annotations.map(normalizeStoredAnnotation)
+          : [],
         notes: Array.isArray(store.notes) ? store.notes : [],
       }
     }
@@ -290,6 +336,11 @@ export function parseAnnotationStore(raw: string | null): AnnotationStore {
     // 坏文件当空
   }
   return { v: 2, annotations: [], notes: [] }
+}
+
+/** 读库时的唯一归一入口：只补 priority，别的字段原样保留 */
+function normalizeStoredAnnotation(item: Annotation): Annotation {
+  return { ...item, priority: normalizePriority(item.priority) }
 }
 
 export function serializeAnnotationStore(store: AnnotationStore): string {
@@ -328,18 +379,23 @@ export function collectDocNotes(
 
 /**
  * 重跑一段：移除与窗口相交的 pending，窗口外保留；完全相同的新条目复用旧 id/thread/sources。
+ *
+ * `reuse` 是「可复用候选」（默认就是 `previous` 里 pending 那批）：调用方在窗口开始时先拍一份快照，
+ * 后面逐条补进来的 fresh 仍能按引文找回旧 id。这样同窗口第 2/3 条批注重跑后 id 也不会变，
+ * 用户手改过的档位（priorityManual）跟着旧条目一起保留。
  */
 export function replaceInWindow(
   previous: Annotation[],
   fresh: Annotation[],
   window: ResolveWindow,
+  reuse: Annotation[] = previous,
 ): Annotation[] {
   const start = Math.min(window.start, window.end)
   const end = Math.max(window.start, window.end)
   const kept = previous.filter(
     (item) => item.status !== 'pending' || item.to < start || item.from > end,
   )
-  const reusable = previous.filter((item) => item.status === 'pending')
+  const reusable = reuse.filter((item) => item.status === 'pending')
   const used = new Set<string>()
   const merged = fresh.map((item) => {
     const old = reusable.find(
@@ -358,6 +414,8 @@ export function replaceInWindow(
       thread: old.thread,
       sources: old.sources,
       status: old.status,
+      // 手改过档位的条目连同标记一起搬过去：不然第一次重跑后标记就丢了，第二次重跑又回模型值
+      ...(old.priorityManual ? { priority: old.priority, priorityManual: true as const } : {}),
     }
   })
   return [...kept, ...merged].sort((a, b) => a.from - b.from)

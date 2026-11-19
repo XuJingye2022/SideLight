@@ -7,8 +7,11 @@ import { StarterKit } from '@tiptap/starter-kit'
 import { ANALYSIS_SYSTEM_PROMPT, DEFAULT_USER_PROMPT } from './prompt.ts'
 import { loadSettings } from './settings.ts'
 import {
+  ANNOTATION_PRIORITIES,
+  ANNOTATION_PRIORITY_LABELS,
   buildTextIndex,
   findRange,
+  normalizePriority,
   parseStream,
   parseAnnotationStore,
   replaceInWindow,
@@ -381,6 +384,156 @@ test('replaceInWindow：两次重跑不翻倍、窗口外保留、id 复用', ()
   assert.equal(twice.length, 2)
   assert.equal(once.find((item) => item.quote === '窗内')?.id, 'reuse')
   assert.ok(once.some((item) => item.id === 'keep'))
+})
+
+/* ---------- 五档紧急度（第 95 轮 B-222） ---------- */
+
+test('五档档位与归一函数逐档一致', () => {
+  assert.deepEqual([...ANNOTATION_PRIORITIES], ['none', 'low', 'medium', 'high', 'urgent'])
+  for (const priority of ANNOTATION_PRIORITIES) {
+    assert.equal(normalizePriority(priority), priority, `${priority} 没原样留下`)
+  }
+  assert.equal(normalizePriority('p0'), 'none')
+  assert.equal(normalizePriority(''), 'none')
+  assert.equal(normalizePriority(undefined), 'none')
+
+  // 解析层：合法档位照原样带出，非法的不写这个字段
+  const parsed = parseStream(
+    [
+      '{"kind":"evaluation","quote":"甲","note":"乙","priority":"high"}',
+      '{"kind":"evaluation","quote":"丙","note":"丁","priority":"p0"}',
+    ].join('\n') + '\n',
+  )
+  assert.equal(parsed.items[0].priority, 'high')
+  assert.equal('priority' in parsed.items[1], false)
+})
+
+test('下拉文案五档齐全，none 显示为减号', () => {
+  assert.deepEqual(
+    ANNOTATION_PRIORITIES.map((priority) => ANNOTATION_PRIORITY_LABELS[priority]),
+    ['-', 'Low', 'Medium', 'High', 'Urgent'],
+  )
+  assert.equal(ANNOTATION_PRIORITY_LABELS.none, '-')
+  for (const priority of ANNOTATION_PRIORITIES) {
+    assert.ok(ANNOTATION_PRIORITY_LABELS[priority].length > 0)
+  }
+})
+
+test('priority 缺失、p0、数字都落成 none，条目一条不少', () => {
+  const lines = [
+    '{"kind":"evaluation","quote":"第一段写得很平。","note":"起句太虚。"}',
+    '{"kind":"evaluation","quote":"这里重复一句话。","note":"重复。","priority":"p0"}',
+    '{"kind":"evaluation","quote":"第三段也写。","note":"收尾。","priority":3}',
+    '{"kind":"revision","quote":"后半句突然加重语气。","note":"语气跳。","replacement":"后半句忽然加重。","priority":"URGENT"}',
+  ]
+  const parsed = parseStream(`${lines.join('\n')}\n`)
+  assert.equal(parsed.items.length, 4)
+  assert.equal(parsed.items[0].priority, undefined)
+
+  const resolved = resolveAnnotations(parsed.items, buildTextIndex(doc))
+  assert.equal(resolved.length, 4)
+  assert.deepEqual(
+    resolved.map((item) => item.priority),
+    ['none', 'none', 'none', 'none'],
+  )
+  // 模型给了合法档位就照原样落到批注上
+  const kept = resolveAnnotations(
+    [{ kind: 'evaluation', quote: '第三段也写。', note: '收尾。', priority: 'urgent' }],
+    buildTextIndex(doc),
+  )
+  assert.equal(kept[0].priority, 'urgent')
+})
+
+test('旧档两分支：条数不变、每条 none、原有字段逐项相等', () => {
+  const legacy = [
+    { id: 'a', kind: 'evaluation', status: 'pending', from: 1, to: 4, quote: '甲', note: '一' },
+    { id: 'b', kind: 'revision', status: 'accepted', from: 5, to: 9, quote: '乙', note: '二', replacement: '丙' },
+  ]
+  const stores = [
+    parseAnnotationStore(JSON.stringify(legacy)),
+    parseAnnotationStore(JSON.stringify({ v: 2, annotations: legacy, notes: [] })),
+  ]
+  for (const store of stores) {
+    assert.equal(store.v, 2)
+    assert.equal(store.annotations.length, legacy.length)
+    for (const [index, item] of store.annotations.entries()) {
+      assert.equal(item.priority, 'none', `第 ${index + 1} 条没归一成 none`)
+      const source = legacy[index] as Record<string, unknown>
+      for (const key of ['id', 'kind', 'status', 'from', 'to', 'quote', 'note', 'replacement']) {
+        assert.equal((item as unknown as Record<string, unknown>)[key], source[key], `${key} 变了`)
+      }
+    }
+  }
+})
+
+test('五档写盘再读回来逐档保持，手改标记也原样往返', () => {
+  const annotations: Annotation[] = ANNOTATION_PRIORITIES.map((priority, index) => ({
+    id: `id-${index}`,
+    kind: 'evaluation',
+    status: 'pending',
+    from: index,
+    to: index + 1,
+    quote: '甲',
+    note: '乙',
+    priority,
+  }))
+  const store = parseAnnotationStore(serializeAnnotationStore({ v: 2, annotations, notes: [] }))
+  assert.deepEqual(
+    store.annotations.map((item) => item.priority),
+    [...ANNOTATION_PRIORITIES],
+  )
+  assert.deepEqual(
+    store.annotations.map((item) => item.id),
+    ['id-0', 'id-1', 'id-2', 'id-3', 'id-4'],
+  )
+
+  const manual: Annotation = { ...annotations[4], priorityManual: true }
+  const again = parseAnnotationStore(serializeAnnotationStore({ v: 2, annotations: [manual], notes: [] }))
+  assert.equal(again.annotations[0].priority, 'urgent')
+  assert.equal(again.annotations[0].priorityManual, true)
+})
+
+test('replaceInWindow：手改档位重跑保留，未手改的吃模型新档，逐条写入 id 也不变', () => {
+  const old = [
+    { id: 'manual', kind: 'evaluation', status: 'pending', from: 10, to: 20, quote: '甲句', note: '同一条', priority: 'urgent', priorityManual: true },
+    { id: 'auto', kind: 'evaluation', status: 'pending', from: 30, to: 40, quote: '乙句', note: '另一条', priority: 'none' },
+  ] as Annotation[]
+  const fresh = [
+    { id: 'fresh-1', kind: 'evaluation', status: 'pending', from: 11, to: 20, quote: '甲句', note: '同一条', priority: 'low' },
+    { id: 'fresh-2', kind: 'evaluation', status: 'pending', from: 31, to: 40, quote: '乙句', note: '另一条', priority: 'high' },
+  ] as Annotation[]
+  const window = { start: 5, end: 50 }
+
+  const once = replaceInWindow(old, fresh, window)
+  assert.equal(once.length, 2)
+  const manual = once.find((item) => item.quote === '甲句')
+  assert.equal(manual?.id, 'manual')
+  assert.equal(manual?.priority, 'urgent')
+  assert.equal(manual?.priorityManual, true)
+  assert.equal(once.find((item) => item.quote === '乙句')?.priority, 'high')
+
+  // 再重跑一次：手改标记跟着走，所以不是「只保一次」
+  const twice = replaceInWindow(once, fresh, window)
+  assert.equal(twice.find((item) => item.quote === '甲句')?.priority, 'urgent')
+  assert.equal(twice.find((item) => item.quote === '甲句')?.priorityManual, true)
+
+  // App 的流式写法：窗口开始的 pending 快照当可复用池，第 2 条也能找回旧 id
+  const pool = old.filter((item) => item.status === 'pending')
+  let state: Annotation[] = old
+  const soFar: Annotation[] = []
+  for (const item of fresh) {
+    soFar.push(item)
+    state = replaceInWindow(state, [...soFar], window, pool)
+  }
+  assert.deepEqual(
+    state.map((item) => item.id),
+    ['manual', 'auto'],
+  )
+  assert.equal(state.find((item) => item.quote === '甲句')?.priority, 'urgent')
+  assert.deepEqual(
+    state.map((item) => item.priority),
+    ['urgent', 'high'],
+  )
 })
 
 test('提示词 <=1500 字且含 overall 与硬规则', () => {

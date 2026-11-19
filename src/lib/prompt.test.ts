@@ -30,6 +30,16 @@ test('system 提示词含全部格式与安全规则，且不超过 1500 字', (
   assert.match(ANALYSIS_SYSTEM_PROMPT, /三处以上/)
 })
 
+test('system 提示词带五档紧急度，两条示例档位不同', () => {
+  assert.ok(ANALYSIS_SYSTEM_PROMPT.length <= 1500, String(ANALYSIS_SYSTEM_PROMPT.length))
+  for (const name of ['none', 'low', 'medium', 'high', 'urgent']) {
+    assert.match(ANALYSIS_SYSTEM_PROMPT, new RegExp(`\\b${name}\\b`), `${name} 没写进 system`)
+  }
+  const levels = [...ANALYSIS_SYSTEM_PROMPT.matchAll(/"priority":"(\w+)"/g)].map((match) => match[1])
+  assert.ok(levels.length >= 2, '两条 JSONL 示例都要带 priority')
+  assert.notEqual(levels[0], levels[1], '两条示例不能给同一档')
+})
+
 test('user 提示词只放偏好与检查重点，不含格式与安全规则', () => {
   assert.ok(DEFAULT_USER_PROMPT.length <= 300, String(DEFAULT_USER_PROMPT.length))
   assert.match(DEFAULT_USER_PROMPT, /作者偏好与检查重点|论证|证据/)

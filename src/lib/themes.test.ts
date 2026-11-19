@@ -121,3 +121,55 @@ test('主题选择只认三档模式与清单里的 id，别的一律回落默�
   assert.equal(isThemeChoice(undefined), false)
   assert.equal(isThemeChoice(3), false)
 })
+
+/** 抽出某个规则块里的普通声明（只看 `属性: 值;` 行） */
+function ruleDeclarations(selector: string): Record<string, string> {
+  const css = readFileSync('src/styles.css', 'utf8')
+  const start = css.indexOf(`${selector} {`)
+  assert.ok(start >= 0, `styles.css 里找不到 ${selector}`)
+  const block = css.slice(css.indexOf('{', start) + 1, css.indexOf('}', start))
+  const declarations: Record<string, string> = {}
+  for (const line of block.split('\n')) {
+    const match = /^\s*([a-z-]+):\s*(.+);\s*$/.exec(line)
+    if (match) declarations[match[1]] = match[2].trim()
+  }
+  return declarations
+}
+
+/** 把 var(--x) 与 color-mix(in srgb, var(--x) N%, var(--y)) 换成实色，才算得出对比度 */
+function resolveColor(value: string, vars: Record<string, string>): string {
+  const direct = /^var\((--[\w-]+)\)$/.exec(value)
+  if (direct) return vars[direct[1]]
+  const mixed = /^color-mix\(in srgb, var\((--[\w-]+)\) (\d+)%, var\((--[\w-]+)\)\)$/.exec(value)
+  if (mixed) return mix(vars[mixed[1]], vars[mixed[3]], Number(mixed[2]) / 100)
+  assert.fail(`认不出的颜色写法：${value}`)
+}
+
+test('批注五档紧急度的字色与底色在三套主题下都 ≥4.5:1（第 95 轮 B-222）', () => {
+  const tiers = ['none', 'low', 'medium', 'high', 'urgent']
+  const styles: Record<string, Record<string, string>> = { none: ruleDeclarations('.note-priority') }
+  for (const tier of tiers.slice(1)) styles[tier] = ruleDeclarations(`.note-priority-${tier}`)
+
+  const themes: [string, string][] = [
+    ['浅色', ':root'],
+    ['暖纸', "html[data-theme='sepia']"],
+    ['深色', "html[data-theme='dark']"],
+  ]
+  const table: string[] = []
+  for (const [name, selector] of themes) {
+    const vars = cssVars(selector)
+    for (const tier of tiers) {
+      const declarations = styles[tier]
+      assert.ok(declarations.color, `${tier} 没写字色`)
+      assert.ok(declarations.background, `${tier} 没写底色`)
+      const ratio = contrastRatio(
+        resolveColor(declarations.color, vars),
+        resolveColor(declarations.background, vars),
+      )
+      table.push(`${name}/${tier}=${ratio.toFixed(2)}`)
+      assert.ok(ratio >= 4.5, `${name}的 ${tier} 只有 ${ratio.toFixed(3)}:1`)
+    }
+  }
+  // 15 对全算过：档位数或主题数被改少时这里先红
+  assert.equal(table.length, 15, table.join(' '))
+})

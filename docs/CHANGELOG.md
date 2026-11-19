@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–94 轮，未发版）
+## Unreleased（第 29–95 轮，未发版）
+
+**第 95 轮（同一未发版区间）**
+
+- 批注五档紧急度（B-222，用户 2026-11-20 队列第 2 条）：`src/lib/annotations.ts` 加 `ANNOTATION_PRIORITIES`（none/low/medium/high/urgent）、`ANNOTATION_PRIORITY_LABELS`（`-`/Low/Medium/High/Urgent）与 `normalizePriority`；`Annotation.priority` 必填 + `priorityManual?: true`，`ParsedAnnotation.priority?`（缺省 / `p0` / 数字 / 大写一律不写字段），`resolveAnnotations` 与 `parseAnnotationStore`（旧数组与 `{v:2}` 两分支）逐条归一成 none、条数与既有字段不变；`replaceInWindow` 加 `reuse` 可复用池，`priorityManual` 条目的档位与标记跟着旧 id 一起保留；`App.tsx` 用窗口开始前的 `annotationsRef` 快照当池（同窗口第 2/3 条重跑 id 不再变）+ `setPriority`（卡头改档打 `priorityManual`）；`MarginRail.tsx` 的 `.note-head` 加五档原生 `<select class="note-priority">`（`aria-label="第 N 处紧急度"`、click `stopPropagation`）；`styles.css` 5 块配色（none 走基础规则）+ `themes.test.ts` 三主题 15 对对比度门（min 4.58）；`prompt.ts` 加 priority 规则行与两条不同档位的 JSONL 示例。
+- 门禁：首屏 gzip **313,086 B**（基线 312,566，净 +520 B；超内部预算 310,000 3,086 B 只 WARN、硬线 320,000 内余 6,914 B）；`npm test` **57 文件 786 条 0 fail**；未改编辑器/序列化不跑 roundtrip。见 `docs/iteration/round-95/impl.md`。
+- tester 第 95 轮独立验收（未读 `impl.md`；ego 浏览器 CDP 57270，自写探针 `.tmp/r95-tester-a1.ts` **8/8**、E2E `.tmp/r95-tester-a2.mjs` **37/37**、0 pageerror）：五档逐档一致、缺字段/`p0`/数字 → none 且条目在、旧档两分支逐项相等、序列化往返、`replaceInWindow` 手改 urgent 保留（连跑两次）而模型 high 生效、prompt 981 字；每卡 1 select、五档底色互异、urgent 无横溢且卡不重叠、Tab 落 select 且焦点环 2px solid、三击段落后改档/Enter 不改选区、落盘含 `"priority":"urgent"`、切走切回与重跑仍保留且 3 条 id 未变；自算三主题 15 对对比度 **4.58–7.67**；回归 `theme-acceptance` **27/27**。见 `docs/iteration/round-95/test.md`。
 
 **第 94 轮（同一未发版区间）**
 

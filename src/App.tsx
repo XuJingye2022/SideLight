@@ -58,6 +58,7 @@ import {
   resolveAnnotations,
   writeAnnotationStore,
   type Annotation,
+  type AnnotationPriority,
   type DocNote,
   type ParsedAnnotation,
 } from './lib/annotations.ts'
@@ -455,6 +456,9 @@ export default function App() {
   const [railOpen, setRailOpen] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<'files' | 'outline'>('files')
   const [annotations, setAnnotations] = useState<Annotation[]>([])
+  /** 渲染期同步的批注快照：重跑要拿「窗口开始前」那批当可复用池（第 95 轮 B-222） */
+  const annotationsRef = useRef<Annotation[]>([])
+  annotationsRef.current = annotations
   const [docNotes, setDocNotes] = useState<DocNote[]>([])
   const [analyzing, setAnalyzing] = useState(false)
   const [discussingId, setDiscussingId] = useState<string | null>(null)
@@ -1732,7 +1736,12 @@ export default function App() {
       const windowEnd = Math.max(offsetForPosition(index, rangeTo), start)
       let cursor = start
       let buffer = ''
-      let windowReplaced = false
+      /**
+       * 窗口开始前的 pending 快照：当「可复用池」。同窗口第 2/3 条批注重跑时靠它找回旧 id，
+       * 用户手改过的档位（priorityManual）才不会被新 id 冲掉（第 95 轮 B-222）。
+       */
+      let reusePool: Annotation[] | null = null
+      const windowFresh: Annotation[] = []
 
       const intake = (items: ParsedAnnotation[]) => {
         for (const item of items) {
@@ -1762,14 +1771,15 @@ export default function App() {
           }
           const [annotation] = hit
           cursor = Math.max(cursor, offsetForPosition(index, annotation.to))
-          if (!windowReplaced) {
-            windowReplaced = true
-            setAnnotations((previous) =>
-              replaceInWindow(previous, [annotation], { start: rangeFrom, end: rangeTo }),
-            )
-          } else {
-            setAnnotations((previous) => [...previous, annotation])
-          }
+          // 每条都整窗重算：fresh 是「这个窗口这一次拿到的全部」，可复用池仍是窗口开始前那批。
+          // 只把先到的那条塞进 replaceInWindow、其余追加，会让第 2/3 条每次重跑都换 id。
+          if (reusePool === null) reusePool = annotationsRef.current
+          windowFresh.push(annotation)
+          const freshNow = [...windowFresh]
+          const reuse = reusePool
+          setAnnotations((previous) =>
+            replaceInWindow(previous, freshNow, { start: rangeFrom, end: rangeTo }, reuse),
+          )
           addedCount += 1
         }
       }
@@ -2007,6 +2017,15 @@ export default function App() {
 
   const dismiss = useCallback((annotation: Annotation) => {
     setAnnotations((previous) => previous.filter((item) => item.id !== annotation.id))
+  }, [])
+
+  /** 卡头五档紧急度（第 95 轮 B-222）：用户改过的档位打上 priorityManual，重跑时保留 */
+  const setPriority = useCallback((annotation: Annotation, priority: AnnotationPriority) => {
+    setAnnotations((previous) =>
+      previous.map((item) =>
+        item.id === annotation.id ? { ...item, priority, priorityManual: true } : item,
+      ),
+    )
   }, [])
 
   useEffect(() => {
@@ -5964,6 +5983,7 @@ export default function App() {
                 }}
                 onAccept={accept}
                 onDismiss={dismiss}
+                onSetPriority={setPriority}
                 registerRef={(id, node) => {
                   if (node) cardRefs.current.set(id, node)
                   else cardRefs.current.delete(id)
