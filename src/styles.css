@@ -794,6 +794,7 @@ button:disabled {
 }
 
 .doc-body pre {
+  position: relative;
   background: var(--paper-raised);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -808,6 +809,50 @@ button:disabled {
   padding: 0;
   /* 代码块字号不低于行内代码（第 49 轮 N4）：pre 0.9em 已大于 code 的 0.87em，继承父级即可 */
   font-size: inherit;
+}
+
+/* 第 91 轮 B2（用户反馈 #3）：代码块右上角的语言标签。标签在 pre 内、首行文字上方；
+   透明的原生 select 盖在标签上，点开就是语言菜单（键盘 ↑/↓ 也能选）。 */
+.doc-body .sl-code-lang-wrap {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  z-index: 2;
+}
+
+.doc-body .sl-code-lang {
+  display: inline-block;
+  box-sizing: border-box;
+  height: 14px;
+  max-width: 12rem;
+  overflow: hidden;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-body .sl-code-lang-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.doc-body .sl-code-lang-wrap:focus-within .sl-code-lang {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 /* 行内 HTML 白名单（第 47 轮）：kbd 键帽、mark 底色、sub/sup 上下标。上下不出行框，改字号不改行高 */
@@ -2290,6 +2335,47 @@ button:disabled {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
+/* 第 91 轮 B1（用户反馈 #2）：块级公式块内编辑。编辑态收起 KaTeX 成品（`.is-editing`），
+   下面换成「TeX 文本框 + 实时公式预览」，与 Typora 的「代码块 + 公式显示」同构，不再开浮层。 */
+.doc-body .sl-math-block-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 100%;
+  text-align: left;
+}
+
+.doc-body .sl-math-block-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+
+.doc-body .sl-math-block-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.doc-body .sl-math-block-preview {
+  overflow-x: auto;
+  padding: 2px 0;
+  text-align: center;
+  color: var(--ink);
+}
+
+.doc-body .sl-math-block-preview:empty {
+  display: none;
+}
+
 .readonly-banner {
   position: sticky;
   top: 0;
@@ -3023,8 +3109,7 @@ button:disabled {
   background: var(--paper-deep);
 }
 
-.link-editor,
-.math-inline {
+.link-editor {
   z-index: 45;
   display: flex;
   flex-direction: column;
@@ -3047,8 +3132,7 @@ button:disabled {
   letter-spacing: 0.06em;
 }
 
-.link-editor-input,
-.math-inline-input {
+.link-editor-input {
   width: 100%;
   padding: 6px 8px;
   border: 1px solid var(--line);
@@ -3059,44 +3143,25 @@ button:disabled {
   outline: none;
 }
 
-.link-editor-input:focus,
-.math-inline-input:focus {
+.link-editor-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-.math-inline-input {
-  font-family: var(--font-mono);
-  resize: vertical;
-}
-
-.link-editor-hint,
-.math-inline-hint {
+.link-editor-hint {
   margin: 0;
   color: var(--ink-faint);
   font-size: 10.5px;
   line-height: 1.5;
 }
 
-.link-editor-hint kbd,
-.math-inline-hint kbd {
+.link-editor-hint kbd {
   padding: 0 4px;
   border: 1px solid var(--line);
   border-radius: 4px;
   background: var(--paper-deep);
   font-family: var(--font-mono);
   font-size: 10px;
-}
-
-.math-inline-preview {
-  min-height: 32px;
-  padding: 4px 2px;
-  overflow-x: auto;
-  color: var(--ink);
-}
-
-.math-inline-preview.is-empty {
-  color: var(--ink-faint);
 }
 
 .popover {

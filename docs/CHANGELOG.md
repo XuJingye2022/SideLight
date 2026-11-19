@@ -2,7 +2,14 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–90 轮，未发版）
+## Unreleased（第 29–91 轮，未发版）
+
+**第 91 轮（同一未发版区间）**
+
+- 行间公式块内编辑（B1，用户反馈 #2，B-219）：`src/lib/mathNodeView.ts` 把第 90 轮的行内编辑器抽成行内/块级共用的 `createMathEditor`，新增 `SidelightBlockMath`（`BlockMath.extend({addNodeView})`）：点公式或方向键把 atom 选成 `NodeSelection` 就进编辑，`.sl-math-block-edit` = `<textarea class="sl-math-block-input">` + `.sl-math-block-preview` 实时 KaTeX（打字即重画）；块内 Enter 换行、Ctrl+S / 失焦提交、Esc 还原（新建空块删除）、首行 ↑ / 末行 ↓ 提交后把光标送出块；非编辑态仍是 `.block-math-inner` 的 KaTeX 成品，Markdown 仍写 `$$\nlatex\n$$`。`App.tsx` 删 `mathEdit` 状态与浮层渲染、`mathEditRef`/`mathAnchorRef`/`mathIsNewRef`/`finishMathEdit`，插入与 `$$`+Enter 两个入口都走 `enterMathAtRef` 进就地编辑；删 `src/components/MathInlineEditor.tsx`；`styles.css` 加块级编辑/预览样式并删 `.math-inline*` 浮层样式。
+- 代码块语言标签与切换（B2，用户反馈 #3，B-220）：新 `src/lib/codeBlockLang.ts` 的 `SidelightCodeBlock`（`CodeBlock.extend({addNodeView})`，`StarterKit.configure({codeBlock:false})` + 显式注册，schema 名与 Markdown 序列化不变）：`pre.sl-code-block` 右上角 chip 显示语言（无语言写「纯文本」），上面盖一个透明原生 `<select>` 可点开切换，`setNodeMarkup` 只改该围栏的 `language`，保存首行跟着变 ```ts / ```python；`styles.css` 加 `pre{position:relative}` 与 chip 样式。
+- 门禁：首屏 gzip **309,804 B**（余 196 / 10,196）；`npm test` **55 文件 727 条 0 fail**；`roundtrip` rich 7/9 + source 9/9。见 `docs/iteration/round-91/impl.md`。
+- tester 第 91 轮独立验收（未读 `impl.md`；CDP 9222–9226 不可用 → ego 浏览器 CDP 57270，自写 `.tmp/e2e-r91-tester.mjs` **27/27**，前台连跑两次）：B1 块内 `.sl-math-block-input` 聚焦且值 `E=mc^2`、实时预览 tex=`E=mc^3`、全程 `.math-inline` 0；Ctrl+S 落盘只换公式且 `sl-parse-done` 4→4；Esc 还原；↓ 进块、首行 ↑/末行 ↓ 选区落到块外 `lead`/`tail` 段；`$$`+Enter→Esc 空块回基线。B2 chip 3 个（js/mermaid/纯文本）、`pre` 内上右且 chip.bottom = 首行 top、上方文字改动后 js→ts 只改该围栏且 `sl-parse-done` 不变、保存首行 ```ts、无语言→python、```js 往返逐字节。回归行内公式（第 90 轮 A1）3 条与 `keyboard-acceptance` **52/52**。见 `docs/iteration/round-91/test.md`。
 
 **第 90 轮（同一未发版区间）**
 

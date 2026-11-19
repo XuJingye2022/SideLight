@@ -8,7 +8,6 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
 import { TextSelection } from '@tiptap/pm/state'
 import { isHistoryTransaction } from 'prosemirror-history'
-import { BlockMath } from '@tiptap/extension-mathematics'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { TaskItem } from '@tiptap/extension-task-item'
 import { TaskList } from '@tiptap/extension-task-list'
@@ -16,7 +15,6 @@ import { TaskList } from '@tiptap/extension-task-list'
 import { FileMenu } from './components/FileMenu.tsx'
 import { FileTree } from './components/FileTree.tsx'
 import { InlinePopover } from './components/InlinePopover.tsx'
-import { MathInlineEditor } from './components/MathInlineEditor.tsx'
 import { LinkEditor } from './components/LinkEditor.tsx'
 const MarginRail = lazy(() =>
   import('./components/MarginRail.tsx').then((module) => ({ default: module.MarginRail })),
@@ -65,7 +63,7 @@ import {
 import { cacheKey, legacyKeyFor, readCache, readCacheText, removeCache, writeCache } from './lib/cache.ts'
 import { buildChunkContext, buildContext, splitSelection, type Block, type ContextPayload } from './lib/context.ts'
 import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } from './lib/decorations.ts'
-import { MathInputRules, closeMathEditTransaction, mathInputSelection } from './lib/mathInput.ts'
+import { MathInputRules } from './lib/mathInput.ts'
 import { normalizeForBaseline } from './lib/baseline.ts'
 import { diskSnapshot, reusableDiskText, type DiskSnapshot } from './lib/saveDisk.ts'
 import { inTableAncestry, typingBlockMarkerInCell } from './lib/tableScope.ts'
@@ -76,7 +74,8 @@ import { MermaidPreview } from './lib/mermaidPreview.ts'
 import { createToc } from './lib/tocRender.ts'
 import { nextRestoreEntry, restoreLabel, type RestoreEntry } from './lib/restoreEntry.ts'
 import { eqDelimiterReveal, mathReveal } from './lib/mathReveal.ts'
-import { SidelightInlineMath, enterMathEdit } from './lib/mathNodeView.ts'
+import { SidelightBlockMath, SidelightInlineMath, enterMathEdit } from './lib/mathNodeView.ts'
+import { SidelightCodeBlock } from './lib/codeBlockLang.ts'
 import { hasTocSource } from './lib/toc.ts'
 import { findAll, type Match } from './lib/find.ts'
 import { replaceNoticeText } from './lib/findBarState.ts'
@@ -530,14 +529,6 @@ export default function App() {
     focus: 'text' | 'href'
     anchor: DOMRect
   } | null>(null)
-  const [mathEdit, setMathEdit] = useState<{
-    latex: string
-    from: number
-    to: number
-    block: boolean
-    isNew: boolean
-    anchor: DOMRect
-  } | null>(null)
 
   // 草稿、文档名、frontmatter 一起恢复，避免刷新后元数据与文件名丢失
   const [initial] = useState(() => {
@@ -662,10 +653,9 @@ export default function App() {
   const workspaceRef = useRef<Workspace | null>(null)
   const openLinkRef = useRef<(anchor: HTMLAnchorElement, pos: number) => void>(() => {})
   const openLinkAtCursorRef = useRef<() => void>(() => {})
-  const mathEditRef = useRef<(position: number) => void>(() => {})
   const openMathAtCursorRef = useRef<(block: boolean) => void>(() => {})
-  const mathAnchorRef = useRef<DOMRect | null>(null)
-  const mathIsNewRef = useRef(false)
+  /** 公式插入/建块后立刻进就地编辑（位置 → 是否新建） */
+  const enterMathAtRef = useRef<(position: number, isNew: boolean) => void>(() => {})
   const toggleSourceRef = useRef<() => void>(() => {})
   const togglePreviewRef = useRef<() => void>(() => {})
   const switchViewRef = useRef<(next: 'edit' | 'source' | 'preview') => void>(() => {})
@@ -981,15 +971,14 @@ export default function App() {
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ strike: false }),
+      StarterKit.configure({ strike: false, codeBlock: false }),
       StrikeShortcut,
+      // 代码块换 NodeView：右上角显示语言、点开可换（第 91 轮 B2）；schema 名与 Markdown 序列化不变
+      SidelightCodeBlock,
       ResolvingImage.configure({ allowBase64: true }),
-      // 行内公式换成就地编辑的 NodeView（第 90 轮 A1）；块级仍用上游 NodeView + 浮层（B1 再改块内编辑）
+      // 行内公式就地编辑的 NodeView（第 90 轮 A1）；块级公式块内直接编辑 TeX + 实时预览（第 91 轮 B1）
       SidelightInlineMath,
-      BlockMath.configure({
-        // 点块级公式进编辑：位置交给节点自己报，比从 DOM 反推准
-        onClick: (_node, position) => mathEditRef.current(position),
-      }),
+      SidelightBlockMath,
       // 公式 atom 被选中时露出 `$…$` / `$$…$$` 源码（第 73 轮 B-156）：装饰只挂编辑视图
       mathReveal(),
       // `==高亮==` 的定界符随选区露出（第 74 轮 B2）：设置关时文档里没有 mark，装饰自然是空集
@@ -1017,7 +1006,7 @@ export default function App() {
       shortcutExtension,
       smartTypingExtension,
       MathInputRules.configure({
-        onBlockCreated: (position) => mathEditRef.current?.(position),
+        onBlockCreated: (position) => enterMathAtRef.current(position, true),
         onBlockedTable: () => show('表格单元格里不能放块级公式：Markdown 表格只装行内内容'),
       }),
       // emoji 短码（第 88 轮 B-106）：手打 `:smile:` 当场换成 😄（20 枚映射）。
@@ -5128,42 +5117,25 @@ export default function App() {
     }
   }, [editor])
 
-  // 点公式：就地展开成 $…$ 源码并全选，预览浮在下面（Typora 的做法）
+  // 公式建好后的就地编辑入口：位置可能差一格（块级节点前后边界），就近找那个数学节点
   useEffect(() => {
     if (!editor) return
-
-    mathEditRef.current = (position) => {
+    enterMathAtRef.current = (position, isNew) => {
       const view = editor.view
-      const { state } = view
-      // 位置可能差一格（块级节点前后边界），就近找那个数学节点
-      let node = state.doc.nodeAt(position)
-      if (!node || !node.type.name.toLowerCase().includes('math')) {
-        node = state.doc.nodeAt(position - 1) ?? state.doc.nodeAt(position + 1) ?? null
+      const size = view.state.doc.content.size
+      let hit: number | null = null
+      for (const candidate of [position, position - 1, position + 1]) {
+        if (candidate < 0 || candidate > size) continue
+        const node = view.state.doc.nodeAt(candidate)
+        if (node && node.type.name.toLowerCase().includes('math')) {
+          hit = candidate
+          break
+        }
       }
-      if (!node || !node.type.name.toLowerCase().includes('math')) return
-      const latex = String(node.attrs.latex ?? '')
-      const block = node.type.name === 'blockMath'
-
-      // 块级公式的 $$…$$ 会被扩展的输入规则立刻收成行内公式，
-      // 所以块级走「贴着公式的输入框」，行内走 Typora 那套就地展开。
-      const dom = view.nodeDOM(position)
-      let rect = dom instanceof HTMLElement ? dom.getBoundingClientRect() : null
-      if (!rect || (rect.width === 0 && rect.height === 0)) {
-        // 刚建出来的空公式没有尺寸，用光标位置兜底
-        const coords = view.coordsAtPos(Math.min(position + 1, state.doc.content.size))
-        rect =
-          mathAnchorRef.current ??
-          new DOMRect(coords.left, coords.top, 1, Math.max(1, coords.bottom - coords.top))
-      }
-      setMathEdit({
-        latex,
-        from: position,
-        to: position + node.nodeSize,
-        block,
-        isNew: mathIsNewRef.current,
-        anchor: rect,
-      })
-      mathIsNewRef.current = false
+      if (hit === null) return
+      if (enterMathEdit(view, hit, { isNew })) return
+      // NodeView 可能还没挂上（同一帧插入）：下一帧再试一次
+      requestAnimationFrame(() => enterMathEdit(view, hit as number, { isNew }))
     }
   }, [editor])
 
@@ -5175,13 +5147,8 @@ export default function App() {
       const { from } = editor.state.selection
       const node = editor.state.doc.nodeAt(from)
       if (node && node.type.name.toLowerCase().includes('math')) {
-        // 光标已在公式上：行内就地编辑（第 90 轮 A1），块级仍开浮层（B1 再做块内编辑）
-        if (node.type.name === 'inlineMath') {
-          enterMathEdit(editor.view, from, { isNew: false })
-          return
-        }
-        mathIsNewRef.current = false
-        mathEditRef.current(from)
+        // 光标已在公式上：行内/块级都进就地编辑（第 90 轮 A1 / 第 91 轮 B1）
+        enterMathEdit(editor.view, from, { isNew: false })
         return
       }
       // 块级公式（$$…$$）是块节点，Markdown 表格单元格装不进去：插入前就拦（第 48 轮）。
@@ -5190,70 +5157,20 @@ export default function App() {
         show('表格单元格里不能放块级公式：Markdown 表格只装行内内容')
         return
       }
-      const coords = editor.view.coordsAtPos(from)
-      mathAnchorRef.current = new DOMRect(
-        coords.left,
-        coords.top,
-        coords.right - coords.left,
-        coords.bottom - coords.top,
-      )
-      mathIsNewRef.current = true
-      // 行内不要 `focus()`：Tiptap 的 focus 命令在正文没有焦点时会再排一帧 `view.focus()`，
-      // 从工具栏点进来时它会把刚打开的输入框 blur 掉（空 atom 随即按取消被删）。
-      // 行内插入后直接进就地编辑；块级仍要聚焦正文，浮层锚点按它算。
-      const chain = editor.chain()
-      if (block) chain.focus()
-      chain.insertContent({ type: block ? 'blockMath' : 'inlineMath', attrs: { latex: '' } }).run()
+      // 不要 `focus()`：Tiptap 的 focus 命令在正文没有焦点时会再排一帧 `view.focus()`，
+      // 从工具栏点进来时它会把刚打开的就地输入框 blur 掉（空 atom 随即按取消被删）。
+      // 行内与块级插入后都直接进就地编辑（块级不再需要浮层锚点）。
+      editor
+        .chain()
+        .insertContent({ type: block ? 'blockMath' : 'inlineMath', attrs: { latex: '' } })
+        .run()
       const after = editor.state.selection.from
       for (const candidate of [after - 1, after, after - 2]) {
-        const hit = editor.state.doc.nodeAt(candidate)
-        if (hit && hit.type.name.toLowerCase().includes('math')) {
-          // 行内走就地编辑；进不去（例如 NodeView 还没挂上）才退回浮层，避免留下看不见的空 atom
-          if (hit.type.name === 'inlineMath' && enterMathEdit(editor.view, candidate, { isNew: true })) {
-            mathIsNewRef.current = false
-            return
-          }
-          mathEditRef.current(candidate)
-          return
-        }
+        if (enterMathEdit(editor.view, candidate, { isNew: true })) return
       }
+      requestAnimationFrame(() => enterMathAtRef.current(after, true))
     }
   }, [editor, viewMode, selectionInTable, show])
-
-  /**
-   * 公式就地编辑的唯一出口：提交（latex 非空换内容、空则保留公式块）与取消。
-   * 第 75 轮 A1：原来只 `focus()`、不回写选区，光标停在 atom 上是 NodeSelection，
-   * mathReveal 继续画 `$…$` / `$$…$$`，用户看到「取消后还是源码」。
-   * 现在提交走 mathInputSelection 落到公式后面，取消/清空走 closeMathEditTransaction。
-   */
-  const finishMathEdit = useCallback(
-    (mode: 'commit' | 'cancel') => {
-      if (!editor || !mathEdit) return
-      const view = editor.view
-      const { state } = view
-      const latex = mode === 'commit' ? mathEdit.latex.trim() : ''
-      let tr: Transaction
-      if (latex.length > 0) {
-        const type = mathEdit.block ? state.schema.nodes.blockMath : state.schema.nodes.inlineMath
-        tr = state.tr.replaceWith(mathEdit.from, mathEdit.to, type.create({ latex }))
-        tr.setSelection(mathInputSelection(tr.doc, mathEdit.from))
-      } else {
-        // 内容为空时保留这个公式块：刚打 $$ 回车建出来就被失焦删掉，用户会以为没生效
-        tr = closeMathEditTransaction(state, {
-          from: mathEdit.from,
-          to: mathEdit.to,
-          remove: mode === 'cancel' && mathEdit.isNew,
-        })
-      }
-      view.dispatch(tr)
-      setMathEdit(null)
-      // 只把焦点交回正文；选区已经由上面的事务定好，focus 不改它
-      editor.commands.focus()
-    },
-    [editor, mathEdit],
-  )
-
-  const applyMath = useCallback(() => finishMathEdit('commit'), [finishMathEdit])
 
   const applyLink = useCallback(() => {
     if (!editor || !linkEdit) return
@@ -6274,17 +6191,6 @@ export default function App() {
             setLinkEdit(null)
             editor?.commands.focus()
           }}
-        />
-      )}
-
-      {mathEdit && (
-        <MathInlineEditor
-          anchor={mathEdit.anchor}
-          latex={mathEdit.latex}
-          display={mathEdit.block}
-          onChange={(latex) => setMathEdit({ ...mathEdit, latex })}
-          onCommit={applyMath}
-          onCancel={() => finishMathEdit('cancel')}
         />
       )}
 
