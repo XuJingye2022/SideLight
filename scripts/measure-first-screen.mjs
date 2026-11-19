@@ -5,8 +5,8 @@
 //         --max 硬线（默认 320000，超了 exit 1）。
 // 用法：node scripts/measure-first-screen.mjs [--dir dist] [--max 320000] [--target 310000]
 // 只读产物，不构建；超硬线 exit 1，首屏集合里出现 katex / lazy chunk 也 exit 1。
-// 口径不含启动后立刻动态 import 的常驻 chunk（如 MarginRail-*.js，gzip 2,327 B，第 43 轮实测），
-// 实际首载 ≈ total + 2,327 B。
+// 口径不含启动后立刻动态 import 的常驻 chunk（如 MarginRail-*.js，gzip 6,489 B，第 101 轮实测；
+// 第 100 轮 5,593 B、第 43 轮 2,327 B），实际首载 ≈ total + 6,489 B。
 import { readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { gzipSync } from 'node:zlib'

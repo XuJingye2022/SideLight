@@ -1329,7 +1329,8 @@ button:disabled {
 /* 第 100 轮 B-227：与打开时相比的只读 diff。入口是 .rail-head 末尾的 16px 小钮：
    不给 .rail-head / .rail-tabs 加规则，头高（空态 15 / 带卡 16）与底差 39 都不动。
    面板走 portal 挂 body，这里的定位独立于 .margin-rail */
-.rail-diff-open {
+.rail-diff-open,
+.rail-review-open {
   flex: none;
   margin-left: auto;
   height: 16px;
@@ -1343,6 +1344,12 @@ button:disabled {
 
 /* .rail-count 在左边已经 margin-left:auto 顶开：两个 auto 会各分一半空位，这里退掉 */
 .rail-count ~ .rail-diff-open {
+  margin-left: 0;
+}
+
+/* 第 101 轮 B-228：两钮只在批注页签共现、「对比」恒在前，所以「在审」的 auto 退掉、贴着右缘；
+   不用 .rail-count ~：没有计数（空态）时它不命中，两钮的 auto 会把「对比」挤离右缘 */
+.rail-diff-open ~ .rail-review-open {
   margin-left: 0;
 }
 
@@ -1435,6 +1442,37 @@ button:disabled {
 .rail-diff-row.is-removed {
   background: var(--mark-wash);
   color: var(--warn);
+}
+
+/* 第 101 轮 B-228：在审文件列表的一行（ul/li 复用 .rail-diff-rows，行内是整行按钮）。
+   3 组新规则；计数沿用 .rail-diff-count 的 margin-left:auto 顶到右侧 */
+.rail-review-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+  color: var(--ink);
+}
+
+/* 全局 button:hover 的优先度更高（0,2,1）：加一层 .rail-diff-rows 才轮到这里。
+   当前行与 hover 同色（就是全局按钮 hover 那对 token，对比度已有门），一眼能认出正在看的这篇 */
+.rail-diff-rows .rail-review-row:hover,
+.rail-review-row.is-current {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+.rail-review-row > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 对话页签（第 96 轮 B-223）：头部 + 消息记录 + 输入 + 发送 / 生成批注 */

@@ -6012,6 +6012,16 @@ export default function App() {
                   const before = openedBaselineRef.current
                   return before === null ? null : { before, after: contentRef.current() }
                 }}
+                // 第 101 轮 B-228：在审文件列表按当前工作区现读批注档；null = 没打开文件夹
+                getReviewWorkspace={() => workspaceRef.current}
+                activePath={activeFile?.path ?? null}
+                onOpenReviewFile={(path) => {
+                  const node = flattenFiles(workspaceRef.current?.root ?? null).find((file) => file.path === path)
+                  if (!node) return
+                  // 点的就是当前这篇：面板已经关了，不整篇重读重解析（第 60 轮 B-127 的同篇短路）
+                  if (fileRef.current?.path === path) return
+                  void openWorkspaceFile(node)
+                }}
                 canGenerate={viewMode === 'edit'}
                 onGenerateNotes={(instruction) => {
                   // 先切回「批注」页签：批注卡落在那边，留在对话页会看不见结果

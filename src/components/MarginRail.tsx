@@ -18,7 +18,9 @@ import {
 import { appendDelta, buildChatMessages, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import { diffView, type DiffViewResult } from '../lib/diffView.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
+import { collectReviewFiles, type ReviewFilesResult } from '../lib/reviewFiles.ts'
 import type { Settings } from '../lib/settings.ts'
+import { flattenFiles, relativePath, type Workspace } from '../lib/workspace.ts'
 import { InlineText } from './InlineText.tsx'
 import { useDialogFocus } from './useDialogFocus.ts'
 
@@ -48,6 +50,12 @@ type Props = {
    * 返回 null 表示这篇还没有可对比的正文（宿主正文取不到等）
    */
   getDiff: () => { before: string; after: string } | null
+  /** 「在审文件」面板取当前工作区（null = 没打开文件夹，第 101 轮 B-228） */
+  getReviewWorkspace: () => Workspace | null
+  /** 当前打开的文档路径：面板给这一行标 aria-current */
+  activePath: string | null
+  /** 点一行：App 找节点并打开；同篇只关面板不重载 */
+  onOpenReviewFile: (path: string) => void
   /** 「生成批注」：把输入框里这句话交给 App 跑一次分析 */
   onGenerateNotes: (instruction: string) => void
   /** 只有编辑视图能生成批注：源码 / 预览态下批注落不进正文 */
@@ -111,6 +119,9 @@ export function MarginRail({
   docName,
   getChatContext,
   getDiff,
+  getReviewWorkspace,
+  activePath,
+  onOpenReviewFile,
   onGenerateNotes,
   canGenerate,
 }: Props) {
@@ -236,6 +247,65 @@ export function MarginRail({
   const markOf = (kind: 'same' | 'added' | 'removed') =>
     kind === 'added' ? '+' : kind === 'removed' ? '−' : ' '
 
+  /* ---------- 「在审文件」只读面板（第 101 轮 B-228） ---------- */
+
+  const [reviewOpen, setReviewOpen] = useState(false)
+  const [reviewData, setReviewData] = useState<ReviewFilesResult | null>(null)
+  /** 没有工作区：与「有工作区但一篇批注也没有」给不同提示 */
+  const [reviewNoWorkspace, setReviewNoWorkspace] = useState(false)
+  const [reviewBusy, setReviewBusy] = useState(false)
+  const reviewSheetRef = useRef<HTMLDivElement | null>(null)
+  /** 连点两次只认最后一次的扫描结果 */
+  const reviewRunRef = useRef(0)
+  const reviewActive = reviewOpen && railTab === 'notes'
+  useDialogFocus(reviewActive, reviewSheetRef, '.rail-review-overlay', railTab === 'notes')
+
+  // 面板只挂在「批注」页签上：切到对话页签就收掉
+  useEffect(() => {
+    if (railTab !== 'notes') setReviewOpen(false)
+  }, [railTab])
+
+  // App 的 Esc 链挂在 window 上：在 document 就停掉冒泡，一次按键只关面板
+  useEffect(() => {
+    if (!reviewActive) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setReviewOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [reviewActive])
+
+  const closeReview = () => {
+    reviewRunRef.current += 1
+    setReviewOpen(false)
+    setReviewBusy(false)
+    setReviewData(null)
+    setReviewNoWorkspace(false)
+  }
+
+  /** 点入口才现读：批注档在磁盘上，面板里的 open 数永远是这一刻的 */
+  const openReview = async () => {
+    setReviewOpen(true)
+    setReviewData(null)
+    setReviewNoWorkspace(false)
+    setReviewBusy(true)
+    const run = reviewRunRef.current + 1
+    reviewRunRef.current = run
+    try {
+      const workspace = getReviewWorkspace()
+      if (!workspace) {
+        if (reviewRunRef.current === run) setReviewNoWorkspace(true)
+        return
+      }
+      const result = await collectReviewFiles(workspace, flattenFiles(workspace.root))
+      if (reviewRunRef.current === run) setReviewData(result)
+    } finally {
+      if (reviewRunRef.current === run) setReviewBusy(false)
+    }
+  }
+
   const overall = docNotes.filter((note) => note.kind === 'overall')
   const unresolvedNotes = docNotes.filter((note) => note.kind === 'unresolved')
 
@@ -261,6 +331,18 @@ export function MarginRail({
             onClick={openDiff}
           >
             对比
+          </button>
+        )}
+        {/* 第 101 轮 B-228：「在审文件」。跟在「对比」后面，右缘贴着 head 右缘；两钮间距 7px 走 .rail-head 的 gap */}
+        {railTab === 'notes' && (
+          <button
+            type="button"
+            className="rail-review-open"
+            aria-haspopup="dialog"
+            title="在审文件"
+            onClick={() => void openReview()}
+          >
+            在审
           </button>
         )}
       </div>
@@ -680,6 +762,78 @@ export function MarginRail({
                     {diffData.rows.map((row, index) => (
                       <li key={index} className={`rail-diff-row is-${row.kind}`}>
                         {`${markOf(row.kind)} ${row.text || ' '}`}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {/* 第 101 轮 B-228：在审文件列表（只读）。复用 diff 面板的外壳与行样式：
+          同一套 80vh / 60vh 上限、同一套关闭语义，省一遍样式与焦点代码 */}
+      {reviewActive &&
+        createPortal(
+          <div
+            className="rail-diff-overlay rail-review-overlay"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) closeReview()
+            }}
+          >
+            <div
+              className="rail-diff-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="rail-review-title"
+              tabIndex={-1}
+              ref={reviewSheetRef}
+            >
+              <div className="rail-diff-head">
+                <span className="rail-diff-title" id="rail-review-title">
+                  在审文件
+                </span>
+                <span>按 open 数排序</span>
+                <button
+                  type="button"
+                  className="rail-diff-close"
+                  aria-label="关闭在审文件"
+                  onClick={closeReview}
+                >
+                  ×
+                </button>
+              </div>
+              {reviewBusy ? (
+                <p className="rail-diff-empty">正在读…</p>
+              ) : reviewNoWorkspace ? (
+                <p className="rail-diff-empty">先点「打开文件夹」，才能看到在审文件。</p>
+              ) : reviewData === null || reviewData.rows.length === 0 ? (
+                <p className="rail-diff-empty">还没有在审的文件：有批注的文件会出现在这里。</p>
+              ) : (
+                <>
+                  {reviewData.capped && (
+                    <p className="rail-diff-empty">文件太多，只扫了前 {reviewData.scanned} 篇。</p>
+                  )}
+                  {reviewData.truncated && (
+                    <p className="rail-diff-empty">在审文件太多，只显示前 {reviewData.rows.length} 篇。</p>
+                  )}
+                  <ul className="rail-diff-rows">
+                    {reviewData.rows.map((row) => (
+                      <li key={row.path}>
+                        <button
+                          type="button"
+                          className={row.path === activePath ? 'rail-review-row is-current' : 'rail-review-row'}
+                          aria-current={row.path === activePath ? 'true' : undefined}
+                          title={row.path}
+                          onClick={() => {
+                            closeReview()
+                            onOpenReviewFile(row.path)
+                          }}
+                        >
+                          <span>{relativePath(row.path)}</span>
+                          <span className="rail-diff-count">{`open ${row.open} · 共 ${row.total} 条`}</span>
+                        </button>
                       </li>
                     ))}
                   </ul>

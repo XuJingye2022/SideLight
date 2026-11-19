@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–100 轮，未发版）
+## Unreleased（第 29–101 轮，未发版）
+
+**第 101 轮（同一未发版区间）**
+
+- 在审文件列表数据层（A1，B-228，用户 2026-11-20 队列第 8 条）：新 `src/lib/reviewFiles.ts`——`collectReviewFiles(workspace, files, {maxFiles=200,maxRows=50})` 只读扫描每篇的 `.sidelight/annotations/<cacheKey>.json`，返回 `{rows:[{path,name,open,total}], scanned, capped, truncated}`；在审 = 有批注档且 `annotations` 非空（只有 notes 不入列），open 只算 `reviewStatusOf === 'open'`（旧档走 `legacyReviewStatus` 迁移），其余三档只进 total；`parentDirectory` 拿不到或抛错、坏档都跳过该文件，绝不 create / write；同目录只解析一次；open 降序、同数 path 升序（码点序）；超 maxFiles 置 `capped`、超 maxRows 置 `truncated`。`reviewFiles.test.ts` **13 条**挂 `npm test` 链尾（60→**61 文件**、848→**861 条**）。
+- 接线（A2）：`MarginRail.tsx` 的 `.rail-head` 末尾加 16px「在审」入口（仅批注页签、`aria-haspopup="dialog"`；位置靠 `.rail-diff-open ~ .rail-review-open{margin-left:0}`，不用 `.rail-count ~`），`createPortal` 只读面板复用 diff 外壳（`rail-diff-overlay rail-review-overlay` + `rail-diff-sheet[role=dialog][aria-modal]`、`aria-labelledby="rail-review-title"`），行复用 `ul.rail-diff-rows` 内的 `li > button.rail-review-row`（relativePath + `open N · 共 M 条` + `aria-current`），提示四支（无工作区 / 无批注 / capped / truncated）与 busy「正在读…」；Esc 在 document 层 `stopPropagation`，关闭钮 + 背板 + `useDialogFocus`；`App.tsx` 只加 `getReviewWorkspace` / `activePath` / `onOpenReviewFile`（同篇短路，不重载）；`styles.css` 只加 4 组新规则（`.rail-review-row` 3 组 + 兄弟 margin 1 组），`.rail-review-open` 并入 `.rail-diff-open` 块；`scripts/measure-first-screen.mjs:8-9` 的 chunk 注释 2,327 → **6,489**（第 100 轮 5,593）。
+- 门禁与验收：首屏门 gzip **315,146 B**（基线 315,022，净 **+124 B**、距硬线 320,000 余 4,854；`--max 316000` exit 0）；常驻 `MarginRail` 懒 chunk gzip **5,593 → 6,489**（+896，门槛 5,593+1,500 内），真实首载 **321,635 B**（超硬线 1,635 B、比改前 320,615 +1,020）——口径问题记 **B-229** 交 lead。executor 自验（本轮 A3 并入执行批）：自写 `.tmp/e2e-r101-review.mjs`（ego CDP 57270、1440×900、假 FSA）**57/57**、0 pageerror（`.tmp/r101-e2e-review.json`）：入口/面板语义、2 行（a open 2 / 共 3、sub/b open 1 / 共 2）、当前行 `aria-current`、点行切文档 parse +1、点当前行 parse 不变、三路关闭 + 焦点还原 + `[inert]`、⑭ 有/无 `.rail-count` 在审右缘 = head 右缘（1286/1286、1291/1291）且两钮间距 7、注入错误规则后「对比」被挤左 99.6 px、⑮ 51 篇 → 50 行 + truncated + 滚到底末行完整 + sheet 655.8 ≤ 720、1024 抽屉无横溢、两种空态；回归 `.tmp/e2e-r97-a1-status.mjs` **44/44**、`.tmp/e2e-r100-diff.mjs` **43/43**；`npm test` **61 文件 861 条 0 fail**。未跑 roundtrip（只改 `MarginRail` / `App` 接线 / CSS，未碰编辑器与序列化）。tester 第 101 轮独立验收（未读 `impl.md`）：自写数据层探针 **6/6**（旧档迁移 / notes-only / `parentDirectory` 抛错 / 201 篇 capped / 同目录一次 / open 降序）、自写 E2E **44/44**、0 pageerror（ego CDP 57270，1440×900 与 1024×700；⑭ 无 / 有 `.rail-count` 在审右缘 delta **0**、两钮间距 **7**、强制 `margin-left:auto` 对照「对比」左移 **84.3 px**；⑮ 51 篇 → 50 行 + truncated + 滚到底末行完整 + sheet 655.8 ≤ 720），回归 `.tmp/e2e-r97-a1-status.mjs` **44/44** + `.tmp/e2e-r100-diff.mjs` **43/43**；`npm test` **61 文件 861 条 0 fail**、`verify` gzip **315,146 B**、`--max 316000` PASS；判 **PASS**。见 `docs/iteration/round-101/test.md`。
 
 **第 100 轮（同一未发版区间）**
 
