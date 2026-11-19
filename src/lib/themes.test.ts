@@ -206,3 +206,37 @@ test('批注四态字色与底色在三套主题下都 ≥4.5:1（第 97 轮 B-2
   // 12 对全算过：四态或主题数被改少时这里先红
   assert.equal(table.length, 12, table.join(' '))
 })
+
+test('对话输入框有主题配色，三套主题下字色 / 边框色都过 AA（第 106 轮 B-235）', () => {
+  const declarations = ruleDeclarations('.rail-chat-compose textarea')
+  assert.equal(declarations.color, 'var(--ink)', '输入框字色应吃 --ink')
+  assert.equal(declarations.background, 'var(--panel)', '输入框底色应吃 --panel')
+  assert.equal(declarations.border, '1px solid var(--line-input)', '输入框边框应是 1px solid --line-input')
+  assert.equal(declarations['border-radius'], '8px', '输入框圆角应与其他输入框同为 8px')
+  // 边框是整串，先拆出宽度与颜色：resolveColor 只认 var(--x) 与 color-mix
+  const border = /^1px solid var\((--[\w-]+)\)$/.exec(declarations.border)
+  assert.ok(border, `边框写法认不出：${declarations.border}`)
+
+  const themes: [string, string][] = [
+    ['浅色', ':root'],
+    ['暖纸', "html[data-theme='sepia']"],
+    ['深色', "html[data-theme='dark']"],
+  ]
+  const table: string[] = []
+  for (const [name, selector] of themes) {
+    const vars = cssVars(selector)
+    const pairs: [string, string, number][] = [
+      ['字色', declarations.color, 4.5],
+      ['边框', `var(${border[1]})`, 3.0],
+    ]
+    for (const [label, foreground, min] of pairs) {
+      const ratio = contrastRatio(resolveColor(foreground, vars), resolveColor(declarations.background, vars))
+      table.push(`${name}/${label}=${ratio.toFixed(2)}`)
+      assert.ok(ratio >= min, `${name}的输入框${label}对底色只有 ${ratio.toFixed(3)}:1，低于 ${min}`)
+    }
+  }
+  // 三套主题 × 两对 = 6 对：主题少了或某一对被删这里先红
+  assert.equal(table.length, 6, table.join(' '))
+  // 口径：只保证内侧邻色（填充 --panel）；.margin-rail 本身没有底色、落到 --paper，
+  // 外侧那一对不在本门内（第 106 轮 CR-3），改填充或给 rail 加底色时这里不响。
+})

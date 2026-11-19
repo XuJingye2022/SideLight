@@ -1558,6 +1558,10 @@ button:disabled {
   min-width: 0;
   padding: 6px 8px;
   font-size: 13px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line-input);
+  border-radius: 8px;
   resize: none;
 }
 

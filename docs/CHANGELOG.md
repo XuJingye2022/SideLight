@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–105 轮，未发版）
+## Unreleased（第 29–106 轮，未发版）
+
+**第 106 轮（同一未发版区间）**
+
+- 对话输入框补主题配色（A1，B-235，用户 2026-11-20 队列「对话区」的残留）：`src/styles.css:1561-1564` 给 `.rail-chat-compose textarea` 插 4 条声明 `color: var(--ink)` / `background: var(--panel)` / `border: 1px solid var(--line-input)` / `border-radius: 8px`（原 5 条声明不动）；三主题 computed light rgb(241,238,230)/rgb(29,32,35)/rgb(133,137,140)、dark rgb(25,28,32)/rgb(233,230,224)/rgb(107,113,120)、sepia rgb(239,226,201)/rgb(58,47,33)/rgb(138,122,98)，ink/panel 14.12/13.73/10.19、line-input/panel 3.04/3.25/3.47（浅色 3.04 余量薄，按计划保留 `--line-input`）。
+- 机械漂移门（A2）：`themes.test.ts` 追加 1 个 test（4 条声明 + 三主题 6 对对比度 + pair 数=6，复用现成 `ruleDeclarations`/`cssVars`/`resolveColor`/`contrastRatio`，无新依赖）。正向对照：border 临时改 `var(--line)` → 红；整文件还原后 SHA256 相同、11/11 绿。
+- 门禁与验收：首屏门 gzip **315,158 B**（改前 315,153，+5；`--max 315300` exit 0、余硬线 4,842）；`MarginRail-*.js` gzip9 **6,762** 不变，真实首载 **321,920**（超硬线 1,920，**B-229 仍 open**，只记）；`npm test` **61 文件 869 条 0 fail**（+1）。tester 独立（未读 `impl.md`）：`git diff` styles.css 4+/0−；自写 E2E `.tmp/r106-tester-e2e.mjs` **47/47**、0 pageerror（ego CDP 57270、1440×900）：三主题逐值、半径 8px、CSSOM 改前/改后尺寸差 **0 px**、发送钮仍在第二行、rail 横溢 0、聚焦仍 2px outline 且 border 仍是 `--line-input`、fill/Shift+Enter/Enter 真交互、1024×700 抽屉横溢 0；回归 `.tmp/e2e-r96-a1-chat.mjs` **33/33**（跑完还原 `shots/round-96/rail-chat.png`）；截图 `shots/round-106/chat-input-dark.png`。见 `docs/iteration/round-106/test.md`。
 
 **第 105 轮（同一未发版区间）**
 
