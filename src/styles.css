@@ -1326,6 +1326,117 @@ button:disabled {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
+/* 第 100 轮 B-227：与打开时相比的只读 diff。入口是 .rail-head 末尾的 16px 小钮：
+   不给 .rail-head / .rail-tabs 加规则，头高（空态 15 / 带卡 16）与底差 39 都不动。
+   面板走 portal 挂 body，这里的定位独立于 .margin-rail */
+.rail-diff-open {
+  flex: none;
+  margin-left: auto;
+  height: 16px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-size: 10.5px;
+  line-height: 1;
+  color: var(--ink-soft);
+}
+
+/* .rail-count 在左边已经 margin-left:auto 顶开：两个 auto 会各分一半空位，这里退掉 */
+.rail-count ~ .rail-diff-open {
+  margin-left: 0;
+}
+
+.rail-diff-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(18, 20, 22, 0.32);
+}
+
+.rail-diff-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: 80vh;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--paper-raised);
+  box-shadow: 0 18px 48px var(--shadow);
+  font-size: var(--text-xs);
+  color: var(--ink);
+}
+
+.rail-diff-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-faint);
+}
+
+.rail-diff-title {
+  font-family: var(--font-read);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.rail-diff-count {
+  margin-left: auto;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.rail-diff-close {
+  flex: none;
+  padding: 0 6px;
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--ink-faint);
+}
+
+.rail-diff-empty {
+  margin: 16px 0;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.rail-diff-rows {
+  flex: 1;
+  min-height: 0;
+  max-height: 60vh;
+  margin: 10px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.rail-diff-row {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rail-diff-row.is-added {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+.rail-diff-row.is-removed {
+  background: var(--mark-wash);
+  color: var(--warn);
+}
+
 /* 对话页签（第 96 轮 B-223）：头部 + 消息记录 + 输入 + 发送 / 生成批注 */
 .rail-chat-head {
   display: flex;

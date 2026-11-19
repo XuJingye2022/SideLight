@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { errorCopy, streamChat } from '../lib/ai.ts'
 import {
@@ -15,9 +16,11 @@ import {
   type ReviewStatus,
 } from '../lib/annotations.ts'
 import { appendDelta, buildChatMessages, pushTurn, type ChatTurn } from '../lib/chat.ts'
+import { diffView, type DiffViewResult } from '../lib/diffView.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
 import type { Settings } from '../lib/settings.ts'
 import { InlineText } from './InlineText.tsx'
+import { useDialogFocus } from './useDialogFocus.ts'
 
 type Props = {
   annotations: Annotation[]
@@ -40,6 +43,11 @@ type Props = {
   docName: string
   /** 取当前正文，拼进 system 的节选（截断在 chat.ts） */
   getChatContext: () => string
+  /**
+   * 「与打开时相比」的一对正文（第 100 轮 B-227）。面板点开时才调，换文档后 App 那边会换基线；
+   * 返回 null 表示这篇还没有可对比的正文（宿主正文取不到等）
+   */
+  getDiff: () => { before: string; after: string } | null
   /** 「生成批注」：把输入框里这句话交给 App 跑一次分析 */
   onGenerateNotes: (instruction: string) => void
   /** 只有编辑视图能生成批注：源码 / 预览态下批注落不进正文 */
@@ -102,6 +110,7 @@ export function MarginRail({
   settings,
   docName,
   getChatContext,
+  getDiff,
   onGenerateNotes,
   canGenerate,
 }: Props) {
@@ -193,6 +202,40 @@ export function MarginRail({
     onGenerateNotes(instruction)
   }
 
+  /* ---------- 「与打开时相比」的只读 diff 面板（第 100 轮 B-227） ---------- */
+
+  /** null = 面板关着；'none' = 这篇没有可对比的正文；其余是算好的行 */
+  const [diffData, setDiffData] = useState<DiffViewResult | 'none' | null>(null)
+  const diffSheetRef = useRef<HTMLDivElement | null>(null)
+  /** 面板只挂在「批注」页签上；切到对话页签就关，useDialogFocus 也随之走清理 */
+  const diffOpen = diffData !== null && railTab === 'notes'
+  useDialogFocus(diffOpen, diffSheetRef, '.rail-diff-overlay', railTab === 'notes')
+
+  useEffect(() => {
+    if (railTab !== 'notes') setDiffData(null)
+  }, [railTab])
+
+  // App 的 Esc 链挂在 window 上：在 document 就停掉冒泡，一次按键只关面板
+  useEffect(() => {
+    if (!diffOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setDiffData(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [diffOpen])
+
+  /** 点入口才现算：面板里的行永远是「这一刻的正文 vs 打开时」 */
+  const openDiff = () => {
+    const pair = getDiff()
+    setDiffData(pair === null ? 'none' : diffView(pair.before, pair.after))
+  }
+
+  const markOf = (kind: 'same' | 'added' | 'removed') =>
+    kind === 'added' ? '+' : kind === 'removed' ? '−' : ' '
+
   const overall = docNotes.filter((note) => note.kind === 'overall')
   const unresolvedNotes = docNotes.filter((note) => note.kind === 'unresolved')
 
@@ -206,6 +249,18 @@ export function MarginRail({
         {onClose && (
           <button type="button" className="rail-close" onClick={onClose} aria-label="关闭批注">
             ×
+          </button>
+        )}
+        {/* 第 100 轮 B-227：只在批注页签给入口。16px 高、别动 .rail-head 的盒模型 */}
+        {railTab === 'notes' && (
+          <button
+            type="button"
+            className="rail-diff-open"
+            aria-haspopup="dialog"
+            title="与打开时相比"
+            onClick={openDiff}
+          >
+            对比
           </button>
         )}
       </div>
@@ -575,6 +630,65 @@ export function MarginRail({
           </button>
         </div>
       </div>
+
+      {/* 第 100 轮 B-227：面板挂到 body（栏里卡片是绝对定位，塞进 .margin-rail 流会被压）。
+          只读：没有输入框、没有可编辑区，也不碰正文与批注 */}
+      {diffData !== null &&
+        railTab === 'notes' &&
+        createPortal(
+          <div
+            className="rail-diff-overlay"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setDiffData(null)
+            }}
+          >
+            <div
+              className="rail-diff-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="rail-diff-title"
+              tabIndex={-1}
+              ref={diffSheetRef}
+            >
+              <div className="rail-diff-head">
+                <span className="rail-diff-title" id="rail-diff-title">
+                  改动对比
+                </span>
+                <span>与打开时相比</span>
+                {diffData !== 'none' && (diffData.added > 0 || diffData.removed > 0) && (
+                  <span className="rail-diff-count">
+                    +{diffData.added} −{diffData.removed} 行
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="rail-diff-close"
+                  aria-label="关闭对比"
+                  onClick={() => setDiffData(null)}
+                >
+                  ×
+                </button>
+              </div>
+              {diffData === 'none' ? (
+                <p className="rail-diff-empty">这篇还没有可对比的正文。</p>
+              ) : diffData.added === 0 && diffData.removed === 0 ? (
+                <p className="rail-diff-empty">与打开时相比，没有改动。</p>
+              ) : (
+                <>
+                  {diffData.truncated && <p className="rail-diff-empty">改动太多，只显示前 400 行。</p>}
+                  <ul className="rail-diff-rows">
+                    {diffData.rows.map((row, index) => (
+                      <li key={index} className={`rail-diff-row is-${row.kind}`}>
+                        {`${markOf(row.kind)} ${row.text || ' '}`}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </aside>
   )
 }

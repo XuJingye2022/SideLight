@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–99 轮，未发版）
+## Unreleased（第 29–100 轮，未发版）
+
+**第 100 轮（同一未发版区间）**
+
+- 行差对比纯函数（A1，B-227，用户 2026-11-20 队列第 7 条）：新 `src/lib/diffView.ts`——`diffView(before, after, {context=2,maxRows=400,maxLine=500})` 只调 `diff.ts` 的 `diffLines`，返回 `{rows, added, removed, truncated}`；每处改动前后各留 context 行、重叠窗口合并、同一行只出一次；`added`/`removed` 始终按全文算；单行超 maxLine 截到 500 字 +「…」；超 maxRows 只留前段并置 `truncated`；>4,000 行走 `diff.ts` 粗粒度分支。`diffView.test.ts` **14 条**挂 `npm test` 链尾（59→**60 文件**、834→**848 条**）。未改 `diff.ts`、不加依赖。
+- 接线（A2）：`MarginRail.tsx` 的 `.rail-head` 末尾加 16px 高「对比」入口（仅批注页签、`aria-haspopup="dialog"`），`createPortal` 只读面板 `.rail-diff-overlay` + `.rail-diff-sheet[role=dialog][aria-modal]`（`+added −removed 行`、`li.rail-diff-row.is-same|.is-added|.is-removed`、三支空态、Esc/关闭钮/背板关闭、`useDialogFocus` 还原焦点）；`App.tsx` 只加 `openedBaselineRef`（载入/新建时写、保存与自动保存不动）与 `getDiff` prop；`styles.css` 只追加 `.rail-diff-*`（**13 组**），不动 `.rail-head`/`.rail-tabs` 规则块。
+- 门禁与验收：首屏 gzip **315,022 B**（planner 314,726 → 净 **+296 B**，距硬线 320,000 余 4,978；`--max 315500` exit 0）。tester 独立（未读 `impl.md`）自写 `.tmp/e2e-r100-diff.mjs`（ego CDP 57270、1440×900、假 FSA、默认 `autoSave:true`）**43/43**、0 pageerror：改动后面板 **+3 −1**（removed 1 / added 3 / same 4）、0 可编辑控件、三封闭合路径 + 焦点回入口 + `[inert]` 0、自动保存后不清零、重开文件空态、开/关 0 解析/0 写盘、1440/1024 无横溢、三主题对比度 5.11–7.67、1 MB 面板 rows **400** + 截断提示（耗时 93 ms 只记录）；回归 `.tmp/e2e-r97-a1-status.mjs` **44/44**、`.tmp/r98-tester-agent.mjs` **38/38**；`npm test` 60 文件 848 条 0 fail。见 `docs/iteration/round-100/test.md`。
 
 **第 99 轮（同一未发版区间）**
 

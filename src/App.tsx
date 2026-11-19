@@ -654,6 +654,11 @@ export default function App() {
   }, [])
   /** 保存基线：当前正文与它不等才算脏；载入、保存成功、草稿恢复时更新 */
   const baselineRef = useRef<string | null>(null)
+  /**
+   * 「与打开时相比」的基线（第 100 轮 B-227）：只在载入/新建时更新，保存与自动保存都不动它。
+   * 面板按它算 diff；重新打开同一文件后清零，所以再开面板是空态。
+   */
+  const openedBaselineRef = useRef<string | null>(null)
   /** 另存为拿到的落点：第二次保存直接写它，不再弹选择器 */
   const saveTargetRef = useRef<FileWriteTarget | null>(null)
   /** 磁盘上现在是什么（第 51 轮 F1）：对得上就不整篇读回旧文件；null 表示不知道 */
@@ -1353,6 +1358,8 @@ export default function App() {
       footnotes: initial.footnotes,
       original: raw,
     }).replace(/\r\n/g, '\n')
+    // 「与打开时相比」的基线同值：草稿恢复也算「打开时」
+    openedBaselineRef.current = baselineRef.current
     if (import.meta.env.DEV) performance.mark('sl-serialize-done')
     saveTargetRef.current = null
     setDirty(false)
@@ -1398,14 +1405,14 @@ export default function App() {
       rememberDisk(null)
       eolRef.current = data.eol === 'crlf' ? 'crlf' : 'lf'
       // 载入即存在的结构损失才算基线；之后只拦仍命中同一结构位置的
-      baselineLossesRef.current = baselineLosses(
-        data.text,
-        serializeDocument(editor, {
-          frontmatter: split.frontmatter,
-          footnotes: footnoteSplit.footnotes,
-          original: data.text,
-        }),
-      )
+      // 「与打开时相比」的基线也要本轮序列化结果：宿主原文与序列化结果可能差几行（第 100 轮 P1-1）
+      const hostSerialized = serializeDocument(editor, {
+        frontmatter: split.frontmatter,
+        footnotes: footnoteSplit.footnotes,
+        original: data.text,
+      })
+      openedBaselineRef.current = hostSerialized.replace(/\r\n/g, '\n')
+      baselineLossesRef.current = baselineLosses(data.text, hostSerialized)
       setRisks(lossLabels(baselineLossesRef.current))
       setDocName(data.fileName ?? docNameRef.current)
       docNameRef.current = data.fileName ?? docNameRef.current
@@ -1463,6 +1470,8 @@ export default function App() {
       setHostDoc(null)
       setMarkdown('')
       baselineRef.current = ''
+      // 没有正文就没有可比对的基线：diff 面板走「这篇还没有可对比的正文。」
+      openedBaselineRef.current = ''
       setOriginalText('')
       // 宿主正文取不到：磁盘现状也一并作废
       rememberDisk(null)
@@ -2592,6 +2601,8 @@ export default function App() {
       setRisks(lossLabels(baselineLossesRef.current))
       // 基线用序列化结果：撤销回到载入态时应当刚好等于它
       baselineRef.current = serialized.replace(/\r\n/g, '\n')
+      // 「与打开时相比」的基线同值：打开、新建、草稿恢复都走这个函数（第 100 轮 B-227）
+      openedBaselineRef.current = baselineRef.current
       setDocName(name)
       setActiveFile(file)
       cancelAutoSaveRef.current()
@@ -5996,6 +6007,11 @@ export default function App() {
                 docName={docName}
                 // 节选与截断都在 chat.ts：这里只把正文拼成一段纯文本，编辑器不在就给空串
                 getChatContext={() => (editor ? readBlocks(editor).map((block) => block.text).join('\n\n') : '')}
+                // 第 100 轮 B-227：getDiff 按需给「打开时正文 → 当前正文」；没载入过就 null
+                getDiff={() => {
+                  const before = openedBaselineRef.current
+                  return before === null ? null : { before, after: contentRef.current() }
+                }}
                 canGenerate={viewMode === 'edit'}
                 onGenerateNotes={(instruction) => {
                   // 先切回「批注」页签：批注卡落在那边，留在对话页会看不见结果
