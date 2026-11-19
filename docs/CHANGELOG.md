@@ -2,7 +2,12 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–104 轮，未发版）
+## Unreleased（第 29–105 轮，未发版）
+
+**第 105 轮（同一未发版区间）**
+
+- 全部结项的文档不再算「在审」（P2，B-234，用户 2026-11-20 队列第 8 条残留）：`src/lib/reviewFiles.ts` 加 `hasUnclosedReview`（open 或 in-progress 才算未结项，复用 `annotations.ts` 的 `isClosedReview`），`collectReviewFiles` 的入列判定由「有批注档且 `annotations` 非空」改成「至少一条未结项」——全 resolved / wont-fix 的档不再入列；`applyLiveReviewRow(result, live, liveClosed=false)` 加第三参：为真时只删同 path 的那一行，不 push、不重排、不回填被截断的第 51 行（`truncated` 不动），于是批注写盘 600 ms 防抖期间当前篇刚全结项也能立即消失；`MarginRail.tsx` 传 `annotations.length > 0 && !hasUnclosedReview(annotations)`，空态文案改「还没有在审的文件：有未结项的批注才会出现在这里。」；`reviewFiles.test.ts` 17→**20 条**。行文案仍是 `open N · 共 M 条`（N 只数 open）。
+- 门禁与验收：首屏门 gzip **315,153 B**（plan 315,149±100 内、+4；`--max 315250` PASS、余 97、距硬线 4,847）；常驻 `MarginRail` chunk gzip **6,717 → 6,762**（+45，≤6,880）；真实首载 **321,915 B**（超硬线 1,915，**B-229 仍 open**、本批只记）。`npm test` **61 文件 868 条 0 fail**（865→868）。tester 独立（未读 `impl.md`）静态：`annotations.length === 0` 1→**0**、`hasUnclosedReview` 0→**4 行**（2 文件×2）、`liveClosed` 0→**3 行**、diffstat 只 3 个源文件；单测 **20/20**；自写 E2E `.tmp/r105-tester-e2e.mjs` **33/33**、0 pageerror（ego CDP 57270、1440×900、假 FSA）：a.md 改 open→resolved 后 **110 ms** 开面板行不在而磁盘仍 `open 1 · 共 2`（证第三参），停 1,800 ms 仍不在、冲刷后磁盘 0 open；b.md 仅 in-progress → `open 0 · 共 1 条`；f.md 改 open 后行仍在 `open 0 · 共 2 条`；c.md `1 · 共 3` → 不在 → 改回在；第二工作区（1 resolved + 1 wont-fix）0 行且新空态文案逐字；排序/`aria-current`/Esc/关闭钮/背板/1024 无横溢不波及。回归 r101 **原样 57/57**（含 50 行截断门）、r103 **原样 19/19**（跑完还原 `shots/round-101/`、`shots/round-103/`）。截图 `shots/round-105/review-closed-tester.png`。见 `docs/iteration/round-105/test.md`。
 
 **第 104 轮（同一未发版区间）**
 

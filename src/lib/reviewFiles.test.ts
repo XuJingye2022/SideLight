@@ -137,10 +137,35 @@ test('open / in-progress / resolved 三档：只把 open 算进 open，total 是
   assert.equal(result.truncated, false)
 })
 
-test('旧档 accepted / dismissed 不算 open；旧 pending 按迁移表算 open', async () => {
+test('旧档全结项（accepted / dismissed）不入列；旧 pending 按迁移表算 open', async () => {
   const fs = makeFs({
     '.sidelight/annotations/a.json': store([ann('accepted'), ann('dismissed')]),
     '.sidelight/annotations/b.json': store([ann('pending')]),
+  })
+  const result = await collectReviewFiles(workspaceOf(fs.root), [node('ws/a.md'), node('ws/b.md')])
+  assert.deepEqual(
+    result.rows.map((row) => [row.name, row.open, row.total]),
+    [['b.md', 1, 1]],
+  )
+  assert.equal(result.scanned, 2)
+})
+
+test('全部 wont-fix 不入列（已结项的档不造行）', async () => {
+  const fs = makeFs({
+    '.sidelight/annotations/a.json': store([ann('dismissed', 'wont-fix', 'a1'), ann('dismissed', 'wont-fix', 'a2')]),
+    '.sidelight/annotations/b.json': store([ann('pending', 'open', 'b1')]),
+  })
+  const result = await collectReviewFiles(workspaceOf(fs.root), [node('ws/a.md'), node('ws/b.md')])
+  assert.deepEqual(
+    result.rows.map((row) => [row.name, row.open, row.total]),
+    [['b.md', 1, 1]],
+  )
+})
+
+test('只有 in-progress：入列且 open 0；排序里排在 open 1 之后（open 降序）', async () => {
+  const fs = makeFs({
+    '.sidelight/annotations/a.json': store([ann('pending', 'in-progress', 'a1'), ann('pending', 'in-progress', 'a2')]),
+    '.sidelight/annotations/b.json': store([ann('pending', 'open', 'b1')]),
   })
   const result = await collectReviewFiles(workspaceOf(fs.root), [node('ws/a.md'), node('ws/b.md')])
   assert.deepEqual(
@@ -150,6 +175,7 @@ test('旧档 accepted / dismissed 不算 open；旧 pending 按迁移表算 open
       ['a.md', 0, 2],
     ],
   )
+  assert.equal(result.scanned, 2)
 })
 
 test('只有 notes 的档、坏 JSON、没有批注档的文件都不入列', async () => {
@@ -206,7 +232,7 @@ test('嵌套目录：子目录里的批注档按 sub 目录读，path 原样保�
   assert.deepEqual(result.rows, [{ path: 'ws/sub/b.md', name: 'b.md', open: 1, total: 2 }])
 })
 
-test('排序：open 降序、同数按 path 升序；open 为 0 的旧档排在最后', async () => {
+test('排序：open 降序、同数按 path 升序；全结项的 d.md 不出现', async () => {
   const fs = makeFs({
     '.sidelight/annotations/b.json': store([ann('pending', 'open', 'b1')]),
     '.sidelight/annotations/a.json': store([ann('pending', 'open', 'a1')]),
@@ -229,7 +255,6 @@ test('排序：open 降序、同数按 path 升序；open 为 0 的旧档排在�
       ['c.md', 2],
       ['a.md', 1],
       ['b.md', 1],
-      ['d.md', 0],
     ],
   )
 })
@@ -302,7 +327,7 @@ test('合并：同 path 的行换成内存值并按 open 重排，其他行与 t
     { path: 'ws/a.md', name: 'a.md', open: 1, total: 2 },
     { path: 'ws/b.md', name: 'b.md', open: 1, total: 1 },
   ])
-  // 内存里那张已改 resolved：磁盘还是 open 1，合并后 a.md 必须掉到 b.md 后面
+  // 内存里那张只剩 in-progress（open 0）：磁盘还是 open 1，合并后 a.md 必须掉到 b.md 后面
   const merged = applyLiveReviewRow(result, { path: 'ws/a.md', name: 'a.md', open: 0, total: 2 })
   assert.deepEqual(merged.rows, [
     { path: 'ws/b.md', name: 'b.md', open: 1, total: 1 },
@@ -324,6 +349,32 @@ test('合并：磁盘还没有这篇时补一行（新批注不到 600 ms 未落
       ['ws/b.md', 1, 2],
     ],
   )
+})
+
+test('合并：当前篇全结项（liveClosed）只删行，不补行、不重排、不回填第 51 行', () => {
+  const result = resultOf([
+    { path: 'ws/a.md', name: 'a.md', open: 1, total: 2 },
+    { path: 'ws/b.md', name: 'b.md', open: 1, total: 1 },
+  ])
+  // 磁盘档还写着 open（600 ms 防抖未落盘）：只删这一行，其余行与顺序不动
+  const merged = applyLiveReviewRow(result, { path: 'ws/a.md', name: 'a.md', open: 0, total: 2 }, true)
+  assert.deepEqual(merged.rows, [{ path: 'ws/b.md', name: 'b.md', open: 1, total: 1 }])
+  assert.equal(merged.truncated, false)
+  // 磁盘没有这一行时也不补
+  const absent = applyLiveReviewRow(result, { path: 'ws/zzz.md', name: 'zzz.md', open: 0, total: 2 }, true)
+  assert.equal(absent.rows.length, 2)
+
+  // 50 行已截断：删掉其中一行后不把第 51 行顶回来，truncated 保持
+  const rows = Array.from({ length: 50 }, (_, index) => {
+    const stem = `f${String(index).padStart(3, '0')}`
+    return { path: `ws/${stem}.md`, name: `${stem}.md`, open: 1, total: 1 }
+  })
+  const full = applyLiveReviewRow(resultOf(rows, true), { path: 'ws/f010.md', name: 'f010.md', open: 0, total: 1 }, true)
+  assert.equal(full.rows.length, 49)
+  assert.equal(full.truncated, true)
+  assert.equal(full.rows.at(-1)?.path, 'ws/f049.md')
+  // 纯函数：不改入参
+  assert.equal(result.rows.length, 2)
 })
 
 test('合并：内存 total 为 0 或没有当前篇时原样返回，磁盘行不动', () => {

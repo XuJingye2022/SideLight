@@ -18,7 +18,13 @@ import {
 import { appendDelta, buildChatMessages, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import { diffView, type DiffViewResult } from '../lib/diffView.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
-import { applyLiveReviewRow, collectReviewFiles, countOpenAnnotations, type ReviewFilesResult } from '../lib/reviewFiles.ts'
+import {
+  applyLiveReviewRow,
+  collectReviewFiles,
+  countOpenAnnotations,
+  hasUnclosedReview,
+  type ReviewFilesResult,
+} from '../lib/reviewFiles.ts'
 import type { Settings } from '../lib/settings.ts'
 import { flattenFiles, relativePath, type Workspace } from '../lib/workspace.ts'
 import { InlineText } from './InlineText.tsx'
@@ -346,7 +352,9 @@ export function MarginRail({
     activePath && annotations.length > 0
       ? { path: activePath, name: docName, open: countOpenAnnotations(annotations), total: annotations.length }
       : null
-  const reviewRows = reviewData ? applyLiveReviewRow(reviewData, liveReviewRow) : null
+  // 第 105 轮 B-234：当前篇全结项时只删行——磁盘档可能还写着 open（600 ms 防抖未落盘）
+  const liveClosed = annotations.length > 0 && !hasUnclosedReview(annotations)
+  const reviewRows = reviewData ? applyLiveReviewRow(reviewData, liveReviewRow, liveClosed) : null
 
   return (
     <aside className="margin-rail" id="margin-rail" ref={railRef} aria-label="侧灯">
@@ -848,7 +856,7 @@ export function MarginRail({
               ) : reviewNoWorkspace ? (
                 <p className="rail-diff-empty">先点「打开文件夹」，才能看到在审文件。</p>
               ) : reviewRows === null || reviewRows.rows.length === 0 ? (
-                <p className="rail-diff-empty">还没有在审的文件：有批注的文件会出现在这里。</p>
+                <p className="rail-diff-empty">还没有在审的文件：有未结项的批注才会出现在这里。</p>
               ) : (
                 <>
                   {reviewRows.capped && (

@@ -1,8 +1,14 @@
-import { readAnnotationStore, reviewStatusOf, type Annotation, type AnnotationStore } from './annotations.ts'
+import {
+  isClosedReview,
+  readAnnotationStore,
+  reviewStatusOf,
+  type Annotation,
+  type AnnotationStore,
+} from './annotations.ts'
 import { cacheKey } from './cache.ts'
 import { parentDirectory, type Workspace, type WorkspaceFileNode } from './workspace.ts'
 
-/** 侧栏「在审文件」一行：一篇有批注的文档 */
+/** 侧栏「在审文件」一行：一篇还有未结项批注的文档 */
 export type ReviewFileRow = {
   /** 工作区里的完整路径（首段是工作区名），点行时原样交给 App */
   path: string
@@ -65,6 +71,15 @@ export function countOpenAnnotations(annotations: Annotation[]): number {
 }
 
 /**
+ * 是否还有未结项的批注（open 或 in-progress）。第 105 轮 B-234 的入列口径：
+ * 至少一条未结项才算出「在审」；全部 resolved / wont-fix 的文档不入列
+ * （Review Mode 可处理集 = open + in-progress）。
+ */
+export function hasUnclosedReview(annotations: Annotation[]): boolean {
+  return annotations.some((annotation) => !isClosedReview(annotation))
+}
+
+/**
  * 把「当前打开这一篇」的内存行合并进磁盘扫描结果（第 103 轮）。
  *
  * 批注写盘走 600 ms 防抖（`src/App.tsx` 的写盘 effect），改完档立刻开面板读到的仍是旧档，
@@ -74,13 +89,19 @@ export function countOpenAnnotations(annotations: Annotation[]): number {
  * `live` 为 null 或 `total === 0` 时原样返回（载入期还没恢复批注、或当前篇一条不剩时
  * 不凭空造行——写盘可能还在飞，关掉重开即真值）。行数超过 `DEFAULT_MAX_ROWS` 时截断并置
  * truncated，与 `collectReviewFiles` 同一口径。
+ *
+ * `liveClosed` 为真时（第 105 轮 B-234：当前篇全部结项）只删掉同 path 的那一行，
+ * 不 push、不重排、也不把被截掉的第 51 行顶回来（`truncated` 原样不动）；
+ * 磁盘档的那一行可能还是旧值，所以不必等 600 ms 防抖落盘。
  */
 export function applyLiveReviewRow(
   result: ReviewFilesResult,
   live: ReviewFileRow | null,
+  liveClosed = false,
 ): ReviewFilesResult {
   if (!live || live.total === 0) return result
   const rows = result.rows.filter((row) => row.path !== live.path)
+  if (liveClosed) return { ...result, rows }
   rows.push(live)
   rows.sort(compareRows)
   const truncated = rows.length > DEFAULT_MAX_ROWS
@@ -94,9 +115,9 @@ export function applyLiveReviewRow(
 /**
  * 只读扫描工作区里的批注档，列出「在审」文件（第 101 轮 B-228）。
  *
- * 在审 = 有 `.sidelight/annotations/<cacheKey(name)>.json` 且 `annotations` 非空；
- * 只有 `notes`（全文总评 / 未定位批注）的档不入列。open 只算 `reviewStatusOf === 'open'`
- * 的条目（旧档按内部 status 迁移），其余三档只进 total。
+ * 在审 = 至少一条批注是 open 或 in-progress（第 105 轮 B-234 前是「有批注档且 annotations 非空」）；
+ * 只有 `notes`（全文总评 / 未定位批注）的档、或全部 resolved / wont-fix 的档都不入列。
+ * open 只算 `reviewStatusOf === 'open'` 的条目（旧档按内部 status 迁移），其余三档只进 total。
  *
  * 纯读：`readAnnotationStore` 不传 create，也不写任何文件；坏档、目录缺失、
  * `parentDirectory` 拿不到（工作区根句柄为空）或抛错都跳过该文件，绝不抛。
@@ -139,7 +160,7 @@ export async function collectReviewFiles(
     } catch {
       continue
     }
-    if (store.annotations.length === 0) continue
+    if (!hasUnclosedReview(store.annotations)) continue
 
     const open = countOpenAnnotations(store.annotations)
     rows.push({ path: file.path, name: file.name, open, total: store.annotations.length })
