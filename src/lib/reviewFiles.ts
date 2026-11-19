@@ -1,4 +1,4 @@
-import { readAnnotationStore, reviewStatusOf, type AnnotationStore } from './annotations.ts'
+import { readAnnotationStore, reviewStatusOf, type Annotation, type AnnotationStore } from './annotations.ts'
 import { cacheKey } from './cache.ts'
 import { parentDirectory, type Workspace, type WorkspaceFileNode } from './workspace.ts'
 
@@ -53,6 +53,45 @@ function compareRows(a: ReviewFileRow, b: ReviewFileRow): number {
 }
 
 /**
+ * 四态里仍是 open 的条数。内存里的当前篇与磁盘档共用这一个口径（第 103 轮）：
+ * 两处各写一遍，改档规则一变就漂移。
+ */
+export function countOpenAnnotations(annotations: Annotation[]): number {
+  let open = 0
+  for (const annotation of annotations) {
+    if (reviewStatusOf(annotation) === 'open') open += 1
+  }
+  return open
+}
+
+/**
+ * 把「当前打开这一篇」的内存行合并进磁盘扫描结果（第 103 轮）。
+ *
+ * 批注写盘走 600 ms 防抖（`src/App.tsx` 的写盘 effect），改完档立刻开面板读到的仍是旧档，
+ * 而打开的面板不会重扫，看起来像改档没生效。内存与写盘本来是同一份数据，
+ * 所以渲染时按 path 覆盖/补上这一行：写盘落地与否，面板里的数都是这一刻真值。
+ *
+ * `live` 为 null 或 `total === 0` 时原样返回（载入期还没恢复批注、或当前篇一条不剩时
+ * 不凭空造行——写盘可能还在飞，关掉重开即真值）。行数超过 `DEFAULT_MAX_ROWS` 时截断并置
+ * truncated，与 `collectReviewFiles` 同一口径。
+ */
+export function applyLiveReviewRow(
+  result: ReviewFilesResult,
+  live: ReviewFileRow | null,
+): ReviewFilesResult {
+  if (!live || live.total === 0) return result
+  const rows = result.rows.filter((row) => row.path !== live.path)
+  rows.push(live)
+  rows.sort(compareRows)
+  const truncated = rows.length > DEFAULT_MAX_ROWS
+  return {
+    ...result,
+    rows: truncated ? rows.slice(0, DEFAULT_MAX_ROWS) : rows,
+    truncated: result.truncated || truncated,
+  }
+}
+
+/**
  * 只读扫描工作区里的批注档，列出「在审」文件（第 101 轮 B-228）。
  *
  * 在审 = 有 `.sidelight/annotations/<cacheKey(name)>.json` 且 `annotations` 非空；
@@ -102,10 +141,7 @@ export async function collectReviewFiles(
     }
     if (store.annotations.length === 0) continue
 
-    let open = 0
-    for (const annotation of store.annotations) {
-      if (reviewStatusOf(annotation) === 'open') open += 1
-    }
+    const open = countOpenAnnotations(store.annotations)
     rows.push({ path: file.path, name: file.name, open, total: store.annotations.length })
   }
 

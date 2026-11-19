@@ -18,7 +18,7 @@ import {
 import { appendDelta, buildChatMessages, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import { diffView, type DiffViewResult } from '../lib/diffView.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
-import { collectReviewFiles, type ReviewFilesResult } from '../lib/reviewFiles.ts'
+import { applyLiveReviewRow, collectReviewFiles, countOpenAnnotations, type ReviewFilesResult } from '../lib/reviewFiles.ts'
 import type { Settings } from '../lib/settings.ts'
 import { flattenFiles, relativePath, type Workspace } from '../lib/workspace.ts'
 import { InlineText } from './InlineText.tsx'
@@ -330,6 +330,17 @@ export function MarginRail({
 
   const overall = docNotes.filter((note) => note.kind === 'overall')
   const unresolvedNotes = docNotes.filter((note) => note.kind === 'unresolved')
+
+  /**
+   * 当前篇那一行改用内存里的批注算（第 103 轮）：写盘有 600 ms 防抖，
+   * 改档后立刻开面板读到的是旧档，而面板开着不重扫。渲染时按 path 合并，
+   * 面板开着时 `annotations` 变了（含流式到货）也立刻是新数。
+   */
+  const liveReviewRow =
+    activePath && annotations.length > 0
+      ? { path: activePath, name: docName, open: countOpenAnnotations(annotations), total: annotations.length }
+      : null
+  const reviewRows = reviewData ? applyLiveReviewRow(reviewData, liveReviewRow) : null
 
   return (
     <aside className="margin-rail" id="margin-rail" ref={railRef} aria-label="侧灯">
@@ -830,18 +841,18 @@ export function MarginRail({
                 <p className="rail-diff-empty">正在读…</p>
               ) : reviewNoWorkspace ? (
                 <p className="rail-diff-empty">先点「打开文件夹」，才能看到在审文件。</p>
-              ) : reviewData === null || reviewData.rows.length === 0 ? (
+              ) : reviewRows === null || reviewRows.rows.length === 0 ? (
                 <p className="rail-diff-empty">还没有在审的文件：有批注的文件会出现在这里。</p>
               ) : (
                 <>
-                  {reviewData.capped && (
-                    <p className="rail-diff-empty">文件太多，只扫了前 {reviewData.scanned} 篇。</p>
+                  {reviewRows.capped && (
+                    <p className="rail-diff-empty">文件太多，只扫了前 {reviewRows.scanned} 篇。</p>
                   )}
-                  {reviewData.truncated && (
-                    <p className="rail-diff-empty">在审文件太多，只显示前 {reviewData.rows.length} 篇。</p>
+                  {reviewRows.truncated && (
+                    <p className="rail-diff-empty">在审文件太多，只显示前 {reviewRows.rows.length} 篇。</p>
                   )}
                   <ul className="rail-diff-rows">
-                    {reviewData.rows.map((row) => (
+                    {reviewRows.rows.map((row) => (
                       <li key={row.path}>
                         <button
                           type="button"

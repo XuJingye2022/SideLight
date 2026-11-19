@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { collectReviewFiles } from './reviewFiles.ts'
+import { applyLiveReviewRow, collectReviewFiles, type ReviewFilesResult } from './reviewFiles.ts'
 import type { Workspace, WorkspaceFileNode } from './workspace.ts'
 
 /* ---------- 假 FSA：按 files 键前缀判目录，create / write 都记进 ops ---------- */
@@ -285,4 +285,69 @@ test('两个上限可调：maxFiles 1 / maxRows 1 各自生效', async () => {
   assert.equal(byRows.rows.length, 1)
   assert.equal(byRows.truncated, true)
   assert.equal(byRows.capped, false)
+})
+
+/* ---------- 第 103 轮：当前篇那一行以内存为准（渲染时合并） ---------- */
+
+/** 直接造一份扫描结果，不经过假 FSA：合并只认 rows 与 truncated */
+const resultOf = (rows: ReviewFilesResult['rows'], truncated = false): ReviewFilesResult => ({
+  rows,
+  scanned: rows.length,
+  capped: false,
+  truncated,
+})
+
+test('合并：同 path 的行换成内存值并按 open 重排，其他行与 truncated 不动', () => {
+  const result = resultOf([
+    { path: 'ws/a.md', name: 'a.md', open: 1, total: 2 },
+    { path: 'ws/b.md', name: 'b.md', open: 1, total: 1 },
+  ])
+  // 内存里那张已改 resolved：磁盘还是 open 1，合并后 a.md 必须掉到 b.md 后面
+  const merged = applyLiveReviewRow(result, { path: 'ws/a.md', name: 'a.md', open: 0, total: 2 })
+  assert.deepEqual(merged.rows, [
+    { path: 'ws/b.md', name: 'b.md', open: 1, total: 1 },
+    { path: 'ws/a.md', name: 'a.md', open: 0, total: 2 },
+  ])
+  assert.equal(merged.scanned, 2)
+  assert.equal(merged.truncated, false)
+  // 纯函数：不改入参
+  assert.equal(result.rows[0].open, 1)
+})
+
+test('合并：磁盘还没有这篇时补一行（新批注不到 600 ms 未落盘）', () => {
+  const result = resultOf([{ path: 'ws/b.md', name: 'b.md', open: 1, total: 2 }])
+  const merged = applyLiveReviewRow(result, { path: 'ws/a.md', name: 'a.md', open: 2, total: 3 })
+  assert.deepEqual(
+    merged.rows.map((row) => [row.path, row.open, row.total]),
+    [
+      ['ws/a.md', 2, 3],
+      ['ws/b.md', 1, 2],
+    ],
+  )
+})
+
+test('合并：内存 total 为 0 或没有当前篇时原样返回，磁盘行不动', () => {
+  const result = resultOf([{ path: 'ws/a.md', name: 'a.md', open: 1, total: 2 }])
+  assert.equal(applyLiveReviewRow(result, { path: 'ws/a.md', name: 'a.md', open: 0, total: 0 }), result)
+  assert.equal(applyLiveReviewRow(result, null), result)
+})
+
+test('合并：50 行上限仍然生效，截掉的行数与 truncated 同 collect 口径', () => {
+  const rows = Array.from({ length: 50 }, (_, index) => {
+    const stem = `f${String(index).padStart(3, '0')}`
+    return { path: `ws/${stem}.md`, name: `${stem}.md`, open: 0, total: 1 }
+  })
+  const result = resultOf(rows, true)
+  // 已满 50 行、换掉其中一行：长度仍 50、truncated 保持
+  const replaced = applyLiveReviewRow(result, { path: 'ws/f000.md', name: 'f000.md', open: 3, total: 3 })
+  assert.equal(replaced.rows.length, 50)
+  assert.equal(replaced.truncated, true)
+  assert.deepEqual(replaced.rows[0], { path: 'ws/f000.md', name: 'f000.md', open: 3, total: 3 })
+  // 磁盘没有的新行：51 行截回 50，open 最大的那条留下
+  const added = applyLiveReviewRow(result, { path: 'ws/zzz.md', name: 'zzz.md', open: 9, total: 9 })
+  assert.equal(added.rows.length, 50)
+  assert.equal(added.truncated, true)
+  assert.equal(added.rows[0].path, 'ws/zzz.md')
+  // 截断的永远是尾部：第 50 行原样留着
+  assert.equal(added.rows.at(-1)?.path, 'ws/f048.md')
 })

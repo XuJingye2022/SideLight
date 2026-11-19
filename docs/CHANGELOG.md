@@ -2,7 +2,12 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–102 轮，未发版）
+## Unreleased（第 29–103 轮，未发版）
+
+**第 103 轮（同一未发版区间）**
+
+- 在审列表当前篇那行的 open/total 改以内存为准（A1，P2，第 102 轮 findings-bug F2）：`src/lib/reviewFiles.ts` 加 `countOpenAnnotations`（`collectReviewFiles` 共用同一口径）与 `applyLiveReviewRow(result, live)`（`live` 为 null 或 `total===0` 原样返回；否则按 path 替换或补行、`compareRows` 重排、超 50 行截断并保持 `truncated`）；`MarginRail.tsx` 在渲染时用 `activePath` + 内存 `annotations` 造当前篇行合并进磁盘扫描结果，批注写盘 600 ms 防抖期间、面板开着不重扫时也显示这一刻真值；空态分支改判合并后的行（plan-review CR-2）。`reviewFiles.test.ts` 13→**17 条**。
+- 门禁与验收：首屏门 gzip **315,151 B**（plan 315,155 ±100 内；`--max 320000` PASS、余硬线 4,849）；常驻 `MarginRail` chunk gzip **6,573 → 6,700**（+127，≤6,980）；真实首载 **321,851 B**（超硬线 1,851，B-229 仍 open、本批只记）。`npm test` **61 文件 865 条 0 fail**；tester 独立（未读 `impl.md`）交付 A2 脚本 19/19、自写 E2E `.tmp/r103-tester-e2e.mjs` **26/26**、0 pageerror（ego CDP 57270、1440×900、假 FSA）：改档后 150 ms 面板 `open 0 · 共 2 条` 停 1.8 s 同值、S2 `open 1 · 共 3 条`、磁盘无档时新篇行已出现（内存补行）、当前篇只一行且按 open 重排、当前行 `aria-current`、邻篇不动；真 HEAD 版代码对照同场景仍 `open 1 · 共 2 条`（269 ms）。回归 `.tmp/e2e-r101-review.mjs` **57/57**（跑完还原 `shots/round-101/`）；未跑 roundtrip（未碰编辑器/序列化）。见 `docs/iteration/round-103/test.md`。
 
 **第 102 轮（同一未发版区间）**
 
