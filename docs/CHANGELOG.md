@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–92 轮，未发版）
+## Unreleased（第 29–93 轮，未发版）
+
+**第 93 轮（同一未发版区间）**
+
+- 已存定界符对后填（B1，用户缺陷 2）：新 `src/lib/delimiterPair.ts`（照 `linkInput.ts` 同形的 `appendTransaction` 插件 + 纯判定 `collectPairs`/`commitPair`/`buildPairTransaction`）。先打一对定界符再回头填内容的写法（`$$` → ← → `E=mc^2` → →）原本永远等不到输入规则的尾锚定；现在插件记下「这次打字碰过」的区间（armed），光标离开 / Enter / 失焦三个出口把它收成 `inlineMath` / `blockMath` / `==`·`^`·`~` 三类 mark。打字中不提交；载入、粘贴/拖入、撤销重做不 arm；代码围栏与行内代码里不转；公式就地编辑中不抢事务（`mathNodeView.ts` 新导出 `isMathEditing()` 模块计数）。收尾事务 `closeHistory`，一次 `Ctrl+Z` 只回退到字面定界符。`delimiterPair.test.ts` **27 条**挂 `npm test` 链尾（56→57 文件）。
+- 门禁：首屏 gzip **312,423 B**（基线 309,804，净 **+2,619 B**；超内部预算 310,000 2,423 B 只 WARN、硬线 320,000 内余 7,577 B）；`npm test` **57 文件 778 条 0 fail**；`roundtrip` rich 7/9 + source 9/9。见 `docs/iteration/round-93/impl.md`。
+- tester 第 93 轮独立复验（未读 `impl.md`；CDP 9222 不可用 → ego CDP 57270，自写 `.tmp/e2e-r93-t2-b1.mjs` **27/27**、0 pageerror/console error）：① 打字中不提交、离开后 inline 1 且不选中 atom；② `a + b` 离开出口 + **一次 `Ctrl+Z` 回字面 `$a + b$`**（上一版此出口会把刚打的字一起撤光）；③ 整段 `$$x$$` → blockMath 1、原段消失；④ `==`/`^`/`~` mark 各 1；⑤ `$5 到 $` 不转；⑥ 空内容/围栏/行内代码不转、Enter/blur 出口各一步撤销；⑧ 载入不 arm、序列化字节同；⑨ 转义对不转、字节同。回归：第 92 轮 A1 粘贴脚本 **19/19**、`keyboard-acceptance` **52/52**。见 `docs/iteration/round-93/test.md`。
 
 **第 92 轮（同一未发版区间）**
 

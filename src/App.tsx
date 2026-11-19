@@ -94,6 +94,7 @@ import { tableTokenizer, taskListTokenizer, type BlockTokenizer } from './lib/ma
 import { pasteCandidate, pastePlan } from './lib/markdownPaste.ts'
 import { TaskListInput } from './lib/taskListInput.ts'
 import { LinkInput } from './lib/linkInput.ts'
+import { DelimiterPair } from './lib/delimiterPair.ts'
 import { protectMathPairs } from './lib/math.ts'
 import { disableSingleTildeStrike } from './lib/tilde.ts'
 import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline.ts'
@@ -1017,6 +1018,9 @@ export default function App() {
       // 手打的行内链接（第 84 轮 B-124）：收尾 `)` 是被智能配对「越过」的，输入规则收不到，
       // 所以用 appendTransaction 判「光标刚跨过收尾 )」，命中就把定界符收成 link mark
       LinkInput,
+      // 已存定界符对后填（第 93 轮 B1）：先打 `$$` 再回头填内容，输入规则的尾锚定永远收不到。
+      // 插件记下「这一次打字碰过」的定界符对，光标离开 / 回车 / 失焦时收成公式或行内语法
+      DelimiterPair.configure({ inlineSyntax: () => inlineSyntaxRef.current }),
     ],
     content: '',
     contentType: 'markdown',

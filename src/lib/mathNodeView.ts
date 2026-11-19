@@ -29,6 +29,19 @@ export type MathEditorHandle = { enter: (isNew: boolean) => void }
 
 const editors = new WeakMap<object, MathEditorHandle>()
 
+/**
+ * 正在就地编辑的公式条数（模块级，第 93 轮 B1）。
+ * 用户正在输入框里改 TeX 时，别的 appendTransaction（如 `delimiterPair`）不该去收正文里的
+ * 定界符对：那一瞬间的选区还停在 atom 上，动正文会把用户的输入框连根拔掉。
+ * `storage.draft` 恒为 false（第 92 轮 B1 计划里那条判据不成立），所以改用这个计数。
+ */
+let editingCount = 0
+
+/** 当前是否有公式在就地编辑（行内输入框或块级 textarea） */
+export function isMathEditing(): boolean {
+  return editingCount > 0
+}
+
 /** 登记一个 DOM 对应的编辑入口（NodeView 创建时调用） */
 export function registerMathEditor(dom: object, handle: MathEditorHandle): void {
   editors.set(dom, handle)
@@ -131,7 +144,10 @@ function createMathEditor(options: ControllerOptions): MathEditController {
     box = null
     preview = null
     field = null
-    editing = false
+    if (editing) {
+      editingCount = Math.max(0, editingCount - 1)
+      editing = false
+    }
     wrapper.classList.remove('is-editing')
   }
 
@@ -320,6 +336,7 @@ function createMathEditor(options: ControllerOptions): MathEditController {
       return
     }
     editing = true
+    editingCount += 1
     isNew = created
     newEditTime = created ? Date.now() : 0
     wrapper.classList.add('is-editing')
