@@ -16,6 +16,9 @@ type Props = {
   simulated: boolean
   /** 卡片区需要为「整体评价」面板让出的高度（栏内 px）；0 表示不需要 spacer */
   railSpace: number
+  /** 右侧页签：对话 / 批注（第 94 轮 B-221）。默认「批注」 */
+  railTab: 'chat' | 'notes'
+  onTabChange: (tab: 'chat' | 'notes') => void
   /** 窄窗抽屉的关闭按钮；宽窗不传就不显示 */
   onClose?: () => void
   goal: string
@@ -63,6 +66,8 @@ export function MarginRail({
   registerRef,
   railRef,
   railSpace,
+  railTab,
+  onTabChange,
 }: Props) {
   const pending = annotations.filter((annotation) => annotation.status === 'pending')
   const [openThread, setOpenThread] = useState<string | null>(null)
@@ -72,7 +77,7 @@ export function MarginRail({
   const unresolvedNotes = docNotes.filter((note) => note.kind === 'unresolved')
 
   return (
-    <aside className="margin-rail" id="margin-rail" ref={railRef} aria-label="页边批注">
+    <aside className="margin-rail" id="margin-rail" ref={railRef} aria-label="侧灯">
       <div className="rail-head">
         <span className="rail-light" aria-hidden="true" />
         <span className="rail-title">侧灯</span>
@@ -85,6 +90,48 @@ export function MarginRail({
         )}
       </div>
 
+      {/* 第 94 轮 B-221：右侧双页签。只做页签与占位，对话内容下一批接入 */}
+      <div className="rail-tabs" role="tablist" aria-label="侧灯页签">
+        {(['chat', 'notes'] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            id={`rail-tab-${tab}`}
+            aria-selected={railTab === tab}
+            aria-controls={`rail-panel-${tab}`}
+            tabIndex={railTab === tab ? 0 : -1}
+            className={railTab === tab ? 'is-active' : ''}
+            onClick={() => onTabChange(tab)}
+            onKeyDown={(event) => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+              event.preventDefault()
+              const next =
+                event.key === 'Home'
+                  ? 'chat'
+                  : event.key === 'End'
+                    ? 'notes'
+                    : tab === 'chat'
+                      ? 'notes'
+                      : 'chat'
+              onTabChange(next)
+              requestAnimationFrame(() => document.getElementById(`rail-tab-${next}`)?.focus())
+            }}
+          >
+            {tab === 'chat' ? '对话' : '批注'}
+          </button>
+        ))}
+      </div>
+
+      {/* 包一层只做页签显隐：不加 position / overflow，卡片的绝对定位仍参照 .margin-rail，
+          「整体评价」也仍是相对 .doc-scroll 的 sticky */}
+      <div
+        id="rail-panel-notes"
+        className="rail-panel-notes"
+        role="tabpanel"
+        aria-labelledby="rail-tab-notes"
+        hidden={railTab !== 'notes'}
+      >
       {goal && (
         <div className="rail-goal">
           <span className="rail-goal-label">我的理解</span>
@@ -291,6 +338,28 @@ export function MarginRail({
           )}
         </section>
       )}
+      </div>
+
+      <div
+        id="rail-panel-chat"
+        className="rail-panel-chat"
+        role="tabpanel"
+        aria-labelledby="rail-tab-chat"
+        hidden={railTab !== 'chat'}
+      >
+        <div className="rail-empty rail-chat-empty">
+          <p className="rail-empty-title">对话还没接入</p>
+          <p className="rail-empty-sub">这里会放和侧灯的一问一答。</p>
+        </div>
+        {/* 禁用是刻意的：本轮只交付页签与占位，输入与发送下一批接入 */}
+        <div className="rail-chat-compose">
+          <input disabled aria-label="对话输入（未接入）" placeholder="和侧灯说一句…" />
+          <button type="button" disabled>
+            发送
+          </button>
+        </div>
+        <p className="rail-chat-hint">下一批接入对话、消息与生成批注</p>
+      </div>
     </aside>
   )
 }

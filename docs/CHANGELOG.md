@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–93 轮，未发版）
+## Unreleased（第 29–94 轮，未发版）
+
+**第 94 轮（同一未发版区间）**
+
+- 右侧双页签「对话 / 批注」（A1，B-221，用户 2026-11-20 队列第 1 条）：`src/components/MarginRail.tsx` 的 `.rail-head` 后加 `div.rail-tabs[role="tablist"][aria-label="侧灯页签"]` 与 2 个 `role="tab"`（`aria-selected`、`aria-controls`、roving `tabIndex`、`is-active`；←/→/Home/End 换选并 rAF 聚焦），现有批注内容（我的理解/提示/卡/spacer/整体评价）包进 `div#rail-panel-notes[role="tabpanel"]`（`hidden` 切换、不加 position/overflow，卡片仍参照 `.margin-rail`），新增 `div#rail-panel-chat`：空态 + 1 个禁用 `input` + 1 个禁用「发送」按钮（对话/消息/生成批注下一批接入）；`src/App.tsx` 加 `railTab` 状态（默认「批注」），布局 effect 在 `railTab === 'chat'` 时跳过排布，chrome 底（`.rail-head`/`.rail-tabs`）先进 `flowBottom`、去掉硬底 40；`src/styles.css` 把 `.doc-layout` 右列 260→**320px** 并加页签与对话占位样式。
+- 门禁：首屏 gzip **312,566 B**（基线 312,423，净 +143 B；超内部预算 310,000 2,566 B 只 WARN、硬线 320,000 内余 7,434 B）；`npm test` **57 文件 778 条 0 fail**；未改编辑器/序列化不跑 roundtrip。见 `docs/iteration/round-94/impl.md`。
+- tester 第 94 轮独立验收（未读 `impl.md`；ego 浏览器 CDP 57270，自写 `.tmp/r94-tester-a1a2.mjs` **38/38**、0 pageerror）：静态 `role="tablist"` 1（HEAD 0）、`railTab|rail-panel-*` 16（HEAD 0）；页签 2 个、默认「批注」、chat `hidden`、←/→/Home/End 选中+焦点同步、对话面板 input/button 各 1 且 disabled、Tab 不落；3 卡 `top = max(natural, 上卡底+12)` ±1（146/304/480，首卡 ≥ 页签底 58+2）、3 卡递增不重叠、中心 `elementFromPoint` 命中、切页签往返差 0 px、滚到底末卡底 626 ≤ 整体评价 638、自然位分支 254 = natural 且余 120、场景 B（假 Key + 拦 SSE 无 meta）`.rail-goal`/`.rail-notice`/`.rail-notice-mock` 0/0/0 且首卡 70 = flowBottom+12；CSS 探针 13/13（改前对照副本 = HEAD 逐字符）、1440/1120 栏宽 320 无横溢 + `.doc-column` 480、1024 抽屉 `display:none`；回归 `keyboard-acceptance` **52/52**。见 `docs/iteration/round-94/test.md`。
 
 **第 93 轮（同一未发版区间）**
 

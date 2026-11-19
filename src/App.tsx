@@ -475,6 +475,8 @@ export default function App() {
   const [tops, setTops] = useState<Record<string, number>>({})
   /** 卡片区需要为「整体评价」面板让出的高度（栏内 px）：面板 sticky 时才不会压住最后一张卡 */
   const [railSpace, setRailSpace] = useState(0)
+  /** 右侧页签：对话 / 批注（第 94 轮 B-221）。默认「批注」——批注是现成能力，先给用户看 */
+  const [railTab, setRailTab] = useState<'chat' | 'notes'>('notes')
   const [bubble, setBubble] = useState<{ top: number; left: number } | null>(null)
   const [tick, setTick] = useState(0)
   const [dirty, setDirty] = useState(false)
@@ -2380,39 +2382,50 @@ export default function App() {
     if (!rail) return
 
     const railRect = rail.getBoundingClientRect()
-    const docSize = editor.state.doc.content.size
-    // 栏内流内内容的底边（相对栏顶）：卡片是绝对定位，页边栏自己的 head / 我的理解 / 模拟提示
-    // 不参与 tops 计算，第一张卡会直接压在提示上（第 46 轮 T2）。从这里起算，并给面板让出高度。
-    let flowBottom = 0
-    for (const child of Array.from(rail.children)) {
-      if (child.classList.contains('note')) continue
-      if (child.classList.contains('rail-overall')) continue
-      if (child.classList.contains('rail-cards-space')) continue
-      const bottom = child.getBoundingClientRect().bottom - railRect.top
-      if (bottom > flowBottom) flowBottom = bottom
-    }
-    let floor = flowBottom
-    const next: Record<string, number> = {}
-
-    for (const annotation of annotations.filter((item) => item.status === 'pending')) {
-      const position = Math.min(Math.max(annotation.from, 0), Math.max(docSize - 1, 0))
-      const height = cardRefs.current.get(annotation.id)?.offsetHeight ?? 96
-      let natural = floor + 12
-      try {
-        natural = editor.view.coordsAtPos(position).top - railRect.top
-      } catch {
-        natural = floor + 12
+    // 第 94 轮 B-221：批注卡都在 #rail-panel-notes 里；「对话」页签时那块是 hidden、矩形全 0，
+    // 排布必须跳过，否则切回来卡片叠在栏顶。气泡段留在 guard 外面（换页签也要更新气泡）。
+    const notesPanel = rail.querySelector<HTMLElement>('.rail-panel-notes')
+    if (notesPanel && !notesPanel.hidden) {
+      const docSize = editor.state.doc.content.size
+      // 栏内流内内容的底边（相对栏顶）：卡片是绝对定位，页边栏自己的 chrome（head / 页签）与
+      // 提示不参与 tops 计算，第一张卡会直接压在提示上（第 46 轮 T2）。从这里起算，并给面板让出高度。
+      let flowBottom = 0
+      // 先把 chrome 底算进来：批注为空时面板里没有任何提示，只有这部分兜底（第 94 轮 P1-1）
+      for (const chrome of [rail.querySelector('.rail-head'), rail.querySelector('.rail-tabs')]) {
+        if (!chrome) continue
+        const bottom = chrome.getBoundingClientRect().bottom - railRect.top
+        if (bottom > flowBottom) flowBottom = bottom
       }
-      const top = Math.max(natural, floor + 12, 40)
-      next[annotation.id] = Math.round(top)
-      floor = top + height
+      for (const child of Array.from(notesPanel.children)) {
+        if (child.classList.contains('note')) continue
+        if (child.classList.contains('rail-overall')) continue
+        if (child.classList.contains('rail-cards-space')) continue
+        const bottom = child.getBoundingClientRect().bottom - railRect.top
+        if (bottom > flowBottom) flowBottom = bottom
+      }
+      let floor = flowBottom
+      const next: Record<string, number> = {}
+
+      for (const annotation of annotations.filter((item) => item.status === 'pending')) {
+        const position = Math.min(Math.max(annotation.from, 0), Math.max(docSize - 1, 0))
+        const height = cardRefs.current.get(annotation.id)?.offsetHeight ?? 96
+        let natural = floor + 12
+        try {
+          natural = editor.view.coordsAtPos(position).top - railRect.top
+        } catch {
+          natural = floor + 12
+        }
+        const top = Math.max(natural, floor + 12)
+        next[annotation.id] = Math.round(top)
+        floor = top + height
+      }
+
+      // 最后一张卡的底 − 流内内容底 = 面板要占的高度（React 对相同值会 bail out）
+      const pendingCount = annotations.filter((item) => item.status === 'pending').length
+      setRailSpace(pendingCount > 0 ? Math.max(0, Math.round(floor - flowBottom)) : 0)
+
+      setTops((previous) => (JSON.stringify(previous) === JSON.stringify(next) ? previous : next))
     }
-
-    // 最后一张卡的底 − 流内内容底 = 面板要占的高度（React 对相同值会 bail out）
-    const pendingCount = annotations.filter((item) => item.status === 'pending').length
-    setRailSpace(pendingCount > 0 ? Math.max(0, Math.round(floor - flowBottom)) : 0)
-
-    setTops((previous) => (JSON.stringify(previous) === JSON.stringify(next) ? previous : next))
 
     if (selection.to > selection.from) {
       try {
@@ -2427,7 +2440,7 @@ export default function App() {
     } else {
       setBubble(null)
     }
-  }, [annotations, editor, selection, sourceMode, tick])
+  }, [annotations, editor, railTab, selection, sourceMode, tick])
 
   /* ---------- 文件 ---------- */
 
@@ -5902,6 +5915,8 @@ export default function App() {
                 annotations={annotations}
                 tops={tops}
                 railSpace={railSpace}
+                railTab={railTab}
+                onTabChange={setRailTab}
                 activeId={activeId}
                 analyzing={analyzing}
                 unresolved={unresolved}
