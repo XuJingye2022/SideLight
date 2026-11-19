@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
+import { errorCopy, streamChat } from '../lib/ai.ts'
 import {
   ANNOTATION_PRIORITIES,
   ANNOTATION_PRIORITY_LABELS,
@@ -7,7 +8,9 @@ import {
   type AnnotationPriority,
   type DocNote,
 } from '../lib/annotations.ts'
+import { appendDelta, buildChatMessages, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
+import type { Settings } from '../lib/settings.ts'
 import { InlineText } from './InlineText.tsx'
 
 type Props = {
@@ -25,6 +28,16 @@ type Props = {
   /** 右侧页签：对话 / 批注（第 94 轮 B-221）。默认「批注」 */
   railTab: 'chat' | 'notes'
   onTabChange: (tab: 'chat' | 'notes') => void
+  /** 对话页签请求模型用（第 96 轮 B-223） */
+  settings: Settings
+  /** 当前文档名：换了文档就清空对话 */
+  docName: string
+  /** 取当前正文，拼进 system 的节选（截断在 chat.ts） */
+  getChatContext: () => string
+  /** 「生成批注」：把输入框里这句话交给 App 跑一次分析 */
+  onGenerateNotes: (instruction: string) => void
+  /** 只有编辑视图能生成批注：源码 / 预览态下批注落不进正文 */
+  canGenerate: boolean
   /** 窄窗抽屉的关闭按钮；宽窗不传就不显示 */
   onClose?: () => void
   goal: string
@@ -77,11 +90,100 @@ export function MarginRail({
   railSpace,
   railTab,
   onTabChange,
+  settings,
+  docName,
+  getChatContext,
+  onGenerateNotes,
+  canGenerate,
 }: Props) {
   const pending = annotations.filter((annotation) => annotation.status === 'pending')
   const [openThread, setOpenThread] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [overallOpen, setOverallOpen] = useState(true)
+
+  /* ---------- 对话页签（第 96 轮 B-223） ---------- */
+
+  const [turns, setTurns] = useState<ChatTurn[]>([])
+  const [chatDraft, setChatDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [chatError, setChatError] = useState('')
+  const ctrlRef = useRef<AbortController | null>(null)
+  const logRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  /** 卸载后流式回调还会到：先记活着，再决定要不要 setState */
+  const aliveRef = useRef(true)
+
+  const resetChat = () => {
+    ctrlRef.current?.abort()
+    ctrlRef.current = null
+    setTurns([])
+    setChatDraft('')
+    setChatError('')
+    setBusy(false)
+  }
+
+  useEffect(() => {
+    aliveRef.current = true
+    return () => {
+      aliveRef.current = false
+      ctrlRef.current?.abort()
+    }
+  }, [])
+
+  // 换文档就清空：上一轮的对话和这一篇无关，留着会让人以为上下文还在
+  useEffect(() => {
+    resetChat()
+  }, [docName])
+
+  // 新内容贴底（用户可能已经往上翻了，这里不强制——只在整轮变化时滚一次）
+  useEffect(() => {
+    const log = logRef.current
+    if (!log) return
+    log.scrollTop = log.scrollHeight
+  }, [turns])
+
+  const send = async () => {
+    const text = chatDraft.trim()
+    if (!text || busy) return
+    const next = pushTurn(turns, 'user', text)
+    // 先放一条空的 assistant 占位：流式回来的字才有地方落
+    setTurns([...next, { role: 'assistant', text: '' }])
+    setChatDraft('')
+    setChatError('')
+    setBusy(true)
+
+    const controller = new AbortController()
+    ctrlRef.current = controller
+    try {
+      await streamChat({
+        settings,
+        messages: buildChatMessages(getChatContext(), next),
+        signal: controller.signal,
+        onDelta: (delta) => {
+          if (!aliveRef.current) return
+          setTurns((previous) => appendDelta(previous, delta))
+        },
+      })
+    } catch (error) {
+      const aborted = error instanceof DOMException && error.name === 'AbortError'
+      if (!aborted && aliveRef.current) setChatError(errorCopy(error).text)
+    } finally {
+      if (ctrlRef.current === controller) ctrlRef.current = null
+      if (aliveRef.current) {
+        setBusy(false)
+        inputRef.current?.focus()
+      }
+    }
+  }
+
+  const generateNotes = () => {
+    const instruction = chatDraft.trim()
+    if (!instruction || busy || analyzing || !canGenerate) return
+    setChatDraft('')
+    setChatError('')
+    onGenerateNotes(instruction)
+  }
+
   const overall = docNotes.filter((note) => note.kind === 'overall')
   const unresolvedNotes = docNotes.filter((note) => note.kind === 'unresolved')
 
@@ -373,18 +475,77 @@ export function MarginRail({
         aria-labelledby="rail-tab-chat"
         hidden={railTab !== 'chat'}
       >
-        <div className="rail-empty rail-chat-empty">
-          <p className="rail-empty-title">对话还没接入</p>
-          <p className="rail-empty-sub">这里会放和侧灯的一问一答。</p>
-        </div>
-        {/* 禁用是刻意的：本轮只交付页签与占位，输入与发送下一批接入 */}
-        <div className="rail-chat-compose">
-          <input disabled aria-label="对话输入（未接入）" placeholder="和侧灯说一句…" />
-          <button type="button" disabled>
-            发送
+        <div className="rail-chat-head">
+          <span className="rail-chat-title">和侧灯说一句</span>
+          <button
+            type="button"
+            className="rail-chat-reset"
+            disabled={busy || (turns.length === 0 && !chatDraft)}
+            onClick={resetChat}
+          >
+            新对话
           </button>
         </div>
-        <p className="rail-chat-hint">下一批接入对话、消息与生成批注</p>
+
+        {simulated && <p className="rail-chat-mock">未配置 API Key，回答是本地模拟的，不调用模型</p>}
+
+        <div className="rail-chat-log" role="log" aria-live="polite" aria-label="对话记录" ref={logRef}>
+          {turns.length === 0 && (
+            <div className="rail-empty rail-chat-empty">
+              <p className="rail-empty-title">和侧灯说一句</p>
+              <p className="rail-empty-sub">让它找问题、给改法；要落正文点「生成批注」。</p>
+            </div>
+          )}
+          {turns.map((turn, index) => (
+            <p key={index} className={`rail-chat-turn is-${turn.role}`}>
+              {turn.text || (busy && turn.role === 'assistant' ? '…' : '')}
+            </p>
+          ))}
+        </div>
+
+        {chatError && (
+          <p className="rail-chat-error" role="alert">
+            {chatError}
+          </p>
+        )}
+
+        <div className="rail-chat-compose">
+          <textarea
+            ref={inputRef}
+            className="rail-chat-input"
+            rows={2}
+            aria-label="和侧灯说一句"
+            placeholder="和侧灯说一句…"
+            value={chatDraft}
+            onChange={(event) => setChatDraft(event.target.value)}
+            onKeyDown={(event) => {
+              // 组合输入里的回车是选字，不是发送；Shift+Enter 换行
+              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+              event.preventDefault()
+              void send()
+            }}
+          />
+          <button type="button" className="rail-chat-send" disabled={busy || !chatDraft.trim()} onClick={() => void send()}>
+            发送
+          </button>
+          <button
+            type="button"
+            className="rail-chat-generate"
+            disabled={busy || !chatDraft.trim() || analyzing || !canGenerate}
+            title={
+              !canGenerate
+                ? '切回编辑视图再生成批注'
+                : !chatDraft.trim()
+                  ? '先写一句要落成批注的话'
+                  : analyzing
+                    ? '正在分析，稍等'
+                    : '按这句话分析当前这一段，生成批注'
+            }
+            onClick={generateNotes}
+          >
+            生成批注
+          </button>
+        </div>
       </div>
     </aside>
   )

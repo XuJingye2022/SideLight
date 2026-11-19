@@ -2,7 +2,14 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–95 轮，未发版）
+## Unreleased（第 29–96 轮，未发版）
+
+**第 96 轮（同一未发版区间）**
+
+- 对话页签（A1，B-223，用户 2026-11-20 队列第 3 条）：新 `src/lib/chat.ts` 放纯逻辑——`chatContextOf`（去首尾空白、超 2000 字截断留省略号、空文档回 `''`）、`buildChatMessages`（system + 最近 12 轮，切片首条是 assistant 就整段丢到第一个 user）、`pushTurn`（同角色也各占一条）、`appendDelta`（只补末条 assistant，无可补时原样返回）、`CHAT_SYSTEM_PROMPT`（短、不编造、指向「生成批注」，正文只采纳才变）；`chat.test.ts` **12 条**挂 `npm test` 链尾（57→58 文件）。`MarginRail.tsx` 的对话面板换成真界面：`.rail-chat-head` + 「新对话」、`.rail-chat-log[role="log"][aria-live="polite"]`、`.rail-chat-turn.is-user` / `.is-assistant`（空助手 + busy 显「…」）、`.rail-chat-empty`、`.rail-chat-mock`、`.rail-chat-error`、`textarea.rail-chat-input`（`rows=2`、Enter 发送 / Shift+Enter 换行、组合输入中的回车不发送）+「发送」+「生成批注」；`streamChat` 直连、`AbortController` 换文档 / 新对话 / 卸载都中断，换文档（`docName`）清空对话；`styles.css` 补样式并把 `.rail-chat-compose input` 改 `textarea`（输入占一行、两钮在下一行）。
+- 「生成批注」把对话里的那句话接进批注请求（A2，B-223）：`src/lib/ai.ts` 新 `annotationMessages(context, settings, mode, instruction?)`——指令去空白后顶替 `settings.userPrompt` 槽（槽位标签仍是「作者偏好与检查重点：」，`prompt.ts` 不动），空白 / 缺省 / 非字符串回落作者偏好；`StreamOptions.instruction` 经 `streamAnnotations` 传到 `remoteStream`，全文总评那次不传；`App.tsx` 的 `runAnalysis(instruction?)` 与 `runOne` 透传指令，`.analyze-button` 与 `.analyze-bubble` 两处 `onClick` 改成 `() => void runAnalysis()`（裸引用会把事件对象当指令）；`MarginRail` 的「生成批注」先切回「批注」页签再跑，`canGenerate` 只在编辑视图为真、`analyzing` 时禁用；`prompt.test.ts` 8→**10** 条。
+- 门禁：首屏 gzip **313,360 B**（基线 313,086，净 **+274 B**；超内部预算 310,000 3,360 B 只 WARN、硬线 320,000 内余 6,640 B；`node scripts/measure-first-screen.mjs --max 314500` exit 0）；`npm test` **58 文件 800 条 0 fail**；未改编辑器/序列化不跑 roundtrip。见 `docs/iteration/round-96/impl.md`。
+- tester 第 96 轮独立验收（未读 `impl.md`；ego 浏览器 CDP 57270，自写 `.tmp/r96-tester-a1a2.mjs` **42/42**、0 pageerror）：对话 a–h 全过（空态/可聚焦/空输入 disabled、Enter 626 ms 出「（模拟回复）」且焦点回输入框、切页签保留 2 条、Shift+Enter 换行、自写 SSE 两段拼接与 401「API Key 无效」、mock 提示 1/0、「新对话」清空、换文档 turn 0）；几何 3 卡 [146,318]/[330,482]/[494,664] 不重叠、栏宽 320、`.doc-scroll` 横溢 0、1024×700 抽屉可用；「生成批注」指令逐字进 `messages[1]` 且不含 `userPrompt`、自动切批注且 `.note` 1、`.analyze-button` 反之、空输入两钮 disabled、源码态 disabled。门禁 `npm test` 58/800、`verify` 与 `--max 314500` gzip 313,360（raw 1,015,562、距 314,500 余 1,140）；回归 `keyboard-acceptance` 52/52。见 `docs/iteration/round-96/test.md`。
 
 **第 95 轮（同一未发版区间）**
 

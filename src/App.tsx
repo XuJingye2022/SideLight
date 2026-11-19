@@ -1694,7 +1694,7 @@ export default function App() {
 
   /* ---------- 批注 ---------- */
 
-  const runAnalysis = useCallback(async () => {
+  const runAnalysis = useCallback(async (instruction?: string) => {
     if (!editor || analyzing || viewMode !== 'edit') return
     const { from, to } = editor.state.selection
     const blocks = readBlocks(editor)
@@ -1730,7 +1730,7 @@ export default function App() {
     abortRef.current = controller
 
     /** 分析一段：送出去、收回来、落位置 */
-    const runOne = async (payload: ContextPayload, rangeFrom: number, rangeTo: number) => {
+    const runOne = async (payload: ContextPayload, rangeFrom: number, rangeTo: number, given?: string) => {
       if (controller.signal.aborted || !payload.selection.trim()) return
       const start = offsetForPosition(index, rangeFrom)
       const windowEnd = Math.max(offsetForPosition(index, rangeTo), start)
@@ -1788,6 +1788,8 @@ export default function App() {
         settings,
         context: payload,
         signal: controller.signal,
+        // 对话页签「生成批注」带的那句：只替换作者偏好槽，全文总评那次不传
+        instruction: given,
         onDelta: (delta) => {
           buffer += delta
           const parsed = parseStream(buffer)
@@ -1803,12 +1805,12 @@ export default function App() {
       if (chunks.length > 0) {
         for (const chunk of chunks) {
           if (controller.signal.aborted) break
-          await runOne(buildChunkContext(blocks, chunk), chunk.from, chunk.to)
+          await runOne(buildChunkContext(blocks, chunk), chunk.from, chunk.to, instruction)
         }
       } else {
         // 没有选区：按光标所在段落分析
         const hostBlock = blocks.find((block) => from >= block.from && from <= block.to) ?? blocks[0]
-        await runOne(context, hostBlock?.from ?? from, hostBlock?.to ?? to)
+        await runOne(context, hostBlock?.from ?? from, hostBlock?.to ?? to, instruction)
       }
 
       if (context.selection.length >= 3000 || chunks.length > 1) {
@@ -5331,7 +5333,7 @@ export default function App() {
         <button
           type="button"
           className="analyze-button"
-          onClick={runAnalysis}
+          onClick={() => void runAnalysis()}
           disabled={viewMode !== 'edit' || selection.chars === 0 || analyzing}
           title={
             viewMode !== 'edit'
@@ -5936,6 +5938,16 @@ export default function App() {
                 railSpace={railSpace}
                 railTab={railTab}
                 onTabChange={setRailTab}
+                settings={settings}
+                docName={docName}
+                // 节选与截断都在 chat.ts：这里只把正文拼成一段纯文本，编辑器不在就给空串
+                getChatContext={() => (editor ? readBlocks(editor).map((block) => block.text).join('\n\n') : '')}
+                canGenerate={viewMode === 'edit'}
+                onGenerateNotes={(instruction) => {
+                  // 先切回「批注」页签：批注卡落在那边，留在对话页会看不见结果
+                  setRailTab('notes')
+                  void runAnalysis(instruction)
+                }}
                 activeId={activeId}
                 analyzing={analyzing}
                 unresolved={unresolved}
@@ -6034,7 +6046,7 @@ export default function App() {
           className="analyze-bubble"
           style={{ top: bubble.top, left: bubble.left }}
           onMouseDown={(event) => event.preventDefault()}
-          onClick={runAnalysis}
+          onClick={() => void runAnalysis()}
         >
           分析
         </button>

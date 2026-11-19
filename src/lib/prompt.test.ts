@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildMessages } from './ai.ts'
+import { annotationMessages, buildMessages } from './ai.ts'
 import { parseStream } from './annotations.ts'
 import type { ContextPayload } from './context.ts'
 import { ANALYSIS_SYSTEM_PROMPT, DEFAULT_USER_PROMPT, DISCUSS_SYSTEM_PROMPT } from './prompt.ts'
+import type { Settings } from './settings.ts'
 
 const context = (selection = '正文'): ContextPayload => ({
   before: '',
@@ -98,4 +99,30 @@ test('user 消息示例 JSON 可被 parseStream 解析', () => {
     parsed.items.map((item) => item.kind),
     ['meta', 'evaluation', 'overall'],
   )
+})
+
+/** 只关心 userPrompt 一栏：其余字段与本组断言无关 */
+const settingsWith = (userPrompt: string): Settings => ({ userPrompt }) as unknown as Settings
+
+test('对话页签「生成批注」的指令逐字进 user 消息，作者的偏好不出现', () => {
+  const messages = annotationMessages(context('正文'), settingsWith('偏好-唯一标记'), 'local', '  把第二段的结论提到开头  ')
+  assert.equal(messages.length, 2)
+  assert.equal(messages[0].role, 'system')
+  assert.equal(messages[0].content, ANALYSIS_SYSTEM_PROMPT)
+  assert.match(messages[1].content, /把第二段的结论提到开头/)
+  assert.doesNotMatch(messages[1].content, /偏好-唯一标记/)
+  // 槽位标签仍是「作者偏好与检查重点：」，不改 prompt.ts 的措辞
+  assert.match(messages[1].content, /^作者偏好与检查重点：\n把第二段的结论提到开头\n/)
+})
+
+test('没有指令时回落到作者偏好：空白、缺省与非字符串都算没有', () => {
+  const settings = settingsWith('偏好-唯一标记')
+  const instructions = ['   ', undefined, {} as unknown as string]
+  for (const instruction of instructions) {
+    const messages = annotationMessages(context('正文'), settings, 'local', instruction)
+    assert.match(messages[1].content, /偏好-唯一标记/)
+    assert.doesNotMatch(messages[1].content, /把第二段的结论提到开头/)
+  }
+  // 不带第 4 参也走同一支
+  assert.match(annotationMessages(context('正文'), settings)[1].content, /偏好-唯一标记/)
 })

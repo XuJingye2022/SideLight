@@ -1326,34 +1326,101 @@ button:disabled {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-/* 对话页签本轮只有空态与禁用的输入占位（输入、发送、生成批注下一批接入） */
-.rail-chat-empty {
-  margin-top: 16px;
+/* 对话页签（第 96 轮 B-223）：头部 + 消息记录 + 输入 + 发送 / 生成批注 */
+.rail-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
 }
 
-.rail-chat-hint {
-  margin: 10px 0 0;
+.rail-chat-title {
+  font-family: var(--font-read);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.rail-chat-reset {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   font-size: 11.5px;
   color: var(--ink-faint);
 }
 
+/* 记录区自己滚：栏高改不了，长对话不能把输入框顶出视口 */
+.rail-chat-log {
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.rail-chat-empty {
+  margin-top: 0;
+}
+
+.rail-chat-turn {
+  margin: 0 0 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rail-chat-turn.is-user {
+  background: var(--panel);
+}
+
+.rail-chat-turn.is-assistant {
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+}
+
+.rail-chat-mock {
+  margin: 10px 0 0;
+  padding: 6px 8px;
+  border-left: 2px solid var(--line-strong);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.rail-chat-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--warn);
+}
+
+/* 输入框占满一行，两个钮在下一行：320px 的栏里并排塞不下 */
 .rail-chat-compose {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 14px;
 }
 
-.rail-chat-compose input {
-  flex: 1;
+.rail-chat-compose textarea {
+  flex: 1 1 100%;
   min-width: 0;
   padding: 6px 8px;
   font-size: 13px;
+  resize: none;
 }
 
 .rail-chat-compose button {
   flex: none;
   padding: 6px 10px;
   font-size: 13px;
+}
+
+.rail-chat-generate {
+  margin-left: auto;
+  color: var(--ink-soft);
 }
 
 /* ---------- 批注卡 ---------- */

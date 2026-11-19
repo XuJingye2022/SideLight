@@ -9,6 +9,8 @@ export type StreamOptions = {
   onDelta: (delta: string) => void
   signal?: AbortSignal
   mode?: 'local' | 'full'
+  /** 「生成批注」带的一句话指令：优先于设置里的作者偏好（第 96 轮 B-223） */
+  instruction?: string
 }
 
 export type ChatMessage = {
@@ -26,6 +28,21 @@ export function buildMessages(
     { role: 'system', content: ANALYSIS_SYSTEM_PROMPT },
     { role: 'user', content: buildUserMessage(context, prompt.trim() ? prompt : DEFAULT_USER_PROMPT, mode) },
   ]
+}
+
+/**
+ * 批注请求的消息组：有指令就把指令放进 userPrompt 槽，没有才回落到设置里的作者偏好。
+ * 槽位标签仍由 prompt.ts 的 `作者偏好与检查重点：` 给，这里不多造一层。
+ * 指令为空白 / 缺省 / 非字符串一律当没有（事件对象误传进来也不改行为）。
+ */
+export function annotationMessages(
+  context: ContextPayload,
+  settings: Settings,
+  mode: 'local' | 'full' = 'local',
+  instruction?: string,
+): ChatMessage[] {
+  const given = typeof instruction === 'string' ? instruction.trim() : ''
+  return buildMessages(context, given || settings.userPrompt, mode)
 }
 
 export function messageOf(error: unknown): string {
@@ -108,7 +125,7 @@ export async function streamAnnotations(options: StreamOptions): Promise<void> {
   await remoteStream(options)
 }
 
-async function remoteStream({ settings, context, onDelta, signal, mode }: StreamOptions): Promise<void> {
+async function remoteStream({ settings, context, onDelta, signal, mode, instruction }: StreamOptions): Promise<void> {
   const url = `${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`
   const response = await requestChat(url, {
     method: 'POST',
@@ -120,7 +137,7 @@ async function remoteStream({ settings, context, onDelta, signal, mode }: Stream
       model: settings.model,
       temperature: 0.3,
       stream: true,
-      messages: buildMessages(context, settings.userPrompt, mode),
+      messages: annotationMessages(context, settings, mode, instruction),
     }),
     signal,
   })
