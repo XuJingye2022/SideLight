@@ -2250,6 +2250,46 @@ button:disabled {
 .doc-body .tiptap-mathematics-render.sl-math-reveal > .block-math-inner {
   display: none;
 }
+
+/* 第 90 轮 A1（用户反馈 #1）：行内公式就地编辑。编辑态收起 KaTeX 成品、压掉露出源码的
+   伪元素；`.sl-math-inline-edit` 里的 `$` + 输入框 + `$` 本身就是源码，不再开浮层。
+   属性选择器用双引号写：`mathStyle.test.ts` 按单引号的 `[data-type='block-math']` 数块级规则块。 */
+.doc-body .tiptap-mathematics-render.is-editing > .katex,
+.doc-body .tiptap-mathematics-render.is-editing > .block-math-inner {
+  display: none;
+}
+
+.doc-body .tiptap-mathematics-render.is-editing[data-type="inline-math"]::after,
+.doc-body .tiptap-mathematics-render.is-editing[data-type="block-math"]::after {
+  content: none;
+}
+
+.doc-body .sl-math-inline-edit {
+  display: inline-flex;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--accent-ink);
+  white-space: nowrap;
+}
+
+.doc-body .sl-math-inline-input {
+  min-width: 3ch;
+  margin: 0 1px;
+  padding: 0 3px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.4;
+  outline: none;
+}
+
+.doc-body .sl-math-inline-input:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .readonly-banner {
   position: sticky;
   top: 0;

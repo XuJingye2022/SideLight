@@ -2,7 +2,14 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–89 轮，未发版）
+## Unreleased（第 29–90 轮，未发版）
+
+**第 90 轮（同一未发版区间）**
+
+- 行内公式就地编辑（A1，用户反馈 #1）：新 `src/lib/mathNodeView.ts` 用 `InlineMath.extend({addNodeView})` 把行内 atom 换成「成品 ↔ 输入框」两态 NodeView（非编辑态 KaTeX 直接子节点、仍写 `$latex$` 不变序列化；编辑态外层 `.is-editing`、`.sl-math-inline-edit` = `$` + `<input class="sl-math-inline-input">` + `$`；`WeakMap` 注册 `enterMathEdit(view,pos)` 供插入入口进入；Enter/失焦 `setNodeMarkup` 提交、Esc 取消（新建空 atom 删除并回写选区）、←/→ 两端提交后移出、Ctrl+S 先提交再冒泡保存；新建提交沿用进入时刻 time 与插入并为一步撤销；KaTeX 惰性加载完成时编辑框补回）。`App.tsx` 去掉旧 `Mathematics.inlineOptions.onClick` 与 editorProps 的公式拦截分支；`styles.css` 加编辑态收起 KaTeX/压掉露出 `::after` 的规则与输入框样式。
+- 插入入口改走新编辑、删死代码（A2）：`openMathAtCursorRef` 对行内公式一律 `enterMathEdit`（已有公式 `{isNew:false}`、新插 atom `{isNew:true}`，进不去才退回浮层），行内插入不再 `chain().focus()`（避免下一帧 `view.focus()` 把刚打开的输入框 blur 掉）；删除 `mathDraft` 状态/监听/预览链、`MathDraftPreview.tsx` 与 `inlineOptions.onClick`；`scripts/keyboard-acceptance.mjs` 改按 `.sl-math-inline-input` 断言；新 `mathNodeView.test.ts` **3 条**挂 `npm test` 链尾（55 文件 727 条）。
+- 门禁：首屏 gzip **309,470 B**（净 +396 B，余 530 / 10,530）；`npm test` **55 文件 727 条 0 fail**（基线 54/724）；`roundtrip` rich 7/9 + source 9/9。见 `docs/iteration/round-90/impl.md`。
+- tester 第 90 轮独立验收（未读 `impl.md`；CDP 9222–9226 不可用 → ego 浏览器 CDP 57270，自写 `.tmp/e2e-r90-tester-a1a2.mjs`）：真机 **14/14**（A1 点开 `.sl-math-inline-input` 1 聚焦 / KaTeX none / `::after` none / `$…$` 首尾、`^2`+Enter 回渲染且焦点回正文、Esc 还原且 `sl-parse-done` 2→2、`Ctrl+S` 只改公式文本、重开无 `sl-math-reveal`；A2 工具栏/Ctrl+M/Ctrl+Shift+M 三入口、`x`+Enter 后 `Ctrl+Z` 一次回基线、Esc 删空 atom、块级浮层未坏）；回归 `keyboard-acceptance` **52/52**。见 `docs/iteration/round-90/test.md`。
 
 **第 89 轮（同一未发版区间）**
 

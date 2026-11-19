@@ -8,7 +8,7 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
 import { TextSelection } from '@tiptap/pm/state'
 import { isHistoryTransaction } from 'prosemirror-history'
-import { Mathematics } from '@tiptap/extension-mathematics'
+import { BlockMath } from '@tiptap/extension-mathematics'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { TaskItem } from '@tiptap/extension-task-item'
 import { TaskList } from '@tiptap/extension-task-list'
@@ -16,7 +16,6 @@ import { TaskList } from '@tiptap/extension-task-list'
 import { FileMenu } from './components/FileMenu.tsx'
 import { FileTree } from './components/FileTree.tsx'
 import { InlinePopover } from './components/InlinePopover.tsx'
-import { MathDraftPreview } from './components/MathDraftPreview.tsx'
 import { MathInlineEditor } from './components/MathInlineEditor.tsx'
 import { LinkEditor } from './components/LinkEditor.tsx'
 const MarginRail = lazy(() =>
@@ -77,6 +76,7 @@ import { MermaidPreview } from './lib/mermaidPreview.ts'
 import { createToc } from './lib/tocRender.ts'
 import { nextRestoreEntry, restoreLabel, type RestoreEntry } from './lib/restoreEntry.ts'
 import { eqDelimiterReveal, mathReveal } from './lib/mathReveal.ts'
+import { SidelightInlineMath, enterMathEdit } from './lib/mathNodeView.ts'
 import { hasTocSource } from './lib/toc.ts'
 import { findAll, type Match } from './lib/find.ts'
 import { replaceNoticeText } from './lib/findBarState.ts'
@@ -538,15 +538,6 @@ export default function App() {
     isNew: boolean
     anchor: DOMRect
   } | null>(null)
-  const [mathDraft, setMathDraft] = useState<{
-    from: number
-    to: number
-    latex: string
-    block: boolean
-    top: number
-    left: number
-  } | null>(null)
-  const mathDraftRef = useRef<{ from: number; to: number; block: boolean; text: string } | null>(null)
 
   // 草稿、文档名、frontmatter 一起恢复，避免刷新后元数据与文件名丢失
   const [initial] = useState(() => {
@@ -993,14 +984,11 @@ export default function App() {
       StarterKit.configure({ strike: false }),
       StrikeShortcut,
       ResolvingImage.configure({ allowBase64: true }),
-      Mathematics.configure({
-        // 点公式就进编辑：位置交给节点自己报，比从 DOM 反推准
-        inlineOptions: {
-          onClick: (_node, position) => mathEditRef.current(position),
-        },
-        blockOptions: {
-          onClick: (_node, position) => mathEditRef.current(position),
-        },
+      // 行内公式换成就地编辑的 NodeView（第 90 轮 A1）；块级仍用上游 NodeView + 浮层（B1 再改块内编辑）
+      SidelightInlineMath,
+      BlockMath.configure({
+        // 点块级公式进编辑：位置交给节点自己报，比从 DOM 反推准
+        onClick: (_node, position) => mathEditRef.current(position),
       }),
       // 公式 atom 被选中时露出 `$…$` / `$$…$$` 源码（第 73 轮 B-156）：装饰只挂编辑视图
       mathReveal(),
@@ -1132,12 +1120,8 @@ export default function App() {
           openLinkRef.current(anchor as HTMLAnchorElement, pos)
           return true
         }
-        const math = target.closest('.tiptap-mathematics-render, [data-type="inline-math"], [data-type="block-math"]')
-        if (math) {
-          // 公式由节点自己的 onClick 处理，这里只挡掉默认的选区行为
-          event.preventDefault()
-          return true
-        }
+        // 公式不再走这里：行内由 NodeView 的 mousedown 进就地编辑，
+        // 块级由上游 NodeView 自己的 click 处理（第 90 轮 A1）
         return false
       },
     },
@@ -5191,6 +5175,11 @@ export default function App() {
       const { from } = editor.state.selection
       const node = editor.state.doc.nodeAt(from)
       if (node && node.type.name.toLowerCase().includes('math')) {
+        // 光标已在公式上：行内就地编辑（第 90 轮 A1），块级仍开浮层（B1 再做块内编辑）
+        if (node.type.name === 'inlineMath') {
+          enterMathEdit(editor.view, from, { isNew: false })
+          return
+        }
         mathIsNewRef.current = false
         mathEditRef.current(from)
         return
@@ -5209,174 +5198,27 @@ export default function App() {
         coords.bottom - coords.top,
       )
       mathIsNewRef.current = true
-      editor.chain().focus().insertContent({ type: block ? 'blockMath' : 'inlineMath', attrs: { latex: '' } }).run()
+      // 行内不要 `focus()`：Tiptap 的 focus 命令在正文没有焦点时会再排一帧 `view.focus()`，
+      // 从工具栏点进来时它会把刚打开的输入框 blur 掉（空 atom 随即按取消被删）。
+      // 行内插入后直接进就地编辑；块级仍要聚焦正文，浮层锚点按它算。
+      const chain = editor.chain()
+      if (block) chain.focus()
+      chain.insertContent({ type: block ? 'blockMath' : 'inlineMath', attrs: { latex: '' } }).run()
       const after = editor.state.selection.from
       for (const candidate of [after - 1, after, after - 2]) {
         const hit = editor.state.doc.nodeAt(candidate)
         if (hit && hit.type.name.toLowerCase().includes('math')) {
+          // 行内走就地编辑；进不去（例如 NodeView 还没挂上）才退回浮层，避免留下看不见的空 atom
+          if (hit.type.name === 'inlineMath' && enterMathEdit(editor.view, candidate, { isNew: true })) {
+            mathIsNewRef.current = false
+            return
+          }
           mathEditRef.current(candidate)
           return
         }
       }
     }
   }, [editor, viewMode, selectionInTable, show])
-
-  // 跟着输入刷新预览；光标离开草稿就把源码还原成公式
-  useEffect(() => {
-    if (!editor || !mathDraft) return
-
-    // 提交时按「刚才编辑的那段源码文本」在文档里找回它，不依赖位置映射
-    const commit = () => {
-      const draft = mathDraftRef.current
-      setMathDraft(null)
-      mathDraftRef.current = null
-      const storage = (editor.storage as { mathInputRules?: { draft: boolean } }).mathInputRules
-      if (storage) storage.draft = false
-      editor.setOptions({ enableInputRules: true, enablePasteRules: true })
-      if (!draft) return
-
-      const { state } = editor
-      const target = draft.text.trim()
-      if (!target) return
-      // 用文本形状判断是块级还是行内，比记下来的标记可靠
-      const isBlock = /^\$\$[\s\S]+\$\$$/.test(target)
-
-      let found: { pos: number; node: PMNode } | null = null
-      state.doc.descendants((node, pos) => {
-        if (found) return false
-        if (!node.isTextblock) return true
-        const text = node.textContent
-        if (isBlock ? text.trim() === target : text.includes(target)) {
-          found = { pos, node }
-          return false
-        }
-        return true
-      })
-      if (!found && isBlock) {
-        // 扩展的输入规则会把 $$…$$ 直接收成行内公式；按 latex 找回来改成块级
-        const latex = target.replace(/^\$\$/, '').replace(/\$\$$/, '').trim()
-        if (latex) {
-          let hitPos = -1
-          state.doc.descendants((node, pos) => {
-            if (hitPos >= 0) return false
-            if (node.type.name === 'inlineMath' && String(node.attrs.latex ?? '').trim() === latex) {
-              hitPos = pos
-              return false
-            }
-            return true
-          })
-          if (hitPos >= 0) {
-            const $hit = state.doc.resolve(hitPos)
-            const start = $hit.start() - 1
-            editor
-              .chain()
-              .insertContentAt({ from: start, to: start + $hit.parent.nodeSize }, { type: 'blockMath', attrs: { latex } })
-              .run()
-            return
-          }
-        }
-      }
-
-      const picked = found as unknown as { pos: number; node: PMNode } | null
-      if (!picked) return
-
-      const { pos, node } = picked
-      const type = state.schema.nodes[isBlock ? 'blockMath' : 'inlineMath']
-      if (!type) return
-
-      if (isBlock) {
-        const latex = target.replace(/^\$\$/, '').replace(/\$\$$/, '').trim()
-        if (!latex) return
-        editor
-          .chain()
-          .insertContentAt({ from: pos, to: pos + node.nodeSize }, { type: type.name, attrs: { latex } })
-          .run()
-        return
-      }
-
-      const index = node.textContent.indexOf(target)
-      const match = target.match(/^\$([^$]+)\$$/)
-      if (index < 0 || !match) return
-      const latex = match[1].trim()
-      if (!latex) return
-      editor
-        .chain()
-        .insertContentAt(
-          { from: pos + 1 + index, to: pos + 1 + index + target.length },
-          { type: type.name, attrs: { latex } },
-        )
-        .run()
-    }
-
-    const refresh = (from: number, to: number) => {
-      const { state } = editor
-      if (to > state.doc.content.size) return
-      const raw = state.doc.textBetween(from, to, '\n')
-      const latex = raw.replace(/^\$\$?/, '').replace(/\$\$?$/, '')
-
-      let top = 0
-      let left = 0
-      try {
-        const coords = editor.view.coordsAtPos(Math.min(to, state.doc.content.size))
-        top = coords.bottom
-        left = coords.left
-      } catch {
-        // 位置越界时这次的坐标就先不用
-      }
-
-      setMathDraft((current) => (current ? { ...current, from, to, latex, top, left } : current))
-    }
-
-    const lastTransactionRef = { current: null as Transaction | null }
-
-    const handle = (transaction: Transaction) => {
-      const draft = mathDraftRef.current
-      if (!draft) return
-
-      // 一次 dispatch 会同时触发 update 与 selectionUpdate，映射只能做一次
-      if (lastTransactionRef.current !== transaction) {
-        lastTransactionRef.current = transaction
-        mathDraftRef.current = {
-          ...draft,
-          from: transaction.mapping.map(draft.from, -1),
-          to: transaction.mapping.map(draft.to, 1),
-          text: editor.state.doc.textBetween(
-            Math.max(0, transaction.mapping.map(draft.from, -1)),
-            Math.min(editor.state.doc.content.size, transaction.mapping.map(draft.to, 1)),
-            '\n',
-          ),
-        }
-      }
-
-      const current = mathDraftRef.current
-      if (!current) return
-      const selection = editor.state.selection
-      if (selection.to < current.from || selection.from > current.to) {
-        // 源码还没写完整（缺收尾的 $）就先不收，等写完再收
-        const text = current.text.trim()
-        const complete = /^\$\$[\s\S]+\$\$$/.test(text) || /^\$[^$]+\$$/.test(text)
-        if (complete) {
-          commit()
-          return
-        }
-        return
-      }
-      refresh(current.from, current.to)
-    }
-
-    const onUpdate = ({ transaction }: { transaction: Transaction }) => handle(transaction)
-    const onSelection = ({ transaction }: { transaction: Transaction }) => handle(transaction)
-
-    editor.on('update', onUpdate)
-    editor.on('selectionUpdate', onSelection)
-    refresh(mathDraft.from, mathDraft.to)
-
-    return () => {
-      editor.off('update', onUpdate)
-      editor.off('selectionUpdate', onSelection)
-    }
-    // 只在进入/退出草稿时重挂监听，编辑过程中的范围走 ref
-  }, [editor, mathDraft !== null])
 
   /**
    * 公式就地编辑的唯一出口：提交（latex 非空换内容、空则保留公式块）与取消。
@@ -6433,10 +6275,6 @@ export default function App() {
             editor?.commands.focus()
           }}
         />
-      )}
-
-      {mathDraft && (
-        <MathDraftPreview top={mathDraft.top} left={mathDraft.left} latex={mathDraft.latex} display={mathDraft.block} />
       )}
 
       {mathEdit && (
