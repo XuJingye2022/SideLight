@@ -75,6 +75,19 @@ export function marksBody(annotation: Annotation): boolean {
   return annotation.status === 'pending' && !isClosedReview(annotation)
 }
 
+/** 回复落进线程后的四态：四个原状态都收成 in-progress（resolved / wont-fix 当成重新讨论） */
+const REPLY_REVIEW_STATUS: Record<ReviewStatus, ReviewStatus> = {
+  open: 'in-progress',
+  'in-progress': 'in-progress',
+  resolved: 'in-progress',
+  'wont-fix': 'in-progress',
+}
+
+/** 回复成功落进线程后调用：非法与缺失值也回 in-progress（先归一成 open 再查表） */
+export function reviewStatusOnReply(current: unknown): ReviewStatus {
+  return REPLY_REVIEW_STATUS[normalizeReviewStatus(current)]
+}
+
 /** 模型先给一条意图说明，再给批注；overall 是不锚定的全文总评 */
 export type ParsedKind = AnnotationKind | 'meta' | 'overall'
 
@@ -126,6 +139,23 @@ export type Annotation = {
 export type ChatTurn = {
   role: 'user' | 'assistant'
   text: string
+}
+
+/* ---------- [AGENT] 线程回复（第 98 轮 B-225） ---------- */
+
+/** 助手回复的统一前缀：线程里一眼分出人与代理，沿用 Review Mode 的 [AGENT] 约定 */
+export const AGENT_PREFIX = '[AGENT]'
+
+/** 落库前的唯一规范：空白回空串，已带前缀原样返回（幂等），其余补一次前缀 */
+export function agentReply(text: string): string {
+  const body = text.trim()
+  if (body === '') return ''
+  return body.startsWith(AGENT_PREFIX) ? body : `${AGENT_PREFIX} ${body}`
+}
+
+/** 卡片线程显示用：助手回复再规范一次（旧档线程也统一），用户发言原样 */
+export function threadText(turn: ChatTurn): string {
+  return turn.role === 'assistant' ? agentReply(turn.text) : turn.text
 }
 
 export type SearchSource = {

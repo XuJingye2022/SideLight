@@ -2,7 +2,15 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–97 轮，未发版）
+## Unreleased（第 29–98 轮，未发版）
+
+**第 98 轮（同一未发版区间）**
+
+- 批注线程里的助手回复统一带 `[AGENT]` 前缀（A1，B-225，用户 2026-11-20 队列第 5 条）：`src/lib/annotations.ts` 加 `AGENT_PREFIX = '[AGENT]'`、`agentReply`（`trim()` 后空白回 `''`、已带前缀原样返回——幂等、其余补一次前缀）、`threadText`（显示层再规范一次：assistant 走 `agentReply`、user 原样）、`REPLY_REVIEW_STATUS` 与 `reviewStatusOnReply`（四态逐档都回 `in-progress`，缺失/非法值先归一成 open 再查表）。规则与 Review Mode 的 `[AGENT]` 约定一致；`annotations.test.ts` 34→**37 条**（前缀幂等/空白回空/显示层 user 原样、四态与非法值、带 thread 与 in-progress 的 store 往返 `deepEqual`）。
+- 接线（A2）：`MarginRail.tsx:361` 的线程块改 `<InlineText text={threadText(turn)} />`（空文本仍走 `.thread-typing` 的「…」，不加前缀）；`App.tsx` 的 `discuss` 在 `await streamChat(...)` 成功后、`catch` 前补一次 `setAnnotations`——只处理 `item.id === id`、末条必须是非空的 assistant，写 `agentReply(last.text)` 并把四态转 `reviewStatusOnReply(item.reviewStatus)`；失败/中断不进这一支，纯空白回复不改文本也不改状态（critic CR-2）。**不改 `ai.ts`**：`streamChat` 同时服务「对话」页签，普通聊天不该出现 `[AGENT]`（A3 场景 5 已验）。`discuss` 依赖数组未动，`refine` 仍走 `discuss`，`styles.css` 与 `select.note-status` 逐字未动。
+- 门禁：首屏 gzip **313,888 B**（基线 313,688，净 **+200 B**；超内部预算 310,000 3,888 B 只 WARN、硬线 320,000 内余 6,112 B、`--max 315000` exit 0，raw 1,017,238）；`npm test` **58 文件 810 条 0 fail**（807→810）；未改编辑器与序列化，不跑 roundtrip。见 `docs/iteration/round-98/impl.md`。
+- E2E（A3，executor 自写 `.tmp/e2e-r98-a1-agent.mjs`，ego 浏览器 CDP 57270、1440×900，**36/36**、0 pageerror，`.tmp/r98-a1-agent.json`）：3 卡全 open 且无线程；第 1 卡追问后 `.thread-user` 1 条无前缀、`.thread-assistant` 1 条以 `[AGENT] ` 开头且含「模拟回复」、`.thread` 内 `[AGENT]` 恰 1 次、状态 `in-progress`、无残留「…」；1,700 ms 后 store 该条 `reviewStatus=in-progress`、`thread[1]` 带前缀、`thread[0]` 仍是 user；再追问 4 条线程、2 条 assistant 各恰 1 个前缀、「[AGENT] [AGENT]」0 次、store 无空回复；切 `other.md` 再回线程 4 条/前缀 2 次/状态 `in-progress` 都在；第 2/3 卡无线程仍 open、对话页签模拟回复不含 `[AGENT]`、`.margin-rail` 与 `.doc-scroll` 横溢 0、3 卡不重叠且带线程的卡更高；截图 `shots/round-98/agent-thread.png`。
+- tester 独立验收（第 98 轮，未读 `impl.md`）：静态 `AGENT_PREFIX|agentReply|threadText|reviewStatusOnReply` 在轮前 `8733899` **0 行** → **33 行**、`[AGENT]` 0 → **13 行**；`annotations.test.ts` **37/37**；自写探针 `.tmp/r98-tester-probe.ts` **6/6**、自写 E2E `.tmp/r98-tester-agent.mjs`（ego CDP 57270）**38/38**、0 pageerror——除交付的 36 项外另验 `resolved → in-progress`（`is-closed` 消失、正文高亮回来）与「空文本占位仍走 `.thread-typing`」；门禁复跑 `npm test` **58 文件 810 条 0 fail**、`verify` gzip **313,888 B（PASS）**、`--max 315000` exit 0、`changelog.test.ts` 3/3；回归 `.tmp/e2e-r97-a1-status.mjs` **44/44**。见 `docs/iteration/round-98/test.md`。
 
 **第 97 轮（同一未发版区间）**
 

@@ -48,6 +48,7 @@ import { StatusBar } from './components/StatusBar.tsx'
 import { useDialogFocus } from './components/useDialogFocus.ts'
 import { errorCopy, messageOf, streamAnnotations, streamChat, type ChatMessage } from './lib/ai.ts'
 import {
+  agentReply,
   buildTextIndex,
   collectDocNotes,
   findRange,
@@ -56,6 +57,7 @@ import {
   readAnnotationStore,
   replaceInWindow,
   resolveAnnotations,
+  reviewStatusOnReply,
   writeAnnotationStore,
   type Annotation,
   type AnnotationPriority,
@@ -1977,6 +1979,19 @@ export default function App() {
             )
           },
         })
+        // 回复成功落进线程（失败/中断不进）：末条非空助手回复才补 [AGENT] 前缀并把四态转 in-progress
+        setAnnotations((previous) =>
+          previous.map((item) => {
+            if (item.id !== id) return item
+            const thread = [...(item.thread ?? [])]
+            const last = thread[thread.length - 1]
+            if (!last || last.role !== 'assistant') return item
+            const reply = agentReply(last.text)
+            if (reply === '') return item
+            thread[thread.length - 1] = { ...last, text: reply }
+            return { ...item, thread, reviewStatus: reviewStatusOnReply(item.reviewStatus) }
+          }),
+        )
       } catch (error) {
         const aborted = error instanceof DOMException && error.name === 'AbortError'
         if (!aborted) fail(error)

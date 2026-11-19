@@ -7,10 +7,12 @@ import { StarterKit } from '@tiptap/starter-kit'
 import { ANALYSIS_SYSTEM_PROMPT, DEFAULT_USER_PROMPT } from './prompt.ts'
 import { loadSettings } from './settings.ts'
 import {
+  AGENT_PREFIX,
   ANNOTATION_PRIORITIES,
   ANNOTATION_PRIORITY_LABELS,
   REVIEW_STATUSES,
   REVIEW_STATUS_LABELS,
+  agentReply,
   buildTextIndex,
   findRange,
   isClosedReview,
@@ -23,8 +25,10 @@ import {
   replaceInWindow,
   resolveAnnotations,
   reviewStatusOf,
+  reviewStatusOnReply,
   serializeAnnotationStore,
   shiftAnnotations,
+  threadText,
   type Annotation,
   type ParsedAnnotation,
 } from './annotations.ts'
@@ -716,4 +720,56 @@ test('设置：自定义提示词保留，空值回落默认', () => {
   assert.equal(loadSettings().userPrompt, '我的自定义')
   map.set('sidelight.settings.v1', JSON.stringify({ userPrompt: '' }))
   assert.equal(loadSettings().userPrompt, DEFAULT_USER_PROMPT)
+})
+
+test('[AGENT] 前缀只补一次，空白回复回空串，显示层用户发言原样', () => {
+  assert.equal(AGENT_PREFIX, '[AGENT]')
+  // 第一次补前缀
+  assert.equal(agentReply('回答'), '[AGENT] 回答')
+  // 已带前缀不双加，首尾空白先修掉
+  assert.equal(agentReply('  [AGENT] 已有前缀  '), '[AGENT] 已有前缀')
+  // 空回复不写前缀
+  assert.equal(agentReply('   '), '')
+  assert.equal(agentReply(''), '')
+  // 卡片显示：assistant 旧文本补前缀（旧档线程也统一），user 原样
+  assert.equal(threadText({ role: 'assistant', text: '旧回答' }), '[AGENT] 旧回答')
+  assert.equal(threadText({ role: 'assistant', text: '[AGENT] 旧回答' }), '[AGENT] 旧回答')
+  assert.equal(threadText({ role: 'assistant', text: '' }), '')
+  assert.equal(threadText({ role: 'user', text: '问题' }), '问题')
+})
+
+test('回复成功后四态一律 in-progress，非法与缺失值也回 in-progress', () => {
+  for (const status of REVIEW_STATUSES) {
+    assert.equal(reviewStatusOnReply(status), 'in-progress', status)
+  }
+  for (const value of [undefined, null, '', 'bogus', 3, {}]) {
+    assert.equal(reviewStatusOnReply(value), 'in-progress', String(value))
+  }
+})
+
+test('带 [AGENT] 线程与 in-progress 的 store 往返逐项不变', () => {
+  const annotations: Annotation[] = [
+    {
+      id: 't-1',
+      kind: 'evaluation',
+      status: 'pending',
+      reviewStatus: 'in-progress',
+      from: 4,
+      to: 12,
+      quote: '这里重复一句话',
+      note: '删掉重复的那句',
+      priority: 'high',
+      priorityManual: true,
+      thread: [
+        { role: 'user', text: '这句为什么重复？' },
+        { role: 'assistant', text: '[AGENT] 因为前后两句同义。' },
+        { role: 'user', text: '怎么改？' },
+        { role: 'assistant', text: '[AGENT] 保留后一句。' },
+      ],
+      sources: [{ title: '来源', url: 'https://example.com', snippet: '片段' }],
+    },
+  ]
+  const store = parseAnnotationStore(serializeAnnotationStore({ v: 2, annotations, notes: [] }))
+  assert.equal(store.v, 2)
+  assert.deepEqual(store.annotations, annotations)
 })

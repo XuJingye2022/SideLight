@@ -8,6 +8,7 @@ import {
   REVIEW_STATUS_LABELS,
   isClosedReview,
   reviewStatusOf,
+  threadText,
   type Annotation,
   type AnnotationPriority,
   type DocNote,
@@ -357,7 +358,7 @@ export function MarginRail({
             <div className="thread">
               {annotation.thread.map((turn, index) => (
                 <p key={index} className={`thread-turn thread-${turn.role}`}>
-                  {turn.text ? <InlineText text={turn.text} /> : <span className="thread-typing">…</span>}
+                  {turn.text ? <InlineText text={threadText(turn)} /> : <span className="thread-typing">…</span>}
                 </p>
               ))}
             </div>
