@@ -4,9 +4,10 @@ import { Markdown } from '@tiptap/markdown'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { StarterKit } from '@tiptap/starter-kit'
 import { Strike } from '@tiptap/extension-strike'
-import type { Node as PMNode } from '@tiptap/pm/model'
+import { Slice, type Node as PMNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
 import { TextSelection } from '@tiptap/pm/state'
+import { closeHistory } from '@tiptap/pm/history'
 import { isHistoryTransaction } from 'prosemirror-history'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { TaskItem } from '@tiptap/extension-task-item'
@@ -90,6 +91,7 @@ import { inlineSyntaxMarks } from './lib/inlineSyntax.ts'
 import { EmojiInput } from './lib/emoji.ts'
 import { splitTableCellBreaks } from './lib/tableCellBreaks.ts'
 import { tableTokenizer, taskListTokenizer, type BlockTokenizer } from './lib/markdownFastPath.ts'
+import { pasteCandidate, pastePlan } from './lib/markdownPaste.ts'
 import { TaskListInput } from './lib/taskListInput.ts'
 import { LinkInput } from './lib/linkInput.ts'
 import { protectMathPairs } from './lib/math.ts'
@@ -1093,12 +1095,73 @@ export default function App() {
         for (const file of files) insertImageRef.current(file)
         return true
       },
-      handlePaste: (_view, event) => {
-        const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith('image/'))
-        if (files.length === 0) return false
-        event.preventDefault()
-        for (const file of files) insertImageRef.current(file)
-        return true
+      /**
+       * 粘贴（第 92 轮 A1，用户缺陷 1）：图片照旧插图；纯文本 Markdown 走打开文档那条解析链，
+       * 把节点/标记插进光标处。判不了、解析异常、表格里要插块、代码里粘贴，一律返回 false
+       * 交回 PM 自己的粘贴链——不抢它本来能做的富文本粘贴（含编辑器内部复制）。
+       */
+      handlePaste: (view, event) => {
+        const data = event.clipboardData
+        const files = Array.from(data?.files ?? []).filter((file) => file.type.startsWith('image/'))
+        if (files.length > 0) {
+          event.preventDefault()
+          for (const file of files) insertImageRef.current(file)
+          return true
+        }
+        const text = data?.getData('text/plain') ?? ''
+        const html = data?.getData('text/html') ?? ''
+        if (!pasteCandidate({ text, html, fileCount: data?.files?.length ?? 0 })) return false
+        const state = view.state
+        const { $from, from, to } = state.selection
+        // 代码块（spec.code）与行内代码里保持字面：粘进围栏就是要粘代码，不能再解析
+        const codeMark = state.schema.marks.code
+        if ($from.parent.type.spec.code || (codeMark && codeMark.isInSet($from.marks()))) return false
+        try {
+          // 与 setMarkdown 同一条链：公式先预取 KaTeX，单波浪号不当删除线，标签形状的 < 先转实体
+          if (/\$\$|\$[^$\n]+\$/.test(text)) void ensureKatex().catch(() => undefined)
+          const manager = editor?.markdown ?? editor?.storage.markdown?.manager
+          if (!manager) return false
+          disableSingleTildeStrike(manager, () => inlineSyntaxRef.current)
+          const parsed = splitTableCellBreaks(manager.parse(escapeHtmlForParse(protectMathPairs(text))))
+          const names: string[] = []
+          for (let depth = $from.depth; depth > 0; depth -= 1) names.push($from.node(depth).type.name)
+          const plan = pastePlan(parsed, { inTextblock: $from.parent.isTextblock, inTable: inTableAncestry(names) })
+          if (plan === 'literal') return false
+          const node = state.schema.nodeFromJSON(parsed)
+          const tr = state.tr
+          let insertFrom = from
+          let insertTo = to
+          // 空段落里粘块级内容：连那个空段落一起换掉，别在开头留一个空行（与 insertContentAt 同口径）
+          if (plan === 'blocks' && from === to && $from.parent.isTextblock && $from.parent.childCount === 0) {
+            insertFrom -= 1
+            insertTo += 1
+          }
+          let inserted = 0
+          if (plan === 'inline') {
+            const inline = node.firstChild?.content
+            if (!inline) return false
+            tr.replaceWith(insertFrom, insertTo, inline)
+            inserted = inline.size
+          } else {
+            // 首块是段落、光标又在段落中间时开一个口：粘贴起点就地续写，段中粘两段 = 前文+第一段 / 第二段 / 后文。
+            // 标题、段首、表格与空段落都不开口；尾块也不开口：光标后面那段原文另起一段，不让旧文字粘进粘贴内容
+            const blocks = node.content
+            const joinsBackward =
+              $from.parent.type.name === 'paragraph' && $from.parentOffset > 0 && node.firstChild?.type.name === 'paragraph'
+            tr.replaceRange(insertFrom, insertTo, new Slice(blocks, joinsBackward ? 1 : 0, 0))
+            inserted = blocks.size
+          }
+          tr.setMeta('uiEvent', 'paste')
+          // 一次粘贴单独成一步撤销：不并进前面的打字/智能标点历史（plan-review P2-3）
+          closeHistory(tr)
+          const caret = Math.min(insertFrom + inserted, tr.doc.content.size)
+          tr.setSelection(TextSelection.near(tr.doc.resolve(caret), 1))
+          view.dispatch(tr.scrollIntoView())
+          event.preventDefault()
+          return true
+        } catch {
+          return false
+        }
       },
       handleClick: (_view, pos, event) => {
         const target = event.target as HTMLElement | null

@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–91 轮，未发版）
+## Unreleased（第 29–92 轮，未发版）
+
+**第 92 轮（同一未发版区间）**
+
+- 纯文本 Markdown 粘贴解析（A1，用户缺陷 1）：新 `src/lib/markdownPaste.ts`（`looksLikeMarkdown` 块级 7 类 / 行内 4 类信号，`$…$` 过 `isMathBody` 所以「价格 $5 到 $」不算；`pasteCandidate` 挡图片、超 200,000 字符、带 `data-pm-slice` 或真富文本；`pastePlan` 分 `inline | blocks | literal`，表格只装行内）；`App.tsx:1103` 的 `handlePaste` 图片分支之后走与打开文档同一条解析链（`escapeHtmlForParse` → `protectMathPairs` → `manager.parse` → `splitTableCellBreaks`），一次事务（`uiEvent:'paste'` + `closeHistory`，一步撤销）把节点/标记插进光标处；代码块/行内代码里与表格里的块级内容保持字面、交回 PM 默认链。`markdownPaste.test.ts` **24 条**挂 `npm test` 链尾（56 文件）。
+- 门禁：首屏 gzip **310,767 B**（基线 309,804，净 **+963 B**；超内部预算 310,000 767 B 只 WARN，硬线 320,000 内余 9,233 B）；`npm test` **56 文件 0 fail**；`roundtrip` rich 7/9 + source 9/9。见 `docs/iteration/round-92/impl.md`。
+- tester 第 92 轮独立验收（未读 `impl.md`；CDP 9222 不可用 → ego CDP 57270，自写 `.tmp/e2e-r92-tester-a1.mjs` **19/19**、0 pageerror/console error）：① `# 标题\n- a\n**粗体** [链接](https://e.com) \`code\`` → h1/li/strong/a/code 各 1 且无字面 `# `/`**`；② 围栏内 strong 0；③ 纯文本一句段数不变；④ `$x^2$` inline 1；⑤ `<p>**粗体**</p>` strong 1；⑥ 段中粘两段拆三段不丢原文；⑥b 列表项内粘多块 pageerror 0（列表被拆平，已记录）；⑦ `Ctrl+Z` 一次回全文。回归第 86 轮粘贴脚本副本 **30/30**。见 `docs/iteration/round-92/test.md`。
 
 **第 91 轮（同一未发版区间）**
 
