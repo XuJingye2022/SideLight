@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–106 轮，未发版）
+## Unreleased（第 29–107 轮，未发版）
+
+**第 107 轮（同一未发版区间）**
+
+- 右侧三个新入口补 24×24 可点口径（A1，B-236）：`src/styles.css` 的 `.rail-diff-open,.rail-review-open` 由 `height: 16px` 改 `min-height: 24px`（宽仍 35），`.rail-chat-reset` 加 `min-height: 24px`（52.5×21 → 52.5×24），`:1329-1331` 注释整段重写。已知偏差：24px 控件把 `.rail-head` 从 16 撑到 24，`.rail-tabs` 及以下整体下移 8px（tabs 底 − head 底 仍 39、tabs 底相对栏顶 59→67）。
+- 机械门（A2）：新 `src/lib/touchTargets.test.ts` 3 条挂 `npm test` 链尾（61→**62 文件**、869→**872 条**）：两入口同一规则块且 `min-height` ≥24、`.rail-chat-reset` 同口径且 `margin-left: auto` 在、`.rail-head` 不许写 `height`。负向对照：HEAD 版 CSS 下 **2 红 exit 1**。
+- 门禁与验收：`npm run build` exit 0，首屏门 gzip **315,173 B**（plan 预计 315,163，+10 B 来自 CSS 名哈希进入口 JS；`--max 315300` PASS、余 127），`MarginRail-*.js` gzip9 **6,762** 不变，真实首载 **321,935**（超硬线 1,935，**B-229 仍 open**，只记）；`npm test` **62 文件 872 条 0 fail**；静态门 `min-height: 24px` 8→10 行、`height: 16px` 3→2 行。tester 独立（未读 `impl.md`）：自写 `.tmp/r107-tester-geom.mjs`（ego CDP 57270、1440×900）**23/23**、0 pageerror：改后用 CSS 反事实覆盖取改前值作差——三钮 35×16→35×24、head +8、tabs top +8、底差恒 39、底相对栏顶 59→67、间距 7、在审右缘差 0、chatHead 21→24、reset 52.5×24、发送钮 +3，1440/1256/1024 三档横溢 0，对比 Esc 关回焦点、在审关闭钮、新对话 disabled→enabled→清空全过；回归 r100 **43/43**、r101 **57/57**（跑完还原 `shots/round-100`、`shots/round-101`）；截图 `shots/round-107/targets-notes.png`、`shots/round-107/targets-chat.png`。见 `docs/iteration/round-107/test.md`。
 
 **第 106 轮（同一未发版区间）**
 

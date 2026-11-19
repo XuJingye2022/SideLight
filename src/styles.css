@@ -1326,14 +1326,14 @@ button:disabled {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-/* 第 100 轮 B-227：与打开时相比的只读 diff。入口是 .rail-head 末尾的 16px 小钮：
-   不给 .rail-head / .rail-tabs 加规则，头高（空态 15 / 带卡 16）与底差 39 都不动。
-   面板走 portal 挂 body，这里的定位独立于 .margin-rail */
+/* 第 100 轮 B-227：只读 diff 入口，第 107 轮起 min-height 24（24×24 口径，宽仍 35）。
+   批注页签 head 16→24、.rail-tabs 及之后整体下移 8px（tabs 底 − head 底 仍 39、
+   tabs 底相对栏顶 59→67）是已知偏差；不给 .rail-head 定高；面板定位独立于 .margin-rail */
 .rail-diff-open,
 .rail-review-open {
   flex: none;
   margin-left: auto;
-  height: 16px;
+  min-height: 24px;
   padding: 0 6px;
   border: 1px solid var(--line);
   border-radius: 5px;
@@ -1492,6 +1492,7 @@ button:disabled {
 .rail-chat-reset {
   margin-left: auto;
   padding: 2px 8px;
+  min-height: 24px;
   border: 1px solid var(--line);
   border-radius: 6px;
   font-size: 11.5px;
