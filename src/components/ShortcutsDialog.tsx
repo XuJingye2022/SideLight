@@ -95,6 +95,7 @@ export function ShortcutsDialog({ open, onClose }: Props) {
         ))}
 
         <p className="dialog-note shortcuts-note">
+          本表是默认键位；设置里改过的 8 条（保存 / 查找 / 全局搜索 / 快速打开 / 源码 / 预览 / 新建 / 导出）以设置为准。
           Ctrl+N / Ctrl+O / Ctrl+Shift+S 被浏览器保留（新窗口 / 打开 / 另存网页），没有绑定；欧洲键盘布局上 Ctrl+Alt+*
           可能与 AltGr 冲突。
         </p>

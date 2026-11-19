@@ -2,7 +2,16 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–88 轮，未发版）
+## Unreleased（第 29–89 轮，未发版）
+
+**第 89 轮（同一未发版区间）**
+
+- 自定义快捷键（A1+A2+A3，B-107）：新 `src/lib/keybindings.ts`（8 条可改命令 + `DEFAULT_KEYBINDINGS`、29 条固定键 `RESERVED_KEYBINDINGS`、`normalizeBinding` 规范成 `Ctrl+Alt+Shift+键`、`bindingFromEvent`、严格修饰全等的 `matchBinding`、冲突单路 `bindKey`（保留键 → 另一命令当前键）、`resolveKeybindings` 缺键/非法值/未知 id/撞车逐条回默认）与 `keybindings.test.ts` **26 条**挂 `npm test` 链尾；`settings.keybindings` 读时经 `resolveKeybindings`、`commitSettings` 再归一，设置结构版本仍 2。设置面板字号之后加首条 `details.settings-group`「快捷键」：8 行、点键位进入录制（Esc 取消、Backspace 回该条默认、冲突结束录制并说明理由进 `role="status"`、「全部恢复默认」），录制只由点击/Enter 进入、Tab 聚焦不进入；`:226` 的协议说明移进「接口地址」hint 腾出高度。`App.tsx` 的 window keydown 先按当前键位 `matchKeybinding` 分派 8 条命令（对话框只吞默认动作），删掉 8 条硬分支、保留 `Ctrl+H` 固定别名；`FileMenu` 的「新建/查找」提示、查找条只读提示与链接/公式提示跟着当前键位走。`settings.test.ts` 14→**19 条**。
+- 真机（A3，ego CDP 54280）`.tmp/e2e-r89-a3-keybindings.mjs` **19/19**、0 pageerror / 0 console error：默认键回归 8 条全过（无工作区 `Ctrl+Shift+F` 出「先打开文件夹」toast、有工作区出全局搜索；`Ctrl+F`/`Ctrl+P`/`Ctrl+/`/`Ctrl+Shift+P` 各出目标并按回；`Ctrl+Alt+N` 换空白新文档；`Ctrl+Alt+E` 焦点进首个 button；脏文档 `Ctrl+S` 写 1 次）。设置里把「保存」改成 `Ctrl+Alt+W` 并落盘后：新键写 1 次、旧 `Ctrl+S` 页内派发 0 写、reload 后重开文件仍新键写 1 / 旧键 0；设置开着按 `Ctrl+Alt+W` 0 写且面板不关；「保存」行 Backspace 回 `Ctrl+S` → 保存关面板 → 脏文档 `Ctrl+S` 写 1 次 → `Ctrl+Alt+W` 0 写。截图 `shots/round-89/keybindings.png`、`shots/round-89/keybindings-settings.png`。
+- 设置面板溢出（A2，DOM 实测，`scrollHeight-clientHeight`）：三档改前 0 / 0 / 62 px → 改后 0 / 0 / **49 px**（1000×620 ≤64 达标；未缩 `.settings-group` 间距、未动 B-150 目标）。
+- 差距表与计数（A3）：已有表加「自定义快捷键」行、缺表删该行并 `外观（2）→（1）`，表头 41/4 → **42/3**（子节 1/1/1、missRowSum 3），`建议的下一批` 改「1. 自定义主题。」，README/AGENTS 同步，BACKLOG `B-107 → fixed`（P2 open 1→0，证据行号 `:72` 校正）；`node .tmp/r58-docs-check.mjs` 42/42、3/3。
+- 门禁：首屏 gzip **309,074 B**（余 10,926 / 926）；`npm test` **54 文件 724 条 0 fail**（基线 53/693）。见 `docs/iteration/round-89/impl.md`。
+- tester 第 89 轮独立验收（未读 `impl.md`）：自写 `.tmp/r89-tester-e2e.mjs` **33/33**（默认 8 键、设置 UI 冲突/Esc/录制、改键后新键写 1 / 旧 `Ctrl+S` 0 写、reload 后同、设置开着 0 写、Backspace 复位）、`.tmp/r89-tester-overflow.mjs` 5/5（1000×620 改前 DOM 重建 **62** → 改后 **49** px）、`.tmp/r89-tester-structure.mjs` 5/5（3 组 details 初始闭合、8 枚键位钮 24 px、Tab 不进入录制）；`keybindings.test.ts` 26/26、`settings.test.ts` 19/19、`npm test` **54 文件 724 条 0 fail**、`npm run verify` gzip **309,074 B**、回归 `keyboard-acceptance` **52/52**；0 pageerror / console error。见 `docs/iteration/round-89/test.md`。
 
 **第 88 轮（同一未发版区间）**
 

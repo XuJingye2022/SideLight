@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
+import type { Keybindings } from '../lib/keybindings.ts'
+
 type RecentItem = { id: string; seq: number; name: string; dir: string }
 
 type Props = {
@@ -9,6 +11,8 @@ type Props = {
   onOpenFile: () => void
   onOpenFolder: () => void
   onFind: () => void
+  /** 8 条可改命令的当前键位：菜单里的键位提示跟着设置走（第 89 轮 B-107） */
+  keybindings: Keybindings
   /** 最近打开：no-host 由 App 传 null，整段不渲染 */
   recent: { kind: 'disabled'; reason: string } | { kind: 'volatile' | 'ok'; items: RecentItem[]; reason?: string } | { kind: 'error'; message: string } | null
   recentDisabledId?: string | null
@@ -26,6 +30,9 @@ const ITEMS: Array<{ label: string; keys: string; keyshortcuts: string; action: 
   { label: '查找替换…', keys: 'Ctrl+F', keyshortcuts: 'Control+F', action: 'find' },
 ]
 
+/** aria-keyshortcuts 只认 Control/Alt/Shift 这套写法 */
+const ariaKeys = (keys: string) => keys.replace('Ctrl', 'Control')
+
 /**
  * 顶栏「文件 ▾」：方向键在菜单里走，Tab 关闭，动作后焦点按动作归还
  * （新建回正文，其余回触发器）。Esc 关闭并把焦点还给按钮。
@@ -37,6 +44,7 @@ export function FileMenu({
   onOpenFile,
   onOpenFolder,
   onFind,
+  keybindings,
   recent,
   recentDisabledId,
   onRefreshRecent,
@@ -95,6 +103,15 @@ export function FileMenu({
 
   const items = (): RecentItem[] => (recent && (recent.kind === 'ok' || recent.kind === 'volatile') ? recent.items : [])
 
+  // 「新建」「查找」的键位来自设置（8 条可改键），其余固定
+  const menuItems = ITEMS.map((item) =>
+    item.action === 'new'
+      ? { ...item, keys: keybindings.newDocument, keyshortcuts: ariaKeys(keybindings.newDocument) }
+      : item.action === 'find'
+        ? { ...item, keys: keybindings.find, keyshortcuts: ariaKeys(keybindings.find) }
+        : item,
+  )
+
   const focusableItems = () =>
     Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? [])
 
@@ -107,7 +124,7 @@ export function FileMenu({
         data-focus-fallback
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-keyshortcuts="Control+Alt+N"
+        aria-keyshortcuts={ariaKeys(keybindings.newDocument)}
         onClick={() => setOpen((value) => !value)}
       >
         文件 ▾
@@ -142,7 +159,7 @@ export function FileMenu({
             }
           }}
         >
-          {ITEMS.map((item) => (
+          {menuItems.map((item) => (
             <button
               key={item.action}
               type="button"

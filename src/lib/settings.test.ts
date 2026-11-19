@@ -145,3 +145,52 @@ test('saveSettings 恒写 settingsVersion：显式关掉的档保存后不回弹
   assert.equal(saved.settingsVersion, 2)
   assert.equal(saved.inlineSyntax, false)
 })
+
+/* ── 自定义快捷键持久化（第 89 轮 B-107）────────────────────────────── */
+
+test('keybindings：没有存档时读出来是 8 条默认键位', async () => {
+  const { loadSettings, DEFAULT_SETTINGS } = await setup(undefined)
+  const kb = loadSettings().keybindings
+  assert.equal(Object.keys(kb).length, 8)
+  assert.equal(kb.save, 'Ctrl+S')
+  assert.equal(kb.quickOpen, 'Ctrl+P')
+  assert.deepEqual(kb, DEFAULT_SETTINGS.keybindings)
+})
+
+test('keybindings：缺键保留默认，非法值回默认', async () => {
+  const { loadSettings } = await setup({ keybindings: { save: 'Ctrl+Alt+W', find: 42 } })
+  const kb = loadSettings().keybindings
+  assert.equal(kb.save, 'Ctrl+Alt+W')
+  assert.equal(kb.find, 'Ctrl+F', '数字不是键位 → 回默认')
+  assert.equal(kb.quickOpen, 'Ctrl+P', '缺键 → 默认')
+})
+
+test('keybindings：未知 id 不落进设置，撞固定键回默认', async () => {
+  const { loadSettings } = await setup({ keybindings: { save: 'Ctrl+H', nope: 'Ctrl+Alt+Q' } })
+  const kb = loadSettings().keybindings
+  assert.equal(kb.save, 'Ctrl+S', 'Ctrl+H 是固定的查找别名')
+  assert.deepEqual(Object.keys(kb).sort(), Object.keys(loadSettings().keybindings).sort())
+  assert.equal('nope' in kb, false)
+})
+
+test('keybindings：{save:"Ctrl+P"} 读回默认，quickOpen 保住 Ctrl+P', async () => {
+  const { loadSettings } = await setup({ keybindings: { save: 'Ctrl+P' } })
+  const kb = loadSettings().keybindings
+  assert.equal(kb.save, 'Ctrl+S')
+  assert.equal(kb.quickOpen, 'Ctrl+P')
+})
+
+test('keybindings：落盘带 keybindings，读回仍是同一份', async () => {
+  const { storage, loadSettings, saveSettings } = await setup(undefined)
+  const loaded = loadSettings()
+  loaded.keybindings = { ...loaded.keybindings, save: 'Ctrl+Alt+W' }
+  saveSettings(loaded)
+  const saved = JSON.parse(storage.getItem(KEY) as string) as { keybindings: Record<string, string> }
+  assert.equal(saved.keybindings.save, 'Ctrl+Alt+W')
+  assert.equal(Object.keys(saved.keybindings).length, 8)
+  // 再读一遍不回弹（版本仍是 2，不需要迁移）
+  const again = await setup(saved)
+  assert.equal(again.loadSettings().keybindings.save, 'Ctrl+Alt+W')
+  assert.equal(again.loadSettings().settingsVersion, 2)
+})
+

@@ -1,3 +1,4 @@
+import { DEFAULT_KEYBINDINGS, resolveKeybindings, type Keybindings } from './keybindings.ts'
 import { DEFAULT_USER_PROMPT } from './prompt.ts'
 import type { SearchProvider } from './search.ts'
 import { isThemeChoice, type ThemeChoice } from './themes.ts'
@@ -28,6 +29,8 @@ export type Settings = {
   smartPunctuation: boolean
   /** `==高亮==` / `^上标^` / `~下标~` 快捷语法（默认开；只改解析与写回，不重建编辑器） */
   inlineSyntax: boolean
+  /** 8 条可改命令的当前键位（第 89 轮 B-107）；读出来时已按默认表逐个归一 */
+  keybindings: Keybindings
   /** 设置结构版本：用来区分「旧存档的默认值」与「用户显式选择」，见 SETTINGS_VERSION */
   settingsVersion: number
 }
@@ -65,6 +68,8 @@ export const DEFAULT_SETTINGS: Settings = {
   smartPunctuation: true,
   // 第 75 轮：`==高亮==` 与 Typora 一致，默认开；显式关掉的存档仍保留关
   inlineSyntax: true,
+  // 第 89 轮 B-107：8 条可改命令的默认键位（设置面板里逐条改，冲突在 bindKey 里拒）
+  keybindings: { ...DEFAULT_KEYBINDINGS },
   settingsVersion: SETTINGS_VERSION,
 }
 
@@ -132,6 +137,8 @@ export function loadSettings(): Settings {
       // 第 75 轮 B-158：新功能默认开。版本 < 2 的存档里 false 是旧默认值，迁成开；
       // 版本 >= 2 起 false 才是用户显式关掉，原样保留（版本往 3 推也不会再翻一次）
       inlineSyntax: parsed.settingsVersion !== undefined && parsed.settingsVersion >= SETTINGS_VERSION ? parsed.inlineSyntax !== false : true,
+      // 第 89 轮 B-107：缺键、非法值、未知 id、撞固定键都回默认；不升版本
+      keybindings: resolveKeybindings(parsed.keybindings),
       // 读出来就带当前版本：下次 save 落盘即是已迁移的形状
       settingsVersion: SETTINGS_VERSION,
     }

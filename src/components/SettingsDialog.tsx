@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
+import {
+  bindKey,
+  bindingFromEvent,
+  DEFAULT_KEYBINDINGS,
+  KEYBINDING_COMMANDS,
+  type KeyBindingId,
+} from '../lib/keybindings.ts'
 import { DEFAULT_USER_PROMPT } from '../lib/prompt.ts'
 import { nextRadioIndex, rovingTabIndex } from '../lib/radioGroup.ts'
 import { MAX_FONT_SIZE, MIN_FONT_SIZE, type Settings } from '../lib/settings.ts'
@@ -29,6 +36,10 @@ type Props = {
 
 export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcuts }: Props) {
   const [draft, setDraft] = useState<Settings>(settings)
+  /** 正在录制的命令；只由点击（或按钮上的 Enter 触发 click）进入，Tab 聚焦不进入 */
+  const [recording, setRecording] = useState<KeyBindingId | null>(null)
+  /** 录制结果/拒绝理由，role=status 播报 */
+  const [keyMessage, setKeyMessage] = useState('')
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const themeOptionsRef = useRef<HTMLDivElement | null>(null)
   useDialogFocus(open, dialogRef)
@@ -36,11 +47,51 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
   // 对话框常驻，每次打开都把草稿同步成当前设置，避免保存时把刚改的值盖回去
   useEffect(() => {
     if (open) setDraft(settings)
+    setRecording(null)
+    setKeyMessage('')
   }, [open, settings])
 
   if (!open) return null
 
   const update = (patch: Partial<Settings>) => setDraft((current) => ({ ...current, ...patch }))
+
+  const setBinding = (id: KeyBindingId, keys: string) => {
+    setDraft((current) => ({ ...current, keybindings: { ...current.keybindings, [id]: keys } }))
+  }
+
+  // 录制态：所有键都拦下（不让面板的 Tab 环/App 的窗口快捷键接走），Esc 取消、Backspace 回默认
+  const onRecordingKeyDown = (event: KeyboardEvent<HTMLButtonElement>, id: KeyBindingId) => {
+    if (recording !== id) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.key === 'Escape') {
+      setRecording(null)
+      setKeyMessage('已取消，键位不变')
+      return
+    }
+    if (event.key === 'Backspace') {
+      const keys = DEFAULT_KEYBINDINGS[id]
+      setBinding(id, keys)
+      setRecording(null)
+      setKeyMessage(`已恢复默认：${keys}`)
+      return
+    }
+    const pressed = bindingFromEvent(event)
+    if (pressed === null) {
+      setKeyMessage('这个键位不支持：用 Ctrl 或 Alt 加字母、数字或 /')
+      return
+    }
+    const bound = bindKey(draft.keybindings, id, pressed)
+    if (!bound.ok) {
+      // 冲突是明确结论：结束录制、保留旧键，理由留在状态行
+      setRecording(null)
+      setKeyMessage(bound.reason)
+      return
+    }
+    setBinding(id, bound.keys)
+    setRecording(null)
+    setKeyMessage(`已改为 ${bound.keys}`)
+  }
 
   const selectedTheme = THEME_CHOICES.findIndex((choice) => choice.value === draft.theme)
   // 改选与预览合成一条路径：键盘与鼠标走同一处，取消时 App 仍按已保存主题还原
@@ -136,6 +187,44 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
           />
         </label>
 
+        {/* 第 89 轮 B-107：8 条命令可改键；其余键位固定。默认闭合，不把面板撑长 */}
+        <details className="settings-group">
+          <summary>快捷键</summary>
+          <p className="field-hint">点右侧键位再按新组合：Esc 取消，Backspace 恢复该条默认。带 Ctrl 或 Alt 的字母、数字、/ 才能改，其余键位固定。</p>
+          {KEYBINDING_COMMANDS.map((command) => (
+            <div key={command.id} className="field keybinding-row">
+              <span>{command.label}</span>
+              <button
+                type="button"
+                className={recording === command.id ? 'keybinding-key is-recording' : 'keybinding-key'}
+                title="点击后按新键位"
+                onClick={() => {
+                  setRecording(command.id)
+                  setKeyMessage('')
+                }}
+                onKeyDown={(event) => onRecordingKeyDown(event, command.id)}
+              >
+                {recording === command.id ? '按下新键位…' : draft.keybindings[command.id]}
+              </button>
+            </div>
+          ))}
+          <div className="dialog-inline">
+            <button
+              type="button"
+              onClick={() => {
+                setKeyMessage('已全部恢复默认')
+                setRecording(null)
+                update({ keybindings: { ...DEFAULT_KEYBINDINGS } })
+              }}
+            >
+              全部恢复默认
+            </button>
+          </div>
+          <p className="field-hint keybinding-status" role="status">
+            {keyMessage}
+          </p>
+        </details>
+
         {/* 原生的非受控 details：不传 open，React 重渲染时不接管开合，用户展开的状态保留 */}
         <details className="settings-group">
           <summary>接口与模型</summary>
@@ -147,6 +236,7 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
               placeholder="https://api.deepseek.com/v1"
               spellCheck={false}
             />
+            <span className="field-hint">协议按 OpenAI 兼容走，DeepSeek、Kimi、智谱、OpenAI、Ollama 都能填。</span>
           </label>
 
           <label className="field">
@@ -222,8 +312,6 @@ export function SettingsDialog({ open, settings, onSave, onClose, onShowShortcut
             </button>
           </div>
         </details>
-
-        <p className="dialog-note">协议按 OpenAI 兼容走，DeepSeek、Kimi、智谱、OpenAI、Ollama 都能填。</p>
 
         <div className="dialog-actions">
           <button type="button" onClick={onShowShortcuts}>

@@ -97,6 +97,7 @@ import { protectMathPairs } from './lib/math.ts'
 import { disableSingleTildeStrike } from './lib/tilde.ts'
 import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline.ts'
 import { clampFontSize, clampPageZoom, DEFAULT_SETTINGS, PAGE_ZOOM_STEP } from './lib/settings.ts'
+import { matchKeybinding, resolveKeybindings, type Keybindings } from './lib/keybindings.ts'
 import { searchWeb } from './lib/search.ts'
 import { hasKey, loadSettings, saveSettings, type Settings } from './lib/settings.ts'
 import { createSmartTyping } from './lib/smartTyping.ts'
@@ -427,6 +428,9 @@ const caretRatioOf = (editor: Editor | null) => {
 
 export default function App() {
   const [settings, setSettings] = useState<Settings>(() => loadSettings())
+  /** 自定义快捷键（第 89 轮 B-107）：窗口 keydown 监听器常驻，键位表从这里读最新值 */
+  const keybindingsRef = useRef<Keybindings>(settings.keybindings)
+  keybindingsRef.current = settings.keybindings
   // 没配 Key 时走本地模拟流，界面必须明说，否则用户会以为模型读过文章
   const simulated = !hasKey(settings)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -4284,6 +4288,9 @@ export default function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       const mod = event.ctrlKey || event.metaKey
       const key = event.key.toLowerCase()
+      // 8 条可改命令先按当前键位表匹配（第 89 轮 B-107）：命中就由下面的 switch 分派
+      const kb = keybindingsRef.current
+      const customId = matchKeybinding(event, kb)
       const dialogOpen =
         settingsOpen ||
         shortcutsOpen ||
@@ -4399,7 +4406,7 @@ export default function App() {
 
       // 对话框开着时，产品快捷键只吞掉浏览器默认动作，不执行
       if (dialogOpen) {
-        if (productCombo) event.preventDefault()
+        if (productCombo || customId !== null) event.preventDefault()
         return
       }
 
@@ -4414,11 +4421,33 @@ export default function App() {
         return
       }
 
-      if (mod && event.altKey && !event.shiftKey && key === 'n') {
+      // 8 条可改命令按当前键位表分派（第 89 轮 B-107）：默认键与原来的硬分支一一对应
+      if (customId !== null) {
         event.preventDefault()
-        newDocument()
+        if (customId === 'save') {
+          saveFile()
+        } else if (customId === 'find') {
+          setFindOpen(true)
+        } else if (customId === 'globalSearch') {
+          // 没有工作区时给可执行的下一步，而不是开一个搜不到东西的空框
+          if (workspaceRef.current) setGlobalSearch(true)
+          else show(`先打开文件夹，再全局搜索（${kb.globalSearch}）`)
+        } else if (customId === 'quickOpen') {
+          setQuickOpen(true)
+        } else if (customId === 'toggleSource') {
+          toggleSourceRef.current()
+        } else if (customId === 'togglePreview') {
+          togglePreviewRef.current()
+        } else if (customId === 'newDocument') {
+          newDocument()
+        } else {
+          setExportOpen(true)
+          // 等菜单挂上 DOM 再把焦点送进第一项，键盘可以直接 Enter
+          requestAnimationFrame(() => document.querySelector<HTMLElement>('.export-menu button')?.focus())
+        }
         return
       }
+
       if (mod && event.altKey && !event.shiftKey && key === 'o') {
         event.preventDefault()
         void openSingleFile()
@@ -4434,30 +4463,9 @@ export default function App() {
         saveAsCopyRef.current()
         return
       }
-      if (mod && event.altKey && !event.shiftKey && key === 'e') {
-        event.preventDefault()
-        setExportOpen(true)
-        // 等菜单挂上 DOM 再把焦点送进第一项，键盘可以直接 Enter
-        requestAnimationFrame(() => document.querySelector<HTMLElement>('.export-menu button')?.focus())
-        return
-      }
 
-      if (mod && !event.altKey && !event.shiftKey && key === 's') {
-        event.preventDefault()
-        saveFile()
-        return
-      }
-      if (mod && event.shiftKey && !event.altKey && key === 'f') {
-        event.preventDefault()
-        // 没有工作区时给可执行的下一步，而不是开一个搜不到东西的空框
-        if (!workspaceRef.current) {
-          show('先打开文件夹，再全局搜索（Ctrl+Shift+F）')
-          return
-        }
-        setGlobalSearch(true)
-        return
-      }
-      if (mod && !event.altKey && !event.shiftKey && (key === 'f' || key === 'h')) {
+      // 查找的固定别名 Ctrl+H（不在 8 条可改键里）
+      if (mod && !event.altKey && !event.shiftKey && key === 'h') {
         event.preventDefault()
         setFindOpen(true)
         return
@@ -4465,7 +4473,7 @@ export default function App() {
       if (mod && !event.altKey && !event.shiftKey && key === 'k') {
         event.preventDefault()
         if (viewMode !== 'edit') {
-          show('这个视图不能插入公式或链接：先按 Ctrl+/ 或 Ctrl+Shift+P 回编辑')
+          show(`这个视图不能插入公式或链接：先按 ${kb.toggleSource} 或 ${kb.togglePreview} 回编辑`)
           return
         }
         openLinkAtCursorRef.current()
@@ -4474,15 +4482,10 @@ export default function App() {
       if (mod && !event.altKey && key === 'm') {
         event.preventDefault()
         if (viewMode !== 'edit') {
-          show('这个视图不能插入公式或链接：先按 Ctrl+/ 或 Ctrl+Shift+P 回编辑')
+          show(`这个视图不能插入公式或链接：先按 ${kb.toggleSource} 或 ${kb.togglePreview} 回编辑`)
           return
         }
         openMathAtCursorRef.current(event.shiftKey)
-        return
-      }
-      if (mod && !event.altKey && !event.shiftKey && key === 'p') {
-        event.preventDefault()
-        setQuickOpen(true)
         return
       }
       if (mod && !event.altKey && !event.shiftKey && /^[1-6]$/.test(key)) {
@@ -4497,11 +4500,6 @@ export default function App() {
         event.preventDefault()
         if (viewMode !== 'edit') return
         editor?.chain().focus().setParagraph().run()
-        return
-      }
-      if (mod && !event.altKey && key === '/') {
-        event.preventDefault()
-        toggleSourceRef.current()
         return
       }
       if (mod && event.shiftKey && !event.altKey && event.code === 'Digit1') {
@@ -4519,11 +4517,6 @@ export default function App() {
       if (mod && event.shiftKey && !event.altKey && key === 'l') {
         event.preventDefault()
         setTreeCollapsed((value) => !value)
-        return
-      }
-      if (mod && !event.altKey && event.shiftKey && key === 'p') {
-        event.preventDefault()
-        togglePreviewRef.current()
         return
       }
       // 整页缩放（第 51 轮 B-001/B-011）：Ctrl+Shift+= / Ctrl+Shift+- / Ctrl+Shift+0。
@@ -4636,7 +4629,7 @@ export default function App() {
   }, [menuOpen, exportOpen])
 
   const commitSettings = useCallback((next: Settings) => {
-    const safe = { ...next, fontSize: clampFontSize(next.fontSize) }
+    const safe = { ...next, fontSize: clampFontSize(next.fontSize), keybindings: resolveKeybindings(next.keybindings) }
     setSettings(safe)
     saveSettings(safe)
     setSettingsOpen(false)
@@ -5465,6 +5458,7 @@ export default function App() {
           onOpenFile={() => void openSingleFile()}
           onOpenFolder={() => void openFolder()}
           onFind={() => setFindOpen(true)}
+          keybindings={settings.keybindings}
           recent={recent.kind === 'no-host' ? null : recent}
           recentDisabledId={recentStaleId}
           onRefreshRecent={() => void loadRecent()}
@@ -5825,9 +5819,9 @@ export default function App() {
             onToggleWholeWord={() => setFindWholeWord((on) => !on)}
             unavailableReason={
               sourceMode
-                ? '源码模式下不支持查找定位与替换：切回富文本（Ctrl+/）再查'
+                ? `源码模式下不支持查找定位与替换：切回富文本（${settings.keybindings.toggleSource}）再查`
                 : previewMode
-                  ? '预览是只读视图，不支持查找与替换：切回编辑（Ctrl+Shift+P）再查'
+                  ? `预览是只读视图，不支持查找与替换：切回编辑（${settings.keybindings.togglePreview}）再查`
                   : undefined
             }
             onClose={() => {

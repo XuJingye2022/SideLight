@@ -1544,6 +1544,42 @@ button:disabled {
   margin-bottom: 6px;
 }
 
+/* 第 89 轮 B-107：设置里的 8 条可改键。行压成一行，按钮本身 24 px 高且可聚焦 */
+.keybinding-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.keybinding-row > span {
+  margin-bottom: 0;
+}
+
+.keybinding-key {
+  flex: none;
+  min-width: 96px;
+  min-height: 24px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+
+.keybinding-key.is-recording {
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+  border-color: var(--accent);
+}
+
+.keybinding-status {
+  min-height: 16px;
+}
+
 .theme-field {
   margin-bottom: 14px;
 }
