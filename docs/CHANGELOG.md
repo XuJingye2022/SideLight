@@ -2,7 +2,12 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–101 轮，未发版）
+## Unreleased（第 29–102 轮，未发版）
+
+**第 102 轮（同一未发版区间）**
+
+- 对话→批注切页签的焦点交接（A1，B-230，用户 2026-11-20 队列第 3 条的副产物）：`src/components/MarginRail.tsx` 加 `lastTabRef`（上一渲染页签）与 `useEffect([railTab])`——只认「对话 → 批注」这一路，且焦点已丢（`body`/null）或在被收起的 `#rail-panel-chat` 内才接管，rAF 把焦点交给 `#rail-tab-notes`；正文、页签自身与其他控件的焦点一律不动（合成点击生成批注时焦点留在 `.ProseMirror`），不给首张卡。不可达的 `panel.contains` 旧分支已删（`panel.contains` 0 命中），守卫按计划审查 CR-5 反向写成 `chatEl?.contains`。无新 import、无新依赖。
+- 门禁与验收：首屏门 gzip **315,155 B**（净 **+9 B**，只来自入口 chunk 里懒 chunk 哈希变化；`--max 315200` exit 0、余 45）；常驻 `MarginRail` 懒 chunk gzip **6,489 → 6,573**（+84，≤6,760）；真实首载 **321,728 B**（超硬线 1,728，B-229 仍 open、按本轮新门重算）。`npm test` **61 文件 861 条 0 fail**；tester 独立（未读 `impl.md`）自写 E2E `.tmp/r102-tester-focus.mjs` **25/25**、0 pageerror（ego CDP 57270、1440×900、假 FSA）：键盘/鼠标两路 200/1,800 ms 焦点都在 `#rail-tab-notes` 且对话面板 hidden、批注面板可见；CR-1 合成点击两次采样焦点仍在 `.ProseMirror`；4 条反向回归全过；Tab 不落 `.stats-trigger`（文档开头选区 1/1 时落 skip-link 是既有 `App.tsx:5886` 守卫，与本次改动无关；光标在中段时落 `.rail-goal-retry`）。回归 `keyboard-acceptance` **52/52**；未跑 roundtrip（未碰编辑器/序列化）。截图 `shots/round-102/focus-after-generate.png`。见 `docs/iteration/round-102/test.md`。
 
 **第 101 轮（同一未发版区间）**
 

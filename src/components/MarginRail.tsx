@@ -226,6 +226,28 @@ export function MarginRail({
     if (railTab !== 'notes') setDiffData(null)
   }, [railTab])
 
+  /* ---------- 页签焦点交接（第 102 轮 B-230） ---------- */
+
+  /** 上一次渲染的页签：只认「生成批注替读者从对话切到批注」这一路 */
+  const lastTabRef = useRef(railTab)
+
+  /**
+   * 对话页签里点「生成批注」，App 先 setRailTab('notes')（src/App.tsx:6026-6030），
+   * 对话面板随即 hidden；被收起的面板里的按钮失焦后浏览器把焦点送回 body，
+   * 再按一次 Tab 就落到状态栏。焦点原本在被收起的对话面板里（或已经丢了）才接管，
+   * 正文与页签自己的焦点不动——hidden 落地并不同步 blur，这里读到的往往还是那颗按钮。
+   * 不给首张卡：卡片随分析异步到位，抢焦点会打断读者。
+   */
+  useEffect(() => {
+    const previous = lastTabRef.current
+    lastTabRef.current = railTab
+    if (previous !== 'chat' || railTab !== 'notes') return
+    const active = document.activeElement
+    const chatEl = document.getElementById('rail-panel-chat')
+    if (active && active !== document.body && !chatEl?.contains(active)) return
+    requestAnimationFrame(() => document.getElementById('rail-tab-notes')?.focus())
+  }, [railTab])
+
   // App 的 Esc 链挂在 window 上：在 document 就停掉冒泡，一次按键只关面板
   useEffect(() => {
     if (!diffOpen) return
