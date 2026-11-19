@@ -2,7 +2,15 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–87 轮，未发版）
+## Unreleased（第 29–88 轮，未发版）
+
+**第 88 轮（同一未发版区间）**
+
+- emoji 快捷输入（A1，B-106）：新 `src/lib/emoji.ts`（`EMOJI` 恰 20 枚小表、`emojiAt` 尾锚定 `[:：]name:` 查表、`EmojiInput` 用 tiptap `InputRule` 手打即换、`closeHistory` 一步可撤销；代码围栏 / 行内代码走输入规则插件的既有守卫，未知短码 `find` 回 null 不产事务；不碰 TOC、不加依赖）。`emoji.test.ts` **10 条**挂 `npm test` 链尾（53 文件 693 条）。
+- 真机（A2，ego CDP 54280）`.tmp/e2e-r88-a2-emoji.mjs` **22/22**、0 pageerror：旧文档 `你好:smile:` 追 x 后盘上只多 x、仍字面、重开仍字面；逐键 `:smile:`→😄、`:tada:`→🎉、`:nope:` 字面；`你好` 后全角 `：smile:`→😄 且无 `：smile:` 字面；保存/重开含 😄 与 🎉、无 `:smile:`，再追 y 得上次所存去尾换行 + y；`Ctrl+Z` 一次回 `:smile:` 字面；`Ctrl+E` code mark 内与围栏内 `:smile:` 字面。截图 `shots/round-88/emoji-typed.png`。
+- 差距表与计数（A3）：已有表加「emoji 快捷输入」行、缺表删该行，表头 40/5 → 41/4（子节 1/1/2、missRowSum 4），README/AGENTS 同步，BACKLOG B-106 → fixed；`node .tmp/r58-docs-check.mjs` 41/41、4/4。
+- 门禁：首屏 gzip **307,630 B**（余 12,370 / 2,370）；`npm test` **53 文件 693 条 0 fail**（基线 52/683）；`roundtrip` rich 7/9 + source 9/9（同第 87 轮）。见 `docs/iteration/round-88/impl.md`。
+- tester 第 88 轮独立验收（未读 `impl.md`，自写 `.tmp/r88-tester-e2e.mjs`）：真机 **19/19**、0 pageerror/console error（①②③④⑤⑥⑦ 七项全过）；自跑 `emoji.test.ts` 10/10、`npm test` 53/693、`verify` 307,630 B、`roundtrip` rich 7/9 + source 9/9、回归 `keyboard-acceptance` 52/52；`node .tmp/r58-docs-check.mjs` 41/41、4/4、子节 1/1/2、missRowSum 4。见 `docs/iteration/round-88/test.md`。
 
 **第 87 轮（同一未发版区间）**
 

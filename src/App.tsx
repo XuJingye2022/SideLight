@@ -88,6 +88,7 @@ import { applyRepairs, serializeDocument } from './lib/serializeDocument.ts'
 import { escapeHtmlForParse } from './lib/html.ts'
 import { inlineMarks } from './lib/inlineHtmlTags.ts'
 import { inlineSyntaxMarks } from './lib/inlineSyntax.ts'
+import { EmojiInput } from './lib/emoji.ts'
 import { splitTableCellBreaks } from './lib/tableCellBreaks.ts'
 import { tableTokenizer, taskListTokenizer, type BlockTokenizer } from './lib/markdownFastPath.ts'
 import { TaskListInput } from './lib/taskListInput.ts'
@@ -1027,6 +1028,9 @@ export default function App() {
         onBlockCreated: (position) => mathEditRef.current?.(position),
         onBlockedTable: () => show('表格单元格里不能放块级公式：Markdown 表格只装行内内容'),
       }),
+      // emoji 短码（第 88 轮 B-106）：手打 `:smile:` 当场换成 😄（20 枚映射）。
+      // 旧文档里的字面短码不转换；代码围栏与行内代码由输入规则插件的既有守卫挡住。
+      EmojiInput,
       // 手打的行内链接（第 84 轮 B-124）：收尾 `)` 是被智能配对「越过」的，输入规则收不到，
       // 所以用 appendTransaction 判「光标刚跨过收尾 )」，命中就把定界符收成 link mark
       LinkInput,
