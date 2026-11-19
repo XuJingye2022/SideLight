@@ -9,13 +9,20 @@ import { loadSettings } from './settings.ts'
 import {
   ANNOTATION_PRIORITIES,
   ANNOTATION_PRIORITY_LABELS,
+  REVIEW_STATUSES,
+  REVIEW_STATUS_LABELS,
   buildTextIndex,
   findRange,
+  isClosedReview,
+  legacyReviewStatus,
+  marksBody,
   normalizePriority,
+  normalizeReviewStatus,
   parseStream,
   parseAnnotationStore,
   replaceInWindow,
   resolveAnnotations,
+  reviewStatusOf,
   serializeAnnotationStore,
   shiftAnnotations,
   type Annotation,
@@ -471,6 +478,7 @@ test('五档写盘再读回来逐档保持，手改标记也原样往返', () =>
     id: `id-${index}`,
     kind: 'evaluation',
     status: 'pending',
+    reviewStatus: 'open',
     from: index,
     to: index + 1,
     quote: '甲',
@@ -533,6 +541,159 @@ test('replaceInWindow：手改档位重跑保留，未手改的吃模型新档�
   assert.deepEqual(
     state.map((item) => item.priority),
     ['urgent', 'high'],
+  )
+})
+
+/* ---------- 四态复核状态（第 97 轮 B-224） ---------- */
+
+test('四态迁移表：三旧 status、缺字段、非法值、合法字段优先', () => {
+  assert.deepEqual([...REVIEW_STATUSES], ['open', 'in-progress', 'resolved', 'wont-fix'])
+  // 迁移表
+  assert.equal(legacyReviewStatus('pending'), 'open')
+  assert.equal(legacyReviewStatus('accepted'), 'resolved')
+  assert.equal(legacyReviewStatus('dismissed'), 'wont-fix')
+  // 归一：非法与缺字段都回 open
+  assert.equal(normalizeReviewStatus('resolved'), 'resolved')
+  assert.equal(normalizeReviewStatus('fixed'), 'open')
+  assert.equal(normalizeReviewStatus(undefined), 'open')
+  assert.equal(normalizeReviewStatus(3), 'open')
+  // 旧档没有字段时按内部 status 推
+  assert.equal(reviewStatusOf({ status: 'pending' }), 'open')
+  assert.equal(reviewStatusOf({ status: 'accepted' }), 'resolved')
+  assert.equal(reviewStatusOf({ status: 'dismissed' }), 'wont-fix')
+  // 有合法字段以它为准（内部 status 不改）
+  assert.equal(reviewStatusOf({ status: 'pending', reviewStatus: 'in-progress' }), 'in-progress')
+  assert.equal(reviewStatusOf({ status: 'accepted', reviewStatus: 'open' }), 'open')
+  assert.equal(reviewStatusOf({ status: 'pending', reviewStatus: 'bogus' }), 'open')
+})
+
+test('旧档两条 parse 分支都补 reviewStatus，status 原值不变', () => {
+  const legacy = [
+    { id: 'a', kind: 'evaluation', status: 'pending', from: 1, to: 4, quote: '甲', note: '一' },
+    { id: 'b', kind: 'revision', status: 'accepted', from: 5, to: 9, quote: '乙', note: '二', replacement: '丙' },
+    { id: 'c', kind: 'evaluation', status: 'dismissed', from: 10, to: 12, quote: '丁', note: '三' },
+    { id: 'd', kind: 'evaluation', status: 'pending', from: 13, to: 15, quote: '戊', note: '四', reviewStatus: 'wont-fix' },
+  ]
+  const stores = [
+    parseAnnotationStore(JSON.stringify(legacy)),
+    parseAnnotationStore(JSON.stringify({ v: 2, annotations: legacy, notes: [] })),
+  ]
+  for (const store of stores) {
+    assert.equal(store.annotations.length, legacy.length)
+    assert.deepEqual(
+      store.annotations.map((item) => item.reviewStatus),
+      ['open', 'resolved', 'wont-fix', 'wont-fix'],
+    )
+    assert.deepEqual(
+      store.annotations.map((item) => item.status),
+      ['pending', 'accepted', 'dismissed', 'pending'],
+    )
+    assert.deepEqual(
+      store.annotations.map((item) => item.id),
+      legacy.map((item) => item.id),
+    )
+  }
+})
+
+test('四态写盘再读回逐档保持，下拉文案四档齐全', () => {
+  const annotations: Annotation[] = REVIEW_STATUSES.map((reviewStatus, index) => ({
+    id: `r-${index}`,
+    kind: 'evaluation',
+    status: 'pending',
+    reviewStatus,
+    from: index,
+    to: index + 1,
+    quote: '甲',
+    note: '乙',
+    priority: 'high',
+  }))
+  const store = parseAnnotationStore(serializeAnnotationStore({ v: 2, annotations, notes: [] }))
+  assert.deepEqual(
+    store.annotations.map((item) => item.reviewStatus),
+    [...REVIEW_STATUSES],
+  )
+  assert.deepEqual(
+    store.annotations.map((item) => item.status),
+    ['pending', 'pending', 'pending', 'pending'],
+  )
+  assert.deepEqual(
+    REVIEW_STATUSES.map((status) => REVIEW_STATUS_LABELS[status]),
+    ['Open', 'In progress', 'Resolved', "Won't fix"],
+  )
+})
+
+test('marksBody 与 isClosedReview 真值表', () => {
+  const rows: Array<[Annotation, boolean, boolean]> = [
+    [{ status: 'pending', reviewStatus: 'open' } as Annotation, true, false],
+    [{ status: 'pending', reviewStatus: 'in-progress' } as Annotation, true, false],
+    [{ status: 'pending', reviewStatus: 'resolved' } as Annotation, false, true],
+    [{ status: 'pending', reviewStatus: 'wont-fix' } as Annotation, false, true],
+    [{ status: 'accepted' } as Annotation, false, true],
+    [{ status: 'dismissed' } as Annotation, false, true],
+  ]
+  for (const [annotation, body, closed] of rows) {
+    const label = `${annotation.status}/${String(annotation.reviewStatus)}`
+    assert.equal(marksBody(annotation), body, `${label} 的 marksBody`)
+    assert.equal(isClosedReview(annotation), closed, `${label} 的 isClosedReview`)
+  }
+})
+
+test('replaceInWindow：resolved 保留、in-progress 复用 id 与四态、旧 accepted 不在复用池', () => {
+  const old = [
+    { id: 'done', kind: 'evaluation', status: 'pending', reviewStatus: 'resolved', from: 10, to: 20, quote: '甲句', note: '已改好' },
+    { id: 'wip', kind: 'evaluation', status: 'pending', reviewStatus: 'in-progress', from: 30, to: 40, quote: '乙句', note: '在改', priority: 'high', priorityManual: true },
+    { id: 'legacy', kind: 'revision', status: 'accepted', from: 50, to: 60, quote: '丙句', note: '旧结项', replacement: '丁' },
+  ] as Annotation[]
+  const fresh = [
+    { id: 'new-wip', kind: 'evaluation', status: 'pending', reviewStatus: 'open', from: 31, to: 40, quote: '乙句', note: '在改', priority: 'low' },
+  ] as Annotation[]
+  const once = replaceInWindow(old, fresh, { start: 25, end: 45 })
+  assert.deepEqual(
+    once.map((item) => item.id).sort(),
+    ['done', 'legacy', 'wip'],
+  )
+  const wip = once.find((item) => item.id === 'wip')
+  assert.equal(wip?.reviewStatus, 'in-progress')
+  assert.equal(wip?.priority, 'high')
+  assert.equal(wip?.priorityManual, true)
+
+  // resolved 落在窗口内、这次模型没再产出它：整条留下，四态不变
+  const inWindowClosed = replaceInWindow(old, [], { start: 5, end: 45 })
+  assert.ok(inWindowClosed.some((item) => item.id === 'done' && item.reviewStatus === 'resolved'))
+  assert.equal(inWindowClosed.some((item) => item.id === 'wip'), false)
+
+  // 旧档 accepted 的结项内部 status 不是 pending，不在可复用池：池外保留是既有行为
+  const legacyKept = replaceInWindow(
+    [{ id: 'old', kind: 'revision', status: 'accepted', from: 10, to: 20, quote: '甲句', note: '旧', replacement: '乙' }] as Annotation[],
+    [{ id: 'f', kind: 'revision', status: 'pending', reviewStatus: 'open', from: 10, to: 20, quote: '甲句', note: '旧', replacement: '乙' }] as Annotation[],
+    { start: 5, end: 25 },
+  )
+  assert.deepEqual(
+    legacyKept.map((item) => item.id).sort(),
+    ['f', 'old'],
+  )
+})
+
+test('replaceInWindow：同键 fresh 认领结项条目的 id 后不翻倍，ids 唯一', () => {
+  const old = [
+    { id: 'closed', kind: 'evaluation', status: 'pending', reviewStatus: 'resolved', from: 10, to: 20, quote: '甲句', note: '同一句', priority: 'high', priorityManual: true },
+  ] as Annotation[]
+  const fresh = [
+    { id: 'fresh', kind: 'evaluation', status: 'pending', reviewStatus: 'open', from: 11, to: 20, quote: '甲句', note: '同一句' },
+  ] as Annotation[]
+  const once = replaceInWindow(old, fresh, { start: 5, end: 25 })
+  assert.equal(once.length, 1)
+  assert.equal(new Set(once.map((item) => item.id)).size, once.length)
+  assert.equal(once[0].id, 'closed')
+  assert.equal(once[0].reviewStatus, 'resolved')
+  assert.equal(once[0].priority, 'high')
+  assert.equal(once[0].priorityManual, true)
+
+  // 再重跑一次：仍 1 条、id 与四态都不变
+  const twice = replaceInWindow(once, fresh, { start: 5, end: 25 })
+  assert.deepEqual(
+    twice.map((item) => [item.id, item.reviewStatus]),
+    [['closed', 'resolved']],
   )
 })
 

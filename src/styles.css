@@ -1463,10 +1463,13 @@ button:disabled {
 .note-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 12px;
   letter-spacing: 0.08em;
   color: var(--ink-faint);
+  /* 溢出兜底：两个下拉 + 类型 + 序号在 320 px 栏里正常是单行，换行只会在更窄的抽屉里出现 */
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .note-kind {
@@ -1522,6 +1525,41 @@ button:disabled {
 .note-priority-urgent {
   color: var(--on-mark);
   background: var(--danger);
+}
+
+/* 第 97 轮 B-224：卡头四态复核状态。open / wont-fix 用基础配色（--ink-faint / --panel），
+   另两档沿用已上线的两对色（mark / accent），不新增配色对 */
+.note-status {
+  min-height: 24px;
+  min-width: 72px;
+  padding: 1px 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--ink-faint);
+  background: var(--panel);
+}
+
+.note-status-in-progress {
+  color: var(--mark);
+  background: var(--mark-wash);
+}
+
+.note-status-resolved {
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+}
+
+/* 结项（resolved / wont-fix）：卡片画虚线，正文高亮已经被去掉，卡片留着可改回 */
+.note.is-closed {
+  border-style: dashed;
+}
+
+/* 没配 Key 时卡头多一枚「模拟」徽标，两枚下拉 + 徽标放不下序号（实测 305.7 > 294 px）。
+   序号本来就在卡片 aria-label 与卡片顺序里，模拟态把它收起，正式态照常显示（第 97 轮 A3-6b fallback） */
+.note.is-simulated .note-index {
+  display: none;
 }
 
 .note-index {

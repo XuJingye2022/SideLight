@@ -2,7 +2,17 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–96 轮，未发版）
+## Unreleased（第 29–97 轮，未发版）
+
+**第 97 轮（同一未发版区间）**
+
+- 批注四态复核状态（A1+A2，B-224，用户 2026-11-20 队列第 4 条）：`src/lib/annotations.ts` 加 `REVIEW_STATUSES`（open / in-progress / resolved / wont-fix）、`REVIEW_STATUS_LABELS`（Open / In progress / Resolved / Won't fix）、`normalizeReviewStatus`（非法与缺字段回 open）、迁移表 `legacyReviewStatus`（pending→open、accepted→resolved、dismissed→wont-fix）、`reviewStatusOf`（旧档按内部 status 迁移、合法字段优先）、`isClosedReview`、`marksBody`（内部仍 pending 且四态没结项）。`Annotation.reviewStatus` 必填；`resolveAnnotations` 恒写 open；`parseAnnotationStore` 两条分支（旧数组与 `{v:2}`）逐条归一，`status` 原值不变、版本仍 2、不删旧字段；`replaceInWindow` 让结项条目整条保留（重跑不冲掉用户的结项判断）、同键重跑连同 `reviewStatus` 一起复用旧 id，并按 merged 认领的 id 去重——不加这一步时结项条目会同时落进 `kept` 与 `merged`，同 id 两份叠在同一个 top 上（页边卡片与正文高亮都以 id 为键）。`annotations.test.ts` 28→**34 条**。
+- 四态接线：`MarginRail.tsx` 卡头在紧急度之后加 `select.note-status`（`note-status-<四态>`、`value={reviewStatusOf(annotation)}`、`aria-label="第 N 处状态"`、click `stopPropagation`），结项卡加 `is-closed` 画虚线；`App.tsx` 加 `setReviewStatus`（只换标记，条目留在栏里）并接线；`decorations.ts` 的正文高亮改按 `marksBody` 判（resolved / wont-fix 不再画 `.annot`，卡片留在页边可改回）；`styles.css` 加 `.note-status` 与 in-progress / resolved 两档配色（沿用已上线的 `--mark`/`--mark-wash`、`--accent-ink`/`--accent-wash` 两对，不新增配色对）、`.note.is-closed` 虚线、`.note-head` gap 8→6 与换行兜底；`themes.test.ts` 加四态 × 三主题 **12 对**对比度门。
+- 卡头宽度（A3-6b 实测）：两枚下拉按最长选项撑开（紧急度 70、状态 86 px），加「模拟」徽标后整行 305.7 > 内容宽 294 px 会换行成两排（头高 44 px、卡片长高把末卡压到整体评价面板下面）。改成 gap 8→6，并在没配 Key 的模拟态用 `.note.is-simulated .note-index{display:none}` 收起序号（序号本来就在卡片 `aria-label` 与卡片顺序里），正式态序号照常显示；两种情形卡头都单行 24 px。
+- 两套关闭语义定案（P2-2）：四态只是标记，「采纳 / 忽略 / 知道了」行为不变——「采纳」仍替换落正文并让条目出栏（四态随条目消失，属预期），「忽略 / 知道了」只出栏、不落正文。旧档 accepted / dismissed 迁移后不出卡：`MarginRail.tsx:99` 与 `App.tsx:2430/2445` 的 `status === 'pending'` 过滤本轮不动（本轮新造的两态内部仍是 pending，照常出卡）。
+- 门禁：首屏 gzip **313,688 B**（批头 313,360，净 **+328 B**；超内部预算 310,000 3,688 B 只 WARN、硬线 320,000 内余 6,312 B、`--max 315000` exit 0）；`npm test` **58 文件 807 条 0 fail**（800→807：annotations +6、themes +1）；未改编辑器与序列化，不跑 roundtrip。见 `docs/iteration/round-97/impl.md`。
+- E2E（A3，executor 自写 `.tmp/e2e-r97-a1-status.mjs`，ego 浏览器 CDP 57270、1440×900，**44/44**、0 pageerror）：旧档迁移后 `.note` 恰 1 张、其 select 是 open，1,600 ms 后 store 三条 open/resolved/wont-fix 且 status 仍是 pending/accepted/dismissed、id 不变；四态 select 每卡 1 个、默认 open、文案与 `aria-label` 对齐、卡名不含状态；逐档切换值/class/底色跟着变，resolved 与 wont-fix 时正文引文字符数 56→34（不再含该条引文）、open 与 in-progress 复原到基线，结项卡 `border-style` 含 dashed 且仍有 3 卡；三条各一态落盘、切走切回保留、正文只剩第 2 条引文；再分析不翻倍、三条 id 与重跑前一致；几何栏宽 320、`.margin-rail`/`.doc-scroll` 无横溢、3 卡不重叠、末卡底 611.5 ≤ 整体评价顶 623.8、`.note-head` 单行 24 px；结项卡点「采纳」后正文含 replacement、卡 3→2、store 2 条、`.note.is-closed` 0。
+- tester 独立验收（未读 `impl.md`）：自写数据层探针 8/8（迁移表 / 两条 parse 分支 / 四态往返 / 真值表 6 行 / `replaceInWindow` 去重后 ids 唯一）、本机前台重跑 A3 E2E **44/44**、0 pageerror（ego CDP 57270、1440×900）；静态门 `40b651f` 0 行 → 39 行（对照 `normalizePriority` 8）、`note-status` 0→3 文件、`onSetReviewStatus` 0→4；`MarginRail.tsx` 与 `App.tsx` 的 pending 过滤逐字未动。偏差（不判 FAIL）：`themes.test.ts` 另加 12 对对比度门（807 而非 806）；`.note.is-simulated .note-index{display:none}` 取代计划的「无条件藏序号」；交付 E2E 场景 4 的正向断言取到空引文（实质由负向与截图复核）。详见 `docs/iteration/round-97/test.md`。
 
 **第 96 轮（同一未发版区间）**
 

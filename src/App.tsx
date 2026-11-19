@@ -61,6 +61,7 @@ import {
   type AnnotationPriority,
   type DocNote,
   type ParsedAnnotation,
+  type ReviewStatus,
 } from './lib/annotations.ts'
 import { cacheKey, legacyKeyFor, readCache, readCacheText, removeCache, writeCache } from './lib/cache.ts'
 import { buildChunkContext, buildContext, splitSelection, type Block, type ContextPayload } from './lib/context.ts'
@@ -2027,6 +2028,13 @@ export default function App() {
       previous.map((item) =>
         item.id === annotation.id ? { ...item, priority, priorityManual: true } : item,
       ),
+    )
+  }, [])
+
+  /** 卡头四态复核状态（第 97 轮 B-224）：只换标记，条目留在栏里、可随时改回 */
+  const setReviewStatus = useCallback((annotation: Annotation, reviewStatus: ReviewStatus) => {
+    setAnnotations((previous) =>
+      previous.map((item) => (item.id === annotation.id ? { ...item, reviewStatus } : item)),
     )
   }, [])
 
@@ -5996,6 +6004,7 @@ export default function App() {
                 onAccept={accept}
                 onDismiss={dismiss}
                 onSetPriority={setPriority}
+                onSetReviewStatus={setReviewStatus}
                 registerRef={(id, node) => {
                   if (node) cardRefs.current.set(id, node)
                   else cardRefs.current.delete(id)

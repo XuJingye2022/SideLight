@@ -25,6 +25,56 @@ export function normalizePriority(value: unknown): AnnotationPriority {
     : 'none'
 }
 
+/* ---------- 四态复核状态（第 97 轮 B-224） ---------- */
+
+/** 四档复核状态：用户队列的 open / in-progress / resolved / wont-fix。顺序就是下拉的显示顺序 */
+export const REVIEW_STATUSES = ['open', 'in-progress', 'resolved', 'wont-fix'] as const
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
+
+/** 下拉里的文案：英文档名（与用户队列的写法一致） */
+export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
+  open: 'Open',
+  'in-progress': 'In progress',
+  resolved: 'Resolved',
+  'wont-fix': "Won't fix",
+}
+
+/** 任何来源的四态都过这里：缺字段、别的字符串一律回 open */
+export function normalizeReviewStatus(value: unknown): ReviewStatus {
+  return typeof value === 'string' && (REVIEW_STATUSES as readonly string[]).includes(value)
+    ? (value as ReviewStatus)
+    : 'open'
+}
+
+/** 旧内部 status 到四态的迁移表：accepted 当已结项、dismissed 当不修、pending 当 open */
+export function legacyReviewStatus(status: AnnotationStatus): ReviewStatus {
+  if (status === 'accepted') return 'resolved'
+  if (status === 'dismissed') return 'wont-fix'
+  return 'open'
+}
+
+/** 合法 reviewStatus 优先；旧档没有这个字段时按内部 status 迁移。status 本身不改 */
+export function reviewStatusOf(
+  annotation: Pick<Annotation, 'status'> & { reviewStatus?: unknown },
+): ReviewStatus {
+  const raw = annotation.reviewStatus
+  if (raw === undefined || raw === null) return legacyReviewStatus(annotation.status)
+  return normalizeReviewStatus(raw)
+}
+
+/** 已结项（resolved / wont-fix）：正文不再画高亮，卡片画虚线，重跑时整条保留 */
+export function isClosedReview(
+  annotation: Pick<Annotation, 'status'> & { reviewStatus?: unknown },
+): boolean {
+  const status = reviewStatusOf(annotation)
+  return status === 'resolved' || status === 'wont-fix'
+}
+
+/** 正文要不要画 .annot：内部仍是待处理，且四态没结项 */
+export function marksBody(annotation: Annotation): boolean {
+  return annotation.status === 'pending' && !isClosedReview(annotation)
+}
+
 /** 模型先给一条意图说明，再给批注；overall 是不锚定的全文总评 */
 export type ParsedKind = AnnotationKind | 'meta' | 'overall'
 
@@ -56,6 +106,8 @@ export type Annotation = {
   id: string
   kind: AnnotationKind
   status: AnnotationStatus
+  /** 四态复核状态；旧档没有这个字段，读进来按 status 迁移 */
+  reviewStatus: ReviewStatus
   from: number
   to: number
   quote: string
@@ -296,6 +348,8 @@ export function resolveAnnotations(
       id: crypto.randomUUID(),
       kind: item.kind,
       status: 'pending',
+      // 新造的批注一律从 open 开始
+      reviewStatus: 'open',
       from: range.from,
       to: range.to,
       quote: item.quote,
@@ -338,9 +392,13 @@ export function parseAnnotationStore(raw: string | null): AnnotationStore {
   return { v: 2, annotations: [], notes: [] }
 }
 
-/** 读库时的唯一归一入口：只补 priority，别的字段原样保留 */
+/** 读库时的唯一归一入口：补 priority 与四态 reviewStatus，别的字段原样保留 */
 function normalizeStoredAnnotation(item: Annotation): Annotation {
-  return { ...item, priority: normalizePriority(item.priority) }
+  return {
+    ...item,
+    priority: normalizePriority(item.priority),
+    reviewStatus: reviewStatusOf(item),
+  }
 }
 
 export function serializeAnnotationStore(store: AnnotationStore): string {
@@ -379,10 +437,11 @@ export function collectDocNotes(
 
 /**
  * 重跑一段：移除与窗口相交的 pending，窗口外保留；完全相同的新条目复用旧 id/thread/sources。
+ * 四态已结项（resolved / wont-fix）的条目整条保留：重跑不能把用户的结项判断冲掉。
  *
  * `reuse` 是「可复用候选」（默认就是 `previous` 里 pending 那批）：调用方在窗口开始时先拍一份快照，
  * 后面逐条补进来的 fresh 仍能按引文找回旧 id。这样同窗口第 2/3 条批注重跑后 id 也不会变，
- * 用户手改过的档位（priorityManual）跟着旧条目一起保留。
+ * 用户手改过的档位（priorityManual）与四态（reviewStatus）跟着旧条目一起保留。
  */
 export function replaceInWindow(
   previous: Annotation[],
@@ -393,7 +452,8 @@ export function replaceInWindow(
   const start = Math.min(window.start, window.end)
   const end = Math.max(window.start, window.end)
   const kept = previous.filter(
-    (item) => item.status !== 'pending' || item.to < start || item.from > end,
+    (item) =>
+      isClosedReview(item) || item.status !== 'pending' || item.to < start || item.from > end,
   )
   const reusable = reuse.filter((item) => item.status === 'pending')
   const used = new Set<string>()
@@ -414,11 +474,16 @@ export function replaceInWindow(
       thread: old.thread,
       sources: old.sources,
       status: old.status,
+      // 四态也跟旧条目走：用户手改的 in-progress / resolved 不被重跑冲成 open
+      reviewStatus: reviewStatusOf(old),
       // 手改过档位的条目连同标记一起搬过去：不然第一次重跑后标记就丢了，第二次重跑又回模型值
       ...(old.priorityManual ? { priority: old.priority, priorityManual: true as const } : {}),
     }
   })
-  return [...kept, ...merged].sort((a, b) => a.from - b.from)
+  // 结项条目会被 kept 整条留下、又被 merged 以同一 id 复制一份：按 merged 认领的 id 去重。
+  // 不写就会同 id 两份叠在同一 top 上（页边卡片与正文高亮都以 id 为键）。
+  const claimed = new Set(merged.map((item) => item.id))
+  return [...kept.filter((item) => !claimed.has(item.id)), ...merged].sort((a, b) => a.from - b.from)
 }
 
 /** 读 v2 批注文件；旧数组兼容。目录不存在返回空 store。 */

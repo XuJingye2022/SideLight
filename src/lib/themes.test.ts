@@ -173,3 +173,36 @@ test('批注五档紧急度的字色与底色在三套主题下都 ≥4.5:1（�
   // 15 对全算过：档位数或主题数被改少时这里先红
   assert.equal(table.length, 15, table.join(' '))
 })
+
+test('批注四态字色与底色在三套主题下都 ≥4.5:1（第 97 轮 B-224）', () => {
+  // wont-fix 与 open 共用基础配色：CSS 里没有单独规则，这里也按同一份声明算
+  const base = ruleDeclarations('.note-status')
+  const styles: Record<string, Record<string, string>> = {
+    open: base,
+    'in-progress': ruleDeclarations('.note-status-in-progress'),
+    resolved: ruleDeclarations('.note-status-resolved'),
+    'wont-fix': base,
+  }
+
+  const themes: [string, string][] = [
+    ['浅色', ':root'],
+    ['暖纸', "html[data-theme='sepia']"],
+    ['深色', "html[data-theme='dark']"],
+  ]
+  const table: string[] = []
+  for (const [name, selector] of themes) {
+    const vars = cssVars(selector)
+    for (const [status, declarations] of Object.entries(styles)) {
+      assert.ok(declarations.color, `${status} 没写字色`)
+      assert.ok(declarations.background, `${status} 没写底色`)
+      const ratio = contrastRatio(
+        resolveColor(declarations.color, vars),
+        resolveColor(declarations.background, vars),
+      )
+      table.push(`${name}/${status}=${ratio.toFixed(2)}`)
+      assert.ok(ratio >= 4.5, `${name}的 ${status} 只有 ${ratio.toFixed(3)}:1`)
+    }
+  }
+  // 12 对全算过：四态或主题数被改少时这里先红
+  assert.equal(table.length, 12, table.join(' '))
+})

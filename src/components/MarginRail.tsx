@@ -4,9 +4,14 @@ import { errorCopy, streamChat } from '../lib/ai.ts'
 import {
   ANNOTATION_PRIORITIES,
   ANNOTATION_PRIORITY_LABELS,
+  REVIEW_STATUSES,
+  REVIEW_STATUS_LABELS,
+  isClosedReview,
+  reviewStatusOf,
   type Annotation,
   type AnnotationPriority,
   type DocNote,
+  type ReviewStatus,
 } from '../lib/annotations.ts'
 import { appendDelta, buildChatMessages, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
@@ -57,6 +62,8 @@ type Props = {
   onDismiss: (annotation: Annotation) => void
   /** 卡头下拉改档位（第 95 轮 B-222）：手改过的档位重跑时保留 */
   onSetPriority: (annotation: Annotation, priority: AnnotationPriority) => void
+  /** 卡头下拉改四态（第 97 轮 B-224）：只换标记，不移除、不影响出卡 */
+  onSetReviewStatus: (annotation: Annotation, reviewStatus: ReviewStatus) => void
   registerRef: (id: string, node: HTMLElement | null) => void
   railRef: React.RefObject<HTMLDivElement | null>
 }
@@ -85,6 +92,7 @@ export function MarginRail({
   onAccept,
   onDismiss,
   onSetPriority,
+  onSetReviewStatus,
   registerRef,
   railRef,
   railSpace,
@@ -272,7 +280,9 @@ export function MarginRail({
         <article
           key={annotation.id}
           ref={(node) => registerRef(annotation.id, node)}
-          className={`note note-${annotation.kind}${activeId === annotation.id ? ' is-active' : ''}`}
+          className={`note note-${annotation.kind}${activeId === annotation.id ? ' is-active' : ''}${
+            isClosedReview(annotation) ? ' is-closed' : ''
+          }${simulated ? ' is-simulated' : ''}`}
           style={{ top: `${tops[annotation.id] ?? 0}px` }}
           // 第 86 轮 B-141：卡片自己成为一个 Tab 站，读屏拿到「第 N 处 + 类型 + 引文」
           tabIndex={0}
@@ -306,6 +316,23 @@ export function MarginRail({
               {ANNOTATION_PRIORITIES.map((priority) => (
                 <option key={priority} value={priority}>
                   {ANNOTATION_PRIORITY_LABELS[priority]}
+                </option>
+              ))}
+            </select>
+            {/* 四态复核状态（第 97 轮 B-224）：和紧急度同盒。
+                click 同理要 stopPropagation，不然冒泡到卡片会改正文选区。结项的卡片画虚线，正文不再高亮 */}
+            <select
+              className={`note-status note-status-${reviewStatusOf(annotation)}`}
+              value={reviewStatusOf(annotation)}
+              aria-label={`第 ${index + 1} 处状态`}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) =>
+                onSetReviewStatus(annotation, event.target.value as ReviewStatus)
+              }
+            >
+              {REVIEW_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {REVIEW_STATUS_LABELS[status]}
                 </option>
               ))}
             </select>

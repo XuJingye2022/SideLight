@@ -2,7 +2,7 @@ import { Extension, type Editor } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
-import type { Annotation } from './annotations.ts'
+import { marksBody, type Annotation } from './annotations.ts'
 import type { Match } from './find.ts'
 
 const annotationKey = new PluginKey<DecorationSet>('sidelightAnnotations')
@@ -42,13 +42,14 @@ function dispatch(editor: Editor, key: PluginKey<DecorationSet>, decorations: De
 
 /**
  * 把批注画到正文上。高亮范围与页边卡片用同一个 from/to，保证两边指的是一处。
+ * 四态里 resolved / wont-fix 算结项：正文不再画，卡片那一份另行保留（可改回）。
  */
 export function renderAnnotations(editor: Editor, annotations: Annotation[], activeId: string | null = null): void {
   const docSize = editor.state.doc.content.size
   const decorations = annotations
     .filter(
       (annotation) =>
-        annotation.status === 'pending' &&
+        marksBody(annotation) &&
         annotation.from >= 0 &&
         annotation.to <= docSize &&
         annotation.from < annotation.to,
