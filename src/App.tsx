@@ -61,6 +61,7 @@ import {
   writeAnnotationStore,
   type Annotation,
   type AnnotationPriority,
+  type AnnotationStore,
   type DocNote,
   type ParsedAnnotation,
   type ReviewStatus,
@@ -138,7 +139,7 @@ import {
   setHostAssetMode,
 } from './lib/assetResolve.ts'
 import { ResolvingImage } from './lib/assetImage.ts'
-import { getHostTransport } from './lib/hostBridge.ts'
+import { getHostTransport, type HostTransport } from './lib/hostBridge.ts'
 import { loadSession, permissionOf, restorePlan, saveSession } from './lib/session.ts'
 
 declare global {
@@ -765,6 +766,64 @@ export default function App() {
   const lastResentVersionRef = useRef(-1)
   const draftPromptTokenRef = useRef<string | null>(null)
   const annotationsHydratedRef = useRef(false)
+  /** 批注写盘防抖（第 129 轮 B-255）：待写的身份在调度那一刻就固定，切篇前 flush */
+  const annotationsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingAnnotationsRef = useRef<{
+    host: HostTransport | null
+    space: Workspace | null
+    path: string | null
+    name: string | null
+    store: AnnotationStore
+  } | null>(null)
+  /** 在飞的批注写盘：restoreAnnotationsFor 读档前先等它落地 */
+  const annotationsWriteRef = useRef<Promise<void> | null>(null)
+
+  /**
+   * 把待写的批注立刻写盘（第 129 轮 B-255）。
+   * 旧的 600 ms 防抖靠 effect cleanup 取消：改档 600 ms 内切文档，旧篇的改动被静默丢掉。
+   * 这里只读调度时捕获的 pending（host / 目录 / 文件名），失败吞掉（磁盘错不打断用户）。
+   * 返回的 promise 在第一个 await 前同步登记进 annotationsWriteRef，切篇入口都看得见。
+   */
+  const flushAnnotationWrite = useCallback((): Promise<void> => {
+    const pending = pendingAnnotationsRef.current
+    pendingAnnotationsRef.current = null
+    if (annotationsTimerRef.current) {
+      clearTimeout(annotationsTimerRef.current)
+      annotationsTimerRef.current = null
+    }
+    if (!pending) return Promise.resolve()
+    const promise = (async () => {
+      try {
+        if (pending.host) {
+          pending.host.postMessage({
+            v: 1,
+            type: 'annotations-save',
+            id: `annotations-${Date.now()}`,
+            text: JSON.stringify(pending.store),
+          })
+          return
+        }
+        if (!pending.space || !pending.path || !pending.name) return
+        const dir = await parentDirectory(pending.space, pending.path).catch(() => null)
+        if (!dir) return
+        const key = cacheKey(pending.name)
+        if (pending.store.annotations.length === 0 && pending.store.notes.length === 0) {
+          await removeCache(dir, 'annotations', key)
+          return
+        }
+        await writeAnnotationStore(dir, key, pending.store, false)
+        const legacy = legacyKeyFor(pending.name)
+        if (legacy) await removeCache(dir, 'annotations', legacy)
+      } catch {
+        // 写不进去只影响下次恢复，用户的正文与批注仍在内存里
+      }
+    })()
+    annotationsWriteRef.current = promise
+    return promise
+  }, [])
+
+  /** 关窗/卸载时把最后一份批注尽力写掉 */
+  useEffect(() => () => void flushAnnotationWrite(), [flushAnnotationWrite])
 
   /** 所有写 DOC_KEY 的路径共用：宿主模式跳过、>256KiB 不写、配额错误吞掉 */
   const persistDocKey = useCallback((text: string) => {
@@ -1382,6 +1441,8 @@ export default function App() {
   /** 把 `/__doc` 的正文装进编辑器：宿主文档的唯一入口 */
   const applyHostPayload = useCallback(
     (data: HostDocResponse) => {
+      // 第 129 轮 B-255：宿主换篇也是换文档，上一篇的批注改动先落盘
+      void flushAnnotationWrite()
       if (!editor || typeof data.text !== 'string') return
       // 宿主只有 /__doc，没有目录句柄：清掉上一篇工作区文档的路径，图片一律不解析
       setAssetDocPath('')
@@ -1456,7 +1517,7 @@ export default function App() {
       const context = buildContext(readBlocks(editor), from, to)
       setSelection({ chars: context.selection.length, words: 0, from, to, source: context.source })
     },
-    [editor, enterSourceFor, setMarkdown, syncDocInfo, rememberDisk, markHostMode, hostResolver],
+    [editor, enterSourceFor, flushAnnotationWrite, setMarkdown, syncDocInfo, rememberDisk, markHostMode, hostResolver],
   )
 
   /**
@@ -2123,35 +2184,29 @@ export default function App() {
     if (editor) renderAnnotations(editor, annotations, activeId)
   }, [editor, annotations, activeId])
 
-  // 批注写进 .sidelight/annotations，换文档或刷新后还能回来
+  // 批注写进 .sidelight/annotations，换文档或刷新后还能回来。
+  // 第 129 轮 B-255：调度时就把「写哪一篇」捕获进 pending；换文档由 loadIntoEditor 先 flush，
+  // 不再靠 effect cleanup 取消计时器（那会丢掉改档 600 ms 内切篇的改动）。
   useEffect(() => {
-    const timer = setTimeout(() => {
-      void (async () => {
-        if (!annotationsHydratedRef.current) return
-        if (hostModeRef.current) {
-          host?.postMessage({
-            v: 1,
-            type: 'annotations-save',
-            id: `annotations-${Date.now()}`,
-            text: JSON.stringify({ v: 2, annotations, notes: docNotes }),
-          })
-          return
-        }
-        const dir = await cacheDirFor()
-        const file = fileRef.current
-        if (!dir || !file) return
-        if (annotations.length === 0 && docNotes.length === 0) {
-          await removeCache(dir, 'annotations', cacheKey(file.name))
-          return
-        }
-        const key = cacheKey(file.name)
-        await writeAnnotationStore(dir, key, { v: 2, annotations, notes: docNotes }, false)
-        const legacy = legacyKeyFor(file.name)
-        if (legacy) await removeCache(dir, 'annotations', legacy)
-      })()
+    if (!annotationsHydratedRef.current) return
+    const file = fileRef.current
+    const space = workspaceRef.current
+    const pending = {
+      host: hostModeRef.current ? host : null,
+      space,
+      path: file?.path ?? null,
+      name: file?.name ?? null,
+      store: { v: 2, annotations, notes: docNotes } as AnnotationStore,
+    }
+    // 宿主只看 host；工作区要 space/path/name 齐全才写得进 .sidelight
+    if (!pending.host && (!space || !pending.path || !pending.name)) return
+    pendingAnnotationsRef.current = pending
+    if (annotationsTimerRef.current) clearTimeout(annotationsTimerRef.current)
+    annotationsTimerRef.current = setTimeout(() => {
+      annotationsTimerRef.current = null
+      void flushAnnotationWrite()
     }, 600)
-    return () => clearTimeout(timer)
-  }, [annotations, docNotes, cacheDirFor])
+  }, [annotations, docNotes, flushAnnotationWrite])
 
   useEffect(() => {
     if (editor) renderFocus(editor, focusMode ? blockPosOf(editor) : null)
@@ -2511,6 +2566,8 @@ export default function App() {
   /** 打开文档时把上次的批注从 .sidelight/annotations 恢复回来 */
   const restoreAnnotationsFor = useCallback(
     async (file: WorkspaceFileNode | null) => {
+      // 第 129 轮 B-255：上一篇的批注还在写盘时先等它落地，免得把旧档读回来
+      await annotationsWriteRef.current?.catch(() => undefined)
       if (!editor || !file?.path) return
       const space = workspaceRef.current
       if (!space || !space.rootHandle) return
@@ -2564,6 +2621,8 @@ export default function App() {
 
   const loadIntoEditor = useCallback(
     (text: string, name: string, file: WorkspaceFileNode | null) => {
+      // 第 129 轮 B-255：下一篇载入前先把上一篇的批注改动静默落盘（早于下面清空 annotations）
+      void flushAnnotationWrite()
       if (!editor) return
       // 必须早于下面的 setMarkdown：它同步 dispatch 建 NodeView，图片解析现读这个路径
       // 读 workspaceRef 而不是 workspace：本函数的 deps 里没有 workspace，闭包会一直看到 null
@@ -2700,7 +2759,7 @@ export default function App() {
         })()
       }
     },
-    [editor, enterSourceFor, setMarkdown, restoreAnnotationsFor, syncDocInfo, rememberDisk, markHostMode, workspaceResolver],
+    [editor, enterSourceFor, flushAnnotationWrite, setMarkdown, restoreAnnotationsFor, syncDocInfo, rememberDisk, markHostMode, workspaceResolver],
   )
 
   // 切换文档前先拦住未保存的改动。

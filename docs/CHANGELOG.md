@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–128 轮，未发版）
+## Unreleased（第 29–129 轮，未发版）
+
+**第 129 轮（同一未发版区间）**
+
+- 批注改档 600 ms 内切文档不再丢档（**B-255**，第 123 轮 finder 真机：改档后立刻换篇，旧篇改动被 effect cleanup 静默取消）——`src/App.tsx:770-826` 加 `annotationsTimerRef` / `pendingAnnotationsRef`（只存 `{host,space,path,name,store}`，身份在调度那一刻捕获）/ `annotationsWriteRef` 与新 `flushAnnotationWrite`：同步取走 pending、清计时器、`const promise=(async()=>{…})()` 后**同步登记**进 ref（无 pending 直接 `Promise.resolve()` 且不覆盖在飞 promise），体内宿主走 `annotations-save`、工作区按 `parentDirectory(space,path)` + `writeAnnotationStore(dir,key,store,false)`、空档 `removeCache`、有旧键再清 legacy，失败吞掉；`:2187-2209` 的 600 ms effect 改为捕获 pending（deps `[annotations,docNotes,flushAnnotationWrite]`，删 `return () => clearTimeout(timer)`）；`loadIntoEditor:2625` 与 `applyHostPayload:1445` 首行 `void flushAnnotationWrite()`（早于 `setMarkdown`/`setAnnotations([])`/`!editor` 守卫）且 deps 各加，`restoreAnnotationsFor:2570` 读档前 `await annotationsWriteRef.current?.catch(…)`；卸载兜底 effect 尽力写掉最后一份；`src/lib/annotations.test.ts` 尾部 +2 条静态门（`loadIntoEditor` 切片含 flush 且早于清空；三枚新名各 ≥2 且在 `applyHostPayload` 之前），`npm test` 66 文件 931→**933 条**。tester 独立（未读 `impl.md`）：自写静态门 `.tmp/r129-tester-static.mjs` **10/10**；`npm test` **66 文件 933 条 0 fail**、`npm run verify -- --max 316500` **exit 0**、门 gzip **316,033 B**（raw 1,025,343、headroom 467）、常驻 `MarginRail-Cej3jE1X.js` gzip9 **7,869**、B-229 口径合计 **323,902**（超硬线 3,902，仍 `open` 只记）；自写 E2E `.tmp/r129-tester-flush.mjs`（ego CDP 57270、1440×900、假 FSA 记 `write:`/`read:` ops、种子 a.json 1 条 open；先过 dev 模块身份门：after 三标记全 true / before 全 false）——after **6/6、0 pageerror**：①④ 改档后立刻切 b.md，`editToLoadMs` **149 / 150 ms**、窗口内 `write:.sidelight/annotations/a.json` **恰 1**、b.json **0 写**、写盘时刻距点击 **+40 ms**（600 ms 计时器路径应 ~+450 ms）、1,600 ms 后磁盘 `resolved` / `urgent`；② 重开 a.md 仍 resolved；③ 在 b.md `.note` 0 且全量 b.json 0 写；⑤ 对照等 1,000 ms 再切 `wont-fix` 保留；before（`git stash push -- src/App.tsx`、跑完 pop 并复核模块回 true）**①②④ FAIL**（a.json 0 写、仍 `open`/`none`，各窗口 150 ms）而 ③⑤⑥ PASS。回归 `.tmp/e2e-r97-a1-status.mjs` **44/44**（跑后 `git checkout -- shots/round-97/`）；`roundtrip` 不跑（未动编辑器/序列化）。截图 `shots/round-129/ann-flush.png`。UNVERIFIED：真 WebView2 宿主换篇、真实 FSA、关窗卸载兜底、真实中文 IME。见 `docs/iteration/round-129/test.md`。
 
 **第 128 轮（同一未发版区间）**
 

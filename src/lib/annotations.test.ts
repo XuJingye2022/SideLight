@@ -792,3 +792,32 @@ test('MarginRail.tsx 恰两枚 note-field-label（紧急度/状态），styles.c
   const css = withoutComments(readFileSync('src/styles.css', 'utf8'))
   assert.equal(countOf(css, '.note-field-label {'), 1)
 })
+
+/* ---------- 批注写盘 flush（第 129 轮 A1 / B-255） ---------- */
+
+test('换文档前 flush 批注写盘：loadIntoEditor 首行调 flushAnnotationWrite 且早于清空批注', () => {
+  const app = withoutComments(readFileSync('src/App.tsx', 'utf8'))
+  const start = app.indexOf('const loadIntoEditor = useCallback(')
+  assert.ok(start > 0, 'App.tsx 里找不到 loadIntoEditor 的声明')
+  const slice = app.slice(start, app.indexOf('const requestLoad = useCallback(', start))
+  assert.ok(slice.length > 200, 'loadIntoEditor 切片异常')
+  assert.ok(slice.includes('void flushAnnotationWrite()'), 'loadIntoEditor 没有调 flushAnnotationWrite')
+  assert.ok(
+    slice.indexOf('void flushAnnotationWrite()') < slice.indexOf('setAnnotations([])'),
+    'flushAnnotationWrite 必须早于 setAnnotations([])（晚于它就丢了上一篇的改动）',
+  )
+})
+
+test('批注写盘三枚新名各 ≥2，且 flushAnnotationWrite 声明在 ref 区之后、applyHostPayload 之前', () => {
+  const app = withoutComments(readFileSync('src/App.tsx', 'utf8'))
+  for (const name of ['flushAnnotationWrite', 'annotationsWriteRef', 'pendingAnnotationsRef']) {
+    const hits = countOf(app, name)
+    assert.ok(hits >= 2, `${name} 只命中 ${hits} 次`)
+  }
+  const flushAt = app.indexOf('const flushAnnotationWrite = useCallback(')
+  const refAt = app.indexOf('const annotationsHydratedRef = useRef(false)')
+  const applyAt = app.indexOf('const applyHostPayload = useCallback(')
+  assert.ok(refAt > 0 && applyAt > 0 && flushAt > 0, '锚点缺失')
+  assert.ok(flushAt > refAt, 'flushAnnotationWrite 声明必须在 ref 区之后（否则 TDZ）')
+  assert.ok(flushAt < applyAt, 'flushAnnotationWrite 声明必须早于 applyHostPayload')
+})
