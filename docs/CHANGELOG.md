@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–124 轮，未发版）
+## Unreleased（第 29–125 轮，未发版）
+
+**第 125 轮（同一未发版区间）**
+
+- 对话页签的文档节选跟选区/光标走，不再永远是正文开头 2000 字（**B-258**，第 123 轮 finder F2）——`src/lib/chat.ts` 新纯函数 `chatContextFor(blocks, from, to, limit = CHAT_CONTEXT_LIMIT)`：有选区走 `buildContext` 取选区覆盖块 + 前后各一段；无选区且落在第一块内（打开即问的默认路径）取全文开头 `limit` 字；其余取光标块 ±1；最后 `[before, selection, after]` 连后过 `chatContextOf`。**`buildContext` 必须显式传 `limit`**（它默认 `CONTEXT_LIMIT = 1500`，漏传会静默砍 25%）。`src/App.tsx:6034` 的 `getChatContext` 改 `getChatSource`：现读 `readBlocks(editor)` + `editor.state.selection`，`viewMode !== 'edit'` 时把 from/to 压成 1（预览/源码态编辑器常驻、选区停在上次编辑处）；`src/components/MarginRail.tsx` 的 prop 与 `send()` 改用 `chatContextFor`，空态补一句「上下文最多 2000 字：有选区用选区，没选区取光标所在段；刚打开时取开头。」（本轮唯一新增文案）。`src/lib/chat.test.ts` 25→**31 条**（选区优先/中间段/末段/截断/默认路径+空文档/接线静态门）。tester 独立（未读 `impl.md`）：`npm test` **65 文件 923 条 0 fail**；负向去掉 `buildContext` 的 `limit` → ①②③④ **4 红 exit 1**，还原 SHA256 `EED14FD3…` 同后 **31/31**；静态门 HEAD `indexOf('getChatSource')` 两文件 **−1** → 各 1 处、App 内 `chatContextFor(` **0**；自写 E2E `.tmp/e2e-r125-tester-context.mjs`（ego CDP 57270、1440×900、假 FSA + 假 SSE）**27/27、0 pageerror**（`.tmp/r125-tester-context.json`）：S1 打开即问 `hasHead:true`/`hasTail:false`/`systemLength 2147`；S2 末段选 17 字 `hasTail:true`、system 含这 17 字、`hasHead:false`、2099 ≤2150、lastUser 逐字同；S3 光标末段 2099；S5 预览 `#rail-panel-chat` 0、源码态程序化发送 2147/hasHead（守卫生效）；S4 空白文档「（当前文档还没有正文）」；回归 `.tmp/r96-tester-a1a2.mjs` **42/42**、`.tmp/e2e-r96-a1-chat.mjs` **33/33**。门禁：`npm run build` 过、门 gzip **315,738 B**（≤315,876、净 +12、硬线余 4,262）、常驻 `MarginRail-DrxNXyli.js` gzip9 **7,681**（≤7,795、+186）、B-229 口径合计 **323,419**（超硬线 3,419，仍 `open` 只记）；`roundtrip` 不跑（未动编辑器/序列化）。偏差（不判 FAIL）：`src/lib/chat.ts` 首行新增 UTF-8 BOM（全 `src` 唯一，3 B；构建/单测/E2E 全过）。UNVERIFIED：真 WebView2 宿主、真实中文 IME、真实模型（按任务走假 SSE）。见 `docs/iteration/round-125/test.md`。
 
 **第 124 轮（同一未发版区间）**
 

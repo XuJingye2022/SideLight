@@ -6030,8 +6030,14 @@ export default function App() {
                 onTabChange={setRailTab}
                 settings={settings}
                 docName={docName}
-                // 节选与截断都在 chat.ts：这里只把正文拼成一段纯文本，编辑器不在就给空串
-                getChatContext={() => (editor ? readBlocks(editor).map((block) => block.text).join('\n\n') : '')}
+                // 第 125 轮 A1：上下文跟选区/光标走（拼装与截断在 chat.ts，这里只给块与位置）
+                getChatSource={() => {
+                  if (!editor) return null
+                  // 预览/源码态编辑器仍常驻、选区停在上次编辑处（第 64 轮）：非编辑视图一律按文首取
+                  const live = viewMode === 'edit'
+                  const { from, to } = editor.state.selection
+                  return { blocks: readBlocks(editor), from: live ? from : 1, to: live ? to : 1 }
+                }}
                 // 第 100 轮 B-227：getDiff 按需给「打开时正文 → 当前正文」；没载入过就 null
                 getDiff={() => {
                   const before = openedBaselineRef.current

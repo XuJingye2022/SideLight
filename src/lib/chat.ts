@@ -1,4 +1,5 @@
-import type { ChatMessage } from './ai.ts'
+﻿import type { ChatMessage } from './ai.ts'
+import { buildContext, type Block } from './context.ts'
 
 /**
  * 对话页签的纯逻辑（第 96 轮 B-223）：消息拼装、追加、换文档清空。
@@ -33,6 +34,34 @@ export function chatContextOf(text: string, limit: number = CHAT_CONTEXT_LIMIT):
   if (!clean) return ''
   if (clean.length <= limit) return clean
   return `${clean.slice(0, Math.max(0, limit - 1))}…`
+}
+
+/**
+ * 第 125 轮 A1：对话的文档节选跟选区/光标走，不再永远是正文开头 2000 字。
+ *
+ * - 有选区：选区优先（`buildContext` 取覆盖块），前后各带一段；
+ * - 光标在文首或第一块内（打开即问的默认路径）：取全文开头 `limit` 字；
+ * - 其余光标：所在块 + 前后各一段（`buildContext` 的段入口径）。
+ *
+ * `buildContext` 的 `limit` 必须显式传：它的默认是 `CONTEXT_LIMIT = 1500`，
+ * 漏传会静默把对话节选砍到 1500（第 125 轮计划 A1 的负向对照）。
+ */
+export function chatContextFor(
+  blocks: Block[],
+  from: number,
+  to: number,
+  limit: number = CHAT_CONTEXT_LIMIT,
+): string {
+  const first = blocks.find((block) => block.text.trim().length > 0)
+  // 无选区且落在第一块内：不缩默认路径（照块±1 会从 2000 掉到一二百字）
+  if (to <= from && (!first || from < first.to)) {
+    return chatContextOf(
+      blocks.map((block) => block.text).join('\n\n'),
+      limit,
+    )
+  }
+  const { before, selection, after } = buildContext(blocks, from, to, limit)
+  return chatContextOf([before, selection, after].join('\n\n'), limit)
 }
 
 /**

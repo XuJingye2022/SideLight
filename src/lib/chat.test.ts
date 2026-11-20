@@ -9,6 +9,7 @@ import {
   CHAT_SYSTEM_PROMPT,
   appendDelta,
   buildChatMessages,
+  chatContextFor,
   chatContextOf,
   chatNearBottom,
   chatRefocusAfterStream,
@@ -18,6 +19,7 @@ import {
   pushTurn,
   type ChatTurn,
 } from './chat.ts'
+import type { Block } from './context.ts'
 
 const turns = (...pairs: ChatTurn[]): ChatTurn[] => pairs
 
@@ -391,4 +393,101 @@ test('对话记录开标签：显式 tabIndex={0}，且不许给 -1 或按轮数
   )
   assert.doesNotMatch(tag, /tabIndex=\{-1\}/, '不能给 -1：那等于把这个落点移出 Tab 序')
   assert.doesNotMatch(tag, /turns\.length/, 'Tab 落点不能随轮数变：流式中条数会变，Tab 站数跟着跳')
+})
+
+/**
+ * 第 125 轮 A1：对话上下文跟选区/光标走（不再永远是正文开头 2000 字）。
+ *
+ * 夹具按计划写死块偏移（0 基）：p0 0–2,600（含「开头标记甲」）、p1 2,600–3,000、
+ * p2 3,000–4,905（含「结尾标记乙」）。注意 2,600 属 p0（`context.ts:43-55` 的 `>=`/`<=`
+ * 先命中 p0），所以光标位置逐条写死，不落在块边界上。
+ */
+const chatBlocks = (): Block[] => {
+  const p0 = `开头标记甲${'甲'.repeat(2600 - '开头标记甲'.length)}`
+  const p1 = '乙'.repeat(400)
+  const p2 = `${'丙'.repeat(1905 - '结尾标记乙'.length)}结尾标记乙`
+  return [
+    { from: 0, to: 2600, text: p0 },
+    { from: 2600, to: 3000, text: p1 },
+    { from: 3000, to: 4905, text: p2 },
+  ]
+}
+
+/** 静态门切片：按两个 prop/函数锚点取整段，不按行（prettier 换行不改结论） */
+const between = (source: string, start: string, end: string): string => {
+  const at = source.indexOf(start)
+  assert.ok(at >= 0, `找不到锚点 ${start}`)
+  const until = source.indexOf(end, at)
+  assert.ok(until > at, `找不到锚点 ${end}`)
+  return source.slice(at, until)
+}
+
+test('chatContextFor：选区优先，取所选块（含尾标记、不含头标记），长度超 1,500', () => {
+  const context = chatContextFor(chatBlocks(), 3000, 4905)
+  assert.ok(context.includes('结尾标记乙'), '选区落在末段：system 必须含末段的字')
+  assert.ok(!context.includes('开头标记甲'), '选区优先：不能再把开头整段塞进去')
+  // limit 默认 2,000（不是 buildContext 的 1,500）：漏传会正好 1,500 且 is 不 > 1,500
+  assert.ok(context.length > 1500, `节选要吃到 2,000 上限附近，实际 ${context.length}`)
+  assert.ok(context.length <= CHAT_CONTEXT_LIMIT, String(context.length))
+  assert.ok(!context.endsWith('…'), '这段不超上限，不该被截断')
+})
+
+test('chatContextFor：光标在中间段，带出前后各一段（两段都非空）且长度超 1,500', () => {
+  const context = chatContextFor(chatBlocks(), 2700, 2700)
+  assert.ok(context.length > 1500, `段±1 要接近 2,000，实际 ${context.length}`)
+  assert.ok(context.includes('乙'), '中间段本体要带上')
+  assert.ok(context.includes('甲'), '光标段之前那段（before）必须非空')
+  assert.ok(context.includes('丙'), '光标段之后那段（after）必须非空')
+})
+
+test('chatContextFor：光标在末段，长度超 1,500，且带出上一段', () => {
+  const context = chatContextFor(chatBlocks(), 4100, 4100)
+  assert.ok(context.includes('结尾标记乙'), '光标在末段：要含末段的字')
+  assert.ok(!context.includes('开头标记甲'), '段±1 不是整篇：开头那 2,600 字不该进来')
+  assert.ok(context.length > 1500, `末段本体 1,905 字要整段带上，实际 ${context.length}`)
+  assert.ok(context.includes('乙'), '上一段（before）非空，不是从文首切')
+})
+
+test('chatContextFor：3,000 字跨两块的选区截到 CHAT_CONTEXT_LIMIT 并以省略号收尾', () => {
+  const context = chatContextFor(chatBlocks(), 1, 3000)
+  assert.equal(context.length, CHAT_CONTEXT_LIMIT, '超过上限要正好截到 2,000（buildContext 默认 1,500 会红）')
+  assert.ok(context.endsWith('…'), '截断要留省略号')
+})
+
+/**
+ * 默认路径（打开即问）与空文档：C-1 补的「开头切片」口径在这里断死。
+ * 全文 = 块文本以 `\n\n` 连接（与 App 改前的拼法一致），`from<=1` 或光标落在第一块内都走它。
+ */
+test('chatContextFor：文首/第一块内取开头切片，空文档与全空白回空串', () => {
+  const blocks = chatBlocks()
+  const head = chatContextFor(blocks, 1, 1)
+  assert.equal(head.length, CHAT_CONTEXT_LIMIT, '默认路径也要吃满 2,000 上限')
+  assert.ok(head.endsWith('…'))
+  assert.ok(head.includes('开头标记甲'), '开头切片要含文首那块的字')
+  assert.ok(!head.includes('结尾标记乙'), '开头切片不含末段（默认路径本来就这样）')
+  // 光标落在第一块内同样取开头：否则点一下第一段就从 2,000 掉到一二百字
+  assert.equal(chatContextFor(blocks, 100, 100), head, '第一块内（非文首）也走开头切片')
+  // 空文档 / 全空白：交给 buildChatMessages 走「还没有正文」那一支
+  assert.equal(chatContextFor([], 1, 1), '')
+  assert.equal(chatContextFor([{ from: 0, to: 10, text: '   \n' }], 3, 3), '')
+})
+
+/**
+ * 接线静态门（C-1/C-2 的可自动化部分）：App 只传块与位置、不 import chatContextFor
+ * （它在常驻懒 chunk 里，App 引进来会破坏体积口径）；MarginRail 的发送路径恰调 1 处。
+ * 按 prop 段取，不按行：prettier 换行不改结论。HEAD 版 `getChatSource` 0 命中
+ * （`git show HEAD:src/App.tsx` 的 `indexOf` 为 −1）。
+ */
+test('对话上下文的接线（静态门）：App 传选区+viewMode 守卫，MarginRail 调 chatContextFor 恰 1 处', () => {
+  const app = readFileSync('src/App.tsx', 'utf8')
+  const prop = between(app, 'getChatSource=', 'getDiff=')
+  assert.ok(prop.includes(`viewMode === 'edit'`), '非编辑视图要把 from/to 压成文首')
+  assert.ok(prop.includes('state.selection'), '要给的是编辑器当前选区/光标')
+  assert.ok(prop.includes('readBlocks('), '块要现读，不能缓存')
+  assert.equal(prop.match(/chatContextFor\(/g)?.length ?? 0, 0, 'App 不许调 chatContextFor（会把常驻 chunk 的代码拉进主包）')
+
+  const rail = readFileSync('src/components/MarginRail.tsx', 'utf8')
+  const send = between(rail, 'const send = async', 'const generateNotes')
+  assert.equal(send.match(/chatContextFor\(/g)?.length, 1, '发送路径必须恰 1 处拼上下文')
+  assert.ok(send.includes('buildChatMessages(docText'), '拼出的节选要原样交给 buildChatMessages')
 })

@@ -15,7 +15,8 @@ import {
   type DocNote,
   type ReviewStatus,
 } from '../lib/annotations.ts'
-import { appendDelta, buildChatMessages, chatNearBottom, chatRefocusAfterStream, chatScrollOnUpdate, chatSpeaker, dropEmptyAssistantTail, pushTurn, type ChatTurn } from '../lib/chat.ts'
+import { appendDelta, buildChatMessages, chatContextFor, chatNearBottom, chatRefocusAfterStream, chatScrollOnUpdate, chatSpeaker, dropEmptyAssistantTail, pushTurn, type ChatTurn } from '../lib/chat.ts'
+import type { Block } from '../lib/context.ts'
 import { diffView, type DiffViewResult } from '../lib/diffView.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
 import type { RevisionSummary } from '../lib/revisionList.ts'
@@ -52,8 +53,8 @@ type Props = {
   settings: Settings
   /** 当前文档名：换了文档就清空对话 */
   docName: string
-  /** 取当前正文，拼进 system 的节选（截断在 chat.ts） */
-  getChatContext: () => string
+  /** 取当前正文的块与光标/选区（拼装与截断在 chat.ts）；null = 没有编辑器（还没有正文） */
+  getChatSource: () => { blocks: Block[]; from: number; to: number } | null
   /**
    * 「与打开时相比」的一对正文（第 100 轮 B-227）。面板点开时才调，换文档后 App 那边会换基线；
    * 返回 null 表示这篇还没有可对比的正文（宿主正文取不到等）
@@ -134,7 +135,7 @@ export function MarginRail({
   onTabChange,
   settings,
   docName,
-  getChatContext,
+  getChatSource,
   getDiff,
   getReviewWorkspace,
   getRevisionSource,
@@ -213,10 +214,13 @@ export function MarginRail({
 
     const controller = new AbortController()
     ctrlRef.current = controller
+    // 第 125 轮 A1：上下文跟选区/光标走；没有编辑器就是空串（buildChatMessages 走「还没有正文」）
+    const source = getChatSource()
+    const docText = source ? chatContextFor(source.blocks, source.from, source.to) : ''
     try {
       await streamChat({
         settings,
-        messages: buildChatMessages(getChatContext(), next),
+        messages: buildChatMessages(docText, next),
         signal: controller.signal,
         onDelta: (delta) => {
           if (!aliveRef.current) return
@@ -792,7 +796,7 @@ export function MarginRail({
           {turns.length === 0 && (
             <div className="rail-empty rail-chat-empty">
               <p className="rail-empty-title">和侧灯说一句</p>
-              <p className="rail-empty-sub">让它找问题、给改法；要落正文点「生成批注」。</p>
+              <p className="rail-empty-sub">让它找问题、给改法；要落正文点「生成批注」。上下文最多 2000 字：有选区用选区，没选区取光标所在段；刚打开时取开头。</p>
             </div>
           )}
           {turns.map((turn, index) => (
