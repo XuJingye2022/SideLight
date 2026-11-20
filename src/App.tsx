@@ -4416,6 +4416,19 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', sync)
   }, [])
 
+  // 第 119 轮 B-249：App 级对话框开着时，右侧两个挂 body 的只读面板让位（关掉自动回来）
+  const appDialogOpen =
+    settingsOpen ||
+    shortcutsOpen ||
+    globalSearch ||
+    quickOpen ||
+    pendingConfirm !== null ||
+    pendingSwitch !== null ||
+    sourceConfirm !== null ||
+    draftPrompt !== null ||
+    closeGuardOpen ||
+    hostDraftPrompt !== null
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const mod = event.ctrlKey || event.metaKey
@@ -6000,6 +6013,7 @@ export default function App() {
               </div>
               <Suspense fallback={null}>
               <MarginRail
+                appDialogOpen={appDialogOpen}
                 annotations={annotations}
                 tops={tops}
                 railSpace={railSpace}

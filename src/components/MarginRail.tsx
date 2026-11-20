@@ -32,6 +32,8 @@ import { InlineText } from './InlineText.tsx'
 import { useDialogFocus } from './useDialogFocus.ts'
 
 type Props = {
+  /** 第 119 轮 B-249：App 级对话框开着时两个只读面板不挂载（否则 z 60 + inert 压住确认框） */
+  appDialogOpen: boolean
   annotations: Annotation[]
   tops: Record<string, number>
   activeId: string | null
@@ -98,6 +100,7 @@ type Props = {
 }
 
 export function MarginRail({
+  appDialogOpen,
   annotations,
   tops,
   activeId,
@@ -252,8 +255,8 @@ export function MarginRail({
   /** null = 面板关着；'none' = 这篇没有可对比的正文；其余是算好的行 */
   const [diffData, setDiffData] = useState<DiffViewResult | 'none' | null>(null)
   const diffSheetRef = useRef<HTMLDivElement | null>(null)
-  /** 面板只挂在「批注」页签上；切到对话页签就关，useDialogFocus 也随之走清理 */
-  const diffOpen = diffData !== null && railTab === 'notes'
+  /** 面板只挂在「批注」页签上，且 App 级对话框开着时让位（第 119 轮 B-249）；切到对话页签就关 */
+  const diffOpen = diffData !== null && railTab === 'notes' && !appDialogOpen
   useDialogFocus(diffOpen, diffSheetRef, '.rail-diff-overlay', railTab === 'notes')
 
   useEffect(() => {
@@ -313,7 +316,7 @@ export function MarginRail({
   const reviewSheetRef = useRef<HTMLDivElement | null>(null)
   /** 连点两次只认最后一次的扫描结果 */
   const reviewRunRef = useRef(0)
-  const reviewActive = reviewOpen && railTab === 'notes'
+  const reviewActive = reviewOpen && railTab === 'notes' && !appDialogOpen
   useDialogFocus(reviewActive, reviewSheetRef, '.rail-review-overlay', railTab === 'notes')
 
   /** 修订快照清单（第 114 轮 B-247）：null = 还没读到（不渲染这一段），[] = 读到但没有快照 */
@@ -329,12 +332,14 @@ export function MarginRail({
   }, [railTab])
 
   // 面板开着换文档：面板收掉，上一份的快照行与在审行一个都不留（CR-4③，推进 run 让在途读取作废）
+  // 第 119 轮 B-249：让位期间（App 对话框开着）面板不挂载但 diffData 还在，换文档也要清，回来才是新一篇
   useEffect(() => {
     reviewRunRef.current += 1
     setReviewOpen(false)
     setReviewBusy(false)
     setReviewData(null)
     setSnapData(null)
+    setDiffData(null)
   }, [docName])
 
   // App 的 Esc 链挂在 window 上：在 document 就停掉冒泡，一次按键只关面板
@@ -822,9 +827,9 @@ export function MarginRail({
       </div>
 
       {/* 第 100 轮 B-227：面板挂到 body（栏里卡片是绝对定位，塞进 .margin-rail 流会被压）。
-          只读：没有输入框、没有可编辑区，也不碰正文与批注 */}
+          只读：没有输入框、没有可编辑区，也不碰正文与批注。第 119 轮 B-249：appDialogOpen 时不挂 */}
       {diffData !== null &&
-        railTab === 'notes' &&
+        diffOpen &&
         createPortal(
           <div
             className="rail-diff-overlay"
