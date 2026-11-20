@@ -2,7 +2,12 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–109 轮，未发版）
+## Unreleased（第 29–110 轮，未发版）
+
+**第 110 轮（同一未发版区间；验证轮，0 产品改动）**
+
+- 复测 B-236 的 24×24 可点击口径：真机（ego CDP 57270、`Network.setCacheDisabled` 冷加载、1440×900 回读）两入口 **35×24**（rect [1214,140]/[1256,140]）、计算 `min-height: 24px`、CSSOM 命中整块 `min-height: 24px` 且无 `height`、`.rail-head` 块无 `height` 且 rect 24、两钮间距 **7**、在审右缘差 **0**；反事实注入 `height:16px!important` → **35×16**、撤掉回 **35×24**。判定 **(a) 35×24 为陈旧读数**（16px 是第 107 轮 `:1336` 之前的值），A2（改 CSS）不触发，`src/` 0 改动。
+- 门禁与回归：`npm run verify` PASS、首屏门 gzip **315,220 B**（raw 1,022,532、余硬线 4,780）、`npm test` **62 文件 877 条 0 fail**；三路 CSS 字节（`?direct` 78,141 / 无 query 82,356 / `dist` 52,096 B）均含 `min-height: 24px`；回归 r107 几何 **23/23**、r100 **43/43**、r101 **57/57**，0 pageerror。见 `docs/iteration/round-110/test.md`。
 
 **第 109 轮（同一未发版区间）**
 
