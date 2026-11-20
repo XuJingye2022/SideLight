@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–130 轮，未发版）
+## Unreleased（第 29–132 轮，未发版）
+
+**第 132 轮（同一未发版区间）**
+
+- App 级产品键只在编辑器正文 / 源码框里动作（**B-263**，第 131 轮 findings-bug F2：焦点在右侧「对话」的输入框里时 Ctrl+K / Ctrl+F 把链接编辑框 / 查找条开在遮罩外、输入框丢光标，Esc 后焦点落正文；链接编辑框里回车会改正文）——`src/App.tsx:4651-4658` 在 `?` 块之后、`customId` 分派之前插守卫：`typing && !(target instanceof HTMLElement && target.closest('.ProseMirror, textarea.source-editor'))` 时只对产品键吞浏览器默认动作并 `return`，保存（含改键 `save`）例外放行；选择器串与 `FileTree.tsx:120` 逐字同；不改 `typing`/Esc/F11 次序、不碰 `MarginRail.tsx`/`styles.css`；新 `src/lib/appKeyScope.test.ts` **5 条**静态门挂 `npm test` 链尾（67→**68 文件**、943→**948 条**），负向删 `customId !== 'save'` / 把选择器串砍成 `.ProseMirror` 各 **1 红 exit 1**。tester 独立（未读 `impl.md`）：真机 before/after（ego CDP 57270、1440×900、假 FSA `a.md`、`autoSave:false`，身份门 `foreignTyping` before **0** / after **2**，换码只走 `git stash push/pop -- src/App.tsx`、SHA256 等值、stash 0）：before **2/2** 对照全为「被穿透」（① `.link-editor-input` 2 且焦点「链接地址」、② `.find-input` 1）→ after **18/18、0 pageerror**（①–⑥ 六键浮层 0 且焦点仍输入框、⑦ Esc 不弹浮层、⑧ 回车 2 条 turn、⑨⑩ 正文 Ctrl+K/F 与 ⑪ 源码框 Ctrl+F 照旧、⑫ 关自动保存下 Ctrl+S 前 `write:a.md` 0 且脏、按后 1 写 28 B 含「改」、dirty=false）。门禁 `npm run build` exit 0、`measure-first-screen --max 316800` exit 0 gzip **316,134 B**（raw 1,025,609、余 666；对 131 轮 316,096 净 **+38 B**）、常驻 `MarginRail-R13BmBTx.js` gzip9 **7,878**、B-229 口径合计 **324,012**（超硬线 **4,012**，仍 `open`）；`npm test` **68 文件 948 条 0 fail**、`keyboard-acceptance` **52/52**（跑后 `git checkout -- shots/round-05/`）；`roundtrip` 不跑（未动编辑器/序列化）。UNVERIFIED：真 WebView2 宿主、真实中文 IME、macOS。见 `docs/iteration/round-132/test.md`。
 
 **第 130 轮（同一未发版区间）**
 

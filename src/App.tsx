@@ -4648,6 +4648,15 @@ export default function App() {
         return
       }
 
+      // 第 132 轮 B-263：产品键只在编辑器正文 / 源码框里放行。外置输入框（右侧对话、查找框、
+      // 链接编辑等）里只吞浏览器默认动作，不执行命令、不抢焦点；保存例外，仍要写盘。
+      const foreignTyping =
+        typing && !(target instanceof HTMLElement && target.closest('.ProseMirror, textarea.source-editor'))
+      if (foreignTyping && customId !== 'save') {
+        if (productCombo || customId !== null) event.preventDefault()
+        return
+      }
+
       // 8 条可改命令按当前键位表分派（第 89 轮 B-107）：默认键与原来的硬分支一一对应
       if (customId !== null) {
         event.preventDefault()
