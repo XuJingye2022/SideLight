@@ -96,3 +96,49 @@ test('MarginRail.tsx：换文档清掉对比数据（让位期间不挂载也要
     'docName effect 里要 setDiffData(null)：关掉对话框回来时不许挂上一篇的 diff',
   )
 })
+
+/*
+ * 第 131 轮 B-262：右侧只读面板开着时 App 级快捷键穿透。
+ * 面板是 MarginRail 的组件内 state，App 看不见，于是 window keydown 照常执行 Ctrl+Z/Ctrl+K/Ctrl+F，
+ * 正文被改、焦点被送进遮罩后的输入框。修法是按键里按 DOM 事实取模态态（`.rail-diff-overlay`），
+ * 与 `dialogOpen` 走同一个吞键分支。这里按源码文本把五处接线钉死。
+ */
+
+test('App.tsx：只读面板的模态态由唯一一处 querySelector 判定', () => {
+  assert.equal(count(appSource, '.rail-diff-overlay'), 1, '选择器只许出现一次（多一处就多一个真源）')
+  assert.ok(
+    appSource.includes("const railModal = document.querySelector('.rail-diff-overlay') !== null"),
+    '模态态必须按 DOM 事实取：面板挂在 body，App state 看不见',
+  )
+})
+
+test('App.tsx：撤销组合键只判一次，且带 altKey 守卫', () => {
+  assert.equal(count(appSource, 'const undoCombo'), 1, 'undoCombo 只许定义一次')
+  assert.ok(
+    appSource.includes("const undoCombo = mod && !event.altKey && (key === 'z' || key === 'y')"),
+    "撤销/重做组合必须是 mod+z|y 且不带 alt（AltGr 等输入法键不吞）",
+  )
+})
+
+test('App.tsx：吞键分支把只读面板并入 dialogOpen', () => {
+  assert.ok(
+    appSource.includes('if (dialogOpen || railModal) {'),
+    '只许一个吞键分支：只读面板与对话框同口径，不许另开一条 early return',
+  )
+  assert.equal(count(appSource, 'if (dialogOpen || railModal)'), 1, '吞键分支只许一处')
+})
+
+test('App.tsx：撤销默认动作只对只读面板吞，不对所有模态态吞', () => {
+  assert.ok(
+    appSource.includes('if (productCombo || customId !== null || (railModal && undoCombo)) event.preventDefault()'),
+    'preventDefault 条件必须含 railModal && undoCombo：对话框里的输入框仍要有原生撤销',
+  )
+  assert.ok(!appSource.includes('if (undoCombo) event.preventDefault()'), '不许单独吞 undoCombo')
+})
+
+test('App.tsx：Escape 仍在吞键分支之前处理（Esc 照旧先关面板）', () => {
+  const escAt = appSource.indexOf("if (event.key === 'Escape') {")
+  const swallowAt = appSource.indexOf('if (dialogOpen || railModal) {')
+  assert.ok(escAt >= 0, '找不到 Escape 分支')
+  assert.ok(swallowAt > escAt, '吞键分支必须在 Escape 之后，否则一次 Esc 关不掉面板')
+})

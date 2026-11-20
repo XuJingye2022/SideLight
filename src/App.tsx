@@ -4520,6 +4520,11 @@ export default function App() {
         quickOpen ||
         pendingConfirm !== null ||
         pendingSwitch !== null
+      // 第 131 轮 B-262：右侧「对比 / 在审」两个只读面板挂 body、z 60，开着时按模态处理。
+      // 产品键与撤销/重做只吞浏览器默认动作、不执行，口径同下面的 dialogOpen 分支。
+      // 撤销只对只读面板吞：快速打开 / 全局搜索自带输入框，禁掉原生撤销是回归。
+      const railModal = document.querySelector('.rail-diff-overlay') !== null
+      const undoCombo = mod && !event.altKey && (key === 'z' || key === 'y')
       const productCombo =
         (mod && !event.shiftKey && !event.altKey && key === 's') ||
         (mod && event.altKey && !event.shiftKey && ['n', 'o', 's', 'e'].includes(key)) ||
@@ -4626,9 +4631,9 @@ export default function App() {
         return
       }
 
-      // 对话框开着时，产品快捷键只吞掉浏览器默认动作，不执行
-      if (dialogOpen) {
-        if (productCombo || customId !== null) event.preventDefault()
+      // 对话框或右侧只读面板开着时，产品快捷键只吞掉浏览器默认动作，不执行
+      if (dialogOpen || railModal) {
+        if (productCombo || customId !== null || (railModal && undoCombo)) event.preventDefault()
         return
       }
 
