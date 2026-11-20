@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sidelight 保存失败 · 诊断报告（第 141 轮）</title>
+<style>
+  :root{--paper:#f6f1e7;--panel:#fffdf8;--ink:#2b2620;--faint:#6f6047;--line:#e2d8c6;--danger:#a8402f;--ok:#2f6b45}
+  @media (prefers-color-scheme:dark){:root{--paper:#1c1a17;--panel:#24211d;--ink:#e8e1d4;--faint:#b3a58d;--line:#3a352d;--danger:#e8917f;--ok:#7fbf9a}}
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px;background:var(--paper);color:var(--ink);font:15px/1.7 -apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+  header{max-width:1100px;margin:0 auto 18px}
+  h1{font-size:22px;margin:0 0 6px}
+  .sub{color:var(--faint);font-size:13px}
+  .grid{max-width:1100px;margin:0 auto;display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+  h2{font-size:14px;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);margin:0 0 10px}
+  p{margin:0 0 10px}
+  .verdict{border-left:3px solid var(--danger)}
+  .verdict strong{color:var(--danger)}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--faint);font-weight:600;white-space:nowrap}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:color-mix(in srgb,var(--ink) 6%,transparent);padding:1px 5px;border-radius:4px;word-break:break-all}
+  ul{margin:0;padding-left:20px}
+  li{margin:4px 0}
+  .ok{color:var(--ok);font-weight:600}
+  .bad{color:var(--danger);font-weight:600}
+  footer{max-width:1100px;margin:18px auto 0;color:var(--faint);font-size:12.5px}
+</style>
+<header>
+  <h1>保存失败：An attempt was made to write to a file or directory…</h1>
+  <div class="sub">Sidelight 第 141 轮 · 2026-11-21 · 结论与证据（数值均为本机实测）</div>
+</header>
+<div class="grid">
+  <section class="verdict">
+    <h2>一句话结论</h2>
+    <p><strong>不是写盘代码坏了。</strong>那个 Sidelight 窗口以<strong>低完整性</strong>（Low IL）运行，Windows 因此拒绝它写 <code>D:\Documents</code> 这类普通文件夹；Chromium 把这次拒绝包成 <code>DOMException NoModificationAllowedError</code>，英文原文被直接贴进提示条。</p>
+    <p>同一个文件夹改用<strong>中完整性</strong>写入，立刻成功。所以问题在「应用被谁、以什么权限拉起」，不在保存逻辑。</p>
+  </section>
+
+  <section>
+    <h2>证据链</h2>
+    <table>
+      <tr><th>进程令牌</th><td>Sidelight <code>S-1-16-4096</code>（Low）；本会话全部进程只有 Low / Untrusted，没有 Medium</td></tr>
+      <tr><th>目标文件夹</th><td><code>D:\Documents\test-markdown</code> 无强制完整性标签（=Medium）；ACL 允许 Authenticated Users <code>Modify</code></td></tr>
+      <tr><th>文件本身</th><td><code>Main.md</code> 只有 <code>Archive</code>，无只读、无 EFS/压缩/ADS、无独占占用，NTFS 剩余 314 GB</td></tr>
+      <tr><th>中完整性写入</th><td class="ok">WRITE-OK / DELETE-OK（同一路径，探针文件）</td></tr>
+      <tr><th>低完整性写入</th><td class="bad">Access denied（同一路径，沙箱 shell）</td></tr>
+      <tr><th>应用自己目录</th><td>该目录被标成 Low，<code>host.log</code> 能写 → 证明应用只在 Low 目标上可写</td></tr>
+      <tr><th>另存为</th><td>系统对话框同样报「没有权限在此位置保存文件」→ 整条进程链都低完整性</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>已修（产品侧）</h2>
+    <ul>
+      <li>新 <code>src/lib/saveError.ts</code>：按 DOMException 名称翻中文，带文件名，给出路</li>
+      <li>保存失败 toast 挂「另存为」；手动保存失败也写草稿兜底</li>
+      <li>打开文件夹时先试建 <code>.sidelight/trash</code>，失败即常驻提示「这个文件夹写不进去…保存会失败」</li>
+      <li>文件树「＋ 新建」禁用时，原因改成可见的一行警示（原来只在 <code>title</code>）</li>
+    </ul>
+    <p>门禁：<code>npm test</code> exit 0（+20 条，72 文件 999 条）；<code>npm run verify</code> <span class="ok">PASS</span>（真实首载 gzip 321,950 B，硬线 325,000 余 3,050）；E2E 25/25。</p>
+  </section>
+
+  <section>
+    <h2>你现在要做什么</h2>
+    <ul>
+      <li>重新打开应用：双击 <code>D:\Documents\test\Sidelight-0.32.1-win-x64-portable\Sidelight\Sidelight.exe</code></li>
+      <li>正常拉起（中完整性）后，<code>D:\Documents\test-markdown</code> 可直接保存——同文件夹已实测可写</li>
+      <li>正文已在记事本留备份；刚才那个低权限窗口已被关闭（我无法在沙箱里替你重开 GUI）</li>
+      <li>若重开仍报同一句：说明这台环境仍以低权限启动应用，先把文件另存到可写目录</li>
+    </ul>
+  </section>
+</div>
+<footer>修复在仓库中（未打包进 0.32.1 便携包）。会话恢复路径不跑写入探测，恢复进只读目录时新提示不出现，已记入 CHANGELOG 的 UNVERIFIED。</footer>
+</html>

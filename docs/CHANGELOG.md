@@ -2,6 +2,10 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
+## 0.32.2 — 2026-11-21
+
+- 保存失败的提示改成中文、带文件名并给出路（用户 2026-11-21 报：保存时报 `保存失败：An attempt was made to write to a file or directory which could not be modified due to the state of the underlying filesystem。`）——现场实测：便携版 0.32.1 以**低完整性**（`S-1-16-4096`）运行，写普通文件夹被 Windows 拒绝（同一文件夹用中完整性写入立即成功），Chromium 把这次拒绝包成 DOMException `NoModificationAllowedError`，原文经 `reasonOf` 直接进了 toast。新 `src/lib/saveError.ts` 的 `describeSaveFailure(error, docName)` 按 DOMException 的 `name` 翻成中文（`NoModificationAllowedError` / `NotAllowedError` / `NotFoundError` / `QuotaExceededError` / `InvalidStateError`·`SecurityError` / 普通 Error / 未知），`performCommit` 与 `performSaveAs` 两处 catch 改用它（`App.tsx:3756`、`:3824`）：前者挂「另存为」并补 `writeDraftFallbackRef` 草稿兜底（手动保存失败不再只剩内存一份）、后者不挂（自己就是另存为）。打开文件夹 / 拖入文件夹时 `ensureWorkspaceWritable` 先试建 `.sidelight/trash`，失败即常驻错误提示「这个文件夹写不进去（原因）：文件能打开，但保存会失败。请用「另存为」换一个位置。」+「另存为」（`App.tsx:2940`，两条打开路径共用）；`FileTree` 头部补一行可见的 `.tree-write-warning`（`role=status`、`aria-describedby`），「＋ 新建」仍禁用但原因不再只藏在 `title` 里（`FileTree.tsx:500`、`styles.css:413`）。新 `src/lib/saveError.test.ts` **20 条**（含 6 条接线静态门）挂 `npm test` 链尾（71→**72 文件**、979→**999 条**）；E2E `.tmp/e2e-r141-save.mjs`（ego CDP 57270、1440×900、假 FSA、`autoSave:false`）**25/25、0 pageerror**：合成 `NoModificationAllowedError` → toast 逐字中文、无英文原文、只有一个可点的「另存为」、草稿 1→2 且含失败前正文、磁盘原文件字节未变；另存为失败文案、拖入只读文件夹的常驻提示与 `.tree-write-warning`/禁用态/`aria-describedby`、深色与暖纸 `--danger` 计算值逐字相等全过，截图在 `shots/round-141/`。门禁：`npm test` **72 文件 999 条 0 fail**、`npm run verify` exit 0 **PASS**（门 **317,479 B** / 常驻 `MarginRail` **4,471 B** / 真实首载 **321,950 B**，硬线 325,000 余 3,050）、`roundtrip` 不跑（未动编辑器/序列化）。UNVERIFIED：真 WebView2 宿主、真实只读盘/文件占用、真实中文 IME；会话恢复路径（`applySession`、宿主重开）不跑写入探测，恢复进只读目录时这轮的新提示不出现。
+
 ## Unreleased（第 29–140 轮，未发版）
 
 **第 140 轮（同一未发版区间）**

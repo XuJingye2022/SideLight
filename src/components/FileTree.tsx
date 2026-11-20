@@ -43,6 +43,12 @@ type Props = {
 
 type Row = { node: WorkspaceNode; level: number }
 
+/**
+ * 「写不进去」那行警示的 id（第 141 轮）：禁用的「＋ 新建」用 aria-describedby 指向它。
+ * 原因以前只放在 title 里，键盘与触屏用户看不到；现在必须有一行可见文本。
+ */
+const WRITE_WARNING_ID = 'tree-write-warning'
+
 function visibleRows(nodes: WorkspaceNode[], expanded: Set<string>, level = 1): Row[] {
   const rows: Row[] = []
   for (const node of nodes) {
@@ -455,6 +461,7 @@ export function FileTree({
               onClick={onNewFile}
               disabled={Boolean(trashReason)}
               title={trashReason ?? '新建文件'}
+              aria-describedby={trashReason ? WRITE_WARNING_ID : undefined}
             >
               ＋ 新建
             </button>
@@ -492,6 +499,12 @@ export function FileTree({
             </button>
           </div>
         </div>
+
+      {trashReason ? (
+        <p className="tree-write-warning" id={WRITE_WARNING_ID} role="status">
+          {trashReason}
+        </p>
+      ) : null}
 
       {view === 'list' ? (
         <div

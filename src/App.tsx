@@ -83,6 +83,7 @@ import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } fro
 import { MathInputRules } from './lib/mathInput.ts'
 import { normalizeForBaseline } from './lib/baseline.ts'
 import { diskSnapshot, reusableDiskText, type DiskSnapshot } from './lib/saveDisk.ts'
+import { describeSaveFailure } from './lib/saveError.ts'
 import { inTableAncestry, typingBlockMarkerInCell } from './lib/tableScope.ts'
 import { DISCUSS_SYSTEM_PROMPT } from './lib/prompt.ts'
 import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDefinitions, lossLabels, type Loss } from './lib/risk.ts'
@@ -708,6 +709,12 @@ export default function App() {
   const pageZoomRef = useRef(settings.pageZoom)
   /** 「另存为」的入口：提示条上的按钮与文件菜单都用它 */
   const saveAsCopyRef = useRef<() => void>(() => {})
+  /**
+   * 保存失败时的草稿兜底（第 141 轮）：`writeDraftFallback` 声明在 `performCommit` 之后，
+   * 直接引用会 TDZ/闭包过期，按仓库既有写法用 ref 转手（在下面的 ref 赋值块里接上）。
+   * 它自己会 catch，调用方不用 await。
+   */
+  const writeDraftFallbackRef = useRef<(text: string) => void>(() => {})
   /** 当前正文的序列化结果（onUpdate 里做基线比较用，避开 useCallback 的声明顺序） */
   const contentRef = useRef<() => string>(() => '')
   const acceptedRef = useRef<Array<{ annotation: Annotation; from: number; to: number; replacement: string }>>([])
@@ -2928,6 +2935,30 @@ export default function App() {
     [dirty, loadIntoEditor, waitForHostSave, activeFile],
   )
 
+  /**
+   * 打开文件夹时先试建 `.sidelight/trash`（第 141 轮）。建不出来说明这个位置写不进去：
+   * 只读盘、没有写权限、网络盘掉线。回收站用不了只是表面现象，要提醒的是「保存会失败」。
+   * 同时给一条常驻错误提示，带原因与「另存为」出路；文件树头部另有一行可见警示。
+   */
+  const ensureWorkspaceWritable = useCallback((root: FileSystemDirectoryHandle) => {
+    void import('./lib/trash.ts').then(({ ensureTrashDir }) =>
+      ensureTrashDir(root).then((result) => {
+        if (result.dir) {
+          setTrashReason(null)
+          return
+        }
+        const detail = (result.error ?? '回收站不可用。').replace(/。+$/, '')
+        setTrashReason(result.error ?? '回收站不可用。')
+        setNotice({
+          text: `这个文件夹写不进去（${detail}）：文件能打开，但保存会失败。请用「另存为」换一个位置。`,
+          kind: 'error',
+          persist: true,
+          action: { label: '另存为', onClick: () => saveAsCopyRef.current() },
+        })
+      }),
+    )
+  }, [])
+
   const openFolder = useCallback(async () => {
     try {
       const next = await pickWorkspace()
@@ -2938,11 +2969,7 @@ export default function App() {
         // 换工作区：旧回收站里的凭据不再可信（第 84 轮 B-142）
         setRestoreEntry((current) => nextRestoreEntry(current, { type: 'workspace-changed' }))
         if (next.rootHandle) {
-          void import('./lib/trash.ts').then(({ ensureTrashDir }) =>
-            ensureTrashDir(next.rootHandle!).then((result) => {
-              setTrashReason(result.dir ? null : (result.error ?? '回收站不可用。'))
-            }),
-          )
+          ensureWorkspaceWritable(next.rootHandle)
         } else {
           setTrashReason(null)
         }
@@ -2950,7 +2977,7 @@ export default function App() {
     } catch (error) {
       setNotice({ text: messageOf(error), kind: 'error' })
     }
-  }, [])
+  }, [ensureWorkspaceWritable])
 
   /** 超大文件被拒时说清正文仍是哪一篇：否则用户以为窗口里是刚点的大文件，Ctrl+S 会写错篇 */
   const tooLargeNote = useCallback(
@@ -3055,11 +3082,8 @@ export default function App() {
           setSidebarTab('files')
           setNotice(null)
           if (next.rootHandle) {
-            void import('./lib/trash.ts').then(({ ensureTrashDir }) =>
-              ensureTrashDir(next.rootHandle!).then((result) => {
-                setTrashReason(result.dir ? null : (result.error ?? '回收站不可用。'))
-              }),
-            )
+            // 与 openFolder 同一条路径：写不进去时给常驻错误提示 + 「另存为」
+            ensureWorkspaceWritable(next.rootHandle)
           } else {
             setTrashReason(null)
           }
@@ -3093,7 +3117,7 @@ export default function App() {
         setNotice({ text: messageOf(error), kind: 'error' })
       }
     },
-    [requestLoad, show, tooLargeNote],
+    [ensureWorkspaceWritable, requestLoad, show, tooLargeNote],
   )
 
   /** 刷新文件树：adopt=按新路径重绑（新建/另存为/改名）；check=找不到就清成只能另存为。
@@ -3732,7 +3756,15 @@ export default function App() {
         finishSaved(result.name, result, normalized, withEol)
         return true
       } catch (error) {
-        setNotice({ text: `保存失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
+        // 手动保存失败也要留草稿：否则正文只剩内存一份（自动保存失败有 runAutoSave 那条兜底）。
+        // writeDraftFallback 声明在下面，走 ref；它自己会 catch，不等它。
+        void writeDraftFallbackRef.current(normalized)
+        const failure = describeSaveFailure(error, target?.name ?? docNameRef.current)
+        setNotice({
+          text: failure.text,
+          kind: 'error',
+          action: failure.canSaveAs ? { label: '另存为', onClick: () => saveAsCopyRef.current() } : undefined,
+        })
         return false
       }
     },
@@ -3792,7 +3824,9 @@ export default function App() {
         }
         finishSaved(result.name, result, normalized, withEol)
       } catch (error) {
-        setNotice({ text: `保存失败：${reasonOf(error)}。改动还在，可以再试一次。`, kind: 'error' })
+        // 这里自己就是另存为，不再挂「另存为」按钮（点了只会再开一次选择器）
+        const failure = describeSaveFailure(error, docName)
+        setNotice({ text: failure.text, kind: 'error', action: undefined })
       }
     },
     [docName, finishSaved, saveBlob],
@@ -4240,7 +4274,8 @@ export default function App() {
     scheduleDraftRef.current = scheduleDraft
     discardDraftRef.current = (name, oldName) => void discardDraftFor(name, oldName)
     clearHostDraftRef.current = clearHostDraft
-  }, [scheduleAutoSave, cancelAutoSave, scheduleDraft, discardDraftFor, clearHostDraft])
+    writeDraftFallbackRef.current = (text) => void writeDraftFallback(text)
+  }, [scheduleAutoSave, cancelAutoSave, scheduleDraft, discardDraftFor, clearHostDraft, writeDraftFallback])
 
   // 源码态停笔也要排自动保存与停笔草稿（第 66 轮 B-143）：源码打字只走 setSourceText，编辑器没有事务。
   // 必须声明在上面的 ref 赋值之后：同一 commit 里按声明序跑，先换 ref 再排程，2 秒后 currentMarkdown()

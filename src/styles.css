@@ -410,6 +410,20 @@ button:disabled {
   padding: 4px 0;
 }
 
+/* 第 141 轮：文件夹写不进去时常驻在头部下面的一行警示（原因以前只在 title 里）。
+   颜色只用既有 token，浅色 / 深色 / 暖纸三套主题自动跟随。 */
+.tree-write-warning {
+  margin: 0 10px 8px;
+  padding: 5px 8px;
+  border-left: 2px solid var(--danger);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .tree-new-wrap,
 .tree-more-wrap {
   position: relative;
