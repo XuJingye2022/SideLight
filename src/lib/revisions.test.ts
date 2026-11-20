@@ -8,6 +8,7 @@ import {
   REVISIONS_DIR,
   buildRevision,
   migrateAnnotations,
+  migrateRevisions,
   migrationOf,
   parseRevision,
   pruneRevisions,
@@ -27,6 +28,10 @@ type FakeDir = {
   /** getFile() 的调用记录：清理路径若读正文，这里会多出名字 */
   reads: string[]
   failEntries: { on: boolean }
+  /** 第 123 轮迁移负向：这些文件名 createWritable() 抛（写失败） */
+  failWrite: Set<string>
+  /** 第 123 轮迁移负向：这些文件名 removeEntry() 抛（删失败） */
+  failRemove: Set<string>
   handle: FileSystemDirectoryHandle
 }
 
@@ -65,6 +70,8 @@ function fakeDir(name = ''): FakeDir {
   const files = new Map<string, FakeFile>()
   const reads: string[] = []
   const failEntries = { on: false }
+  const failWrite = new Set<string>()
+  const failRemove = new Set<string>()
 
   const handle = {
     name,
@@ -78,6 +85,8 @@ function fakeDir(name = ''): FakeDir {
       return created.handle
     },
     async getFileHandle(child: string, options?: { create?: boolean }): Promise<FileSystemFileHandle> {
+      // 写入失败按「开新文件那一步就被拒」模拟：不留下半个空文件
+      if (options?.create && failWrite.has(child)) throw new DOMException('写入失败', 'NotAllowedError')
       let existing = files.get(child)
       if (!existing) {
         if (!options?.create) throw notFound(child)
@@ -87,6 +96,7 @@ function fakeDir(name = ''): FakeDir {
       return fakeFileHandle(child, existing, reads)
     },
     async removeEntry(child: string): Promise<void> {
+      if (failRemove.has(child)) throw new DOMException('删不掉', 'NotAllowedError')
       if (files.delete(child)) return
       if (dirs.delete(child)) return
       throw notFound(child)
@@ -98,7 +108,16 @@ function fakeDir(name = ''): FakeDir {
     },
   }
 
-  return { name, dirs, files, reads, failEntries, handle: handle as unknown as FileSystemDirectoryHandle }
+  return {
+    name,
+    dirs,
+    files,
+    reads,
+    failEntries,
+    failWrite,
+    failRemove,
+    handle: handle as unknown as FileSystemDirectoryHandle,
+  }
 }
 
 function revisionsOf(root: FakeDir): FakeDir | undefined {
@@ -506,4 +525,67 @@ test('时刻格式：本地时区 MM-DD HH:MM:SS 逐段补零', () => {
   assert.equal(formatSavedAt(new Date(2021, 0, 2, 3, 4, 5).getTime()), '01-02 03:04:05')
   assert.equal(formatSavedAt(new Date(2021, 11, 31, 23, 59, 59).getTime()), '12-31 23:59:59')
   assert.equal(formatSavedAt(1_700_000_000_000).length, 14)
+})
+
+// ---------- migrateRevisions（第 123 轮 B-254，改名迁移键） ----------
+
+test('迁移：旧键的三段名逐份搬到新键，后缀逐字同、条数按成功份数算', async () => {
+  const root = fakeDir('工作区')
+  const dir = await ensureRevisionsDir(root)
+  const first = seedRevision(dir, 'a', 1_000, '正文一')
+  const second = seedRevision(dir, 'a', 2_000, '正文二')
+  seedRevision(dir, 'b', 3_000, '别人的正文')
+  const bad = `${revisionKeyHash('a')}-abc.json`
+  dir.files.set(bad, { text: '{}' })
+
+  assert.equal(await migrateRevisions(root.handle, 'a', 'c'), 2)
+
+  const names = [...dir.files.keys()]
+  const oldHash = revisionKeyHash('a')
+  const newHash = revisionKeyHash('c')
+  assert.equal(names.filter((name) => name.startsWith(`${newHash}-`)).length, 2)
+  assert.equal(names.filter((name) => name !== bad && name.startsWith(`${oldHash}-`)).length, 0)
+  assert.equal(names.filter((name) => name.startsWith(`${revisionKeyHash('b')}-`)).length, 1)
+  assert.equal(names.includes(bad), true)
+  // 后缀逐字同：改名前后只有前 8 位前缀换了
+  assert.equal(names.includes(newHash + first.slice(oldHash.length)), true)
+  assert.equal(names.includes(newHash + second.slice(oldHash.length)), true)
+  // JSON 原样搬（正文不重写）：新键清单能读回两份、时刻不变，旧键 0 份
+  assert.deepEqual((await listRevisions(root.handle, 'c')).map((row) => row.savedAt), [2_000, 1_000])
+  assert.deepEqual(await listRevisions(root.handle, 'a'), [])
+  assert.equal((await listRevisions(root.handle, 'b')).length, 1)
+  // 同键改名不搬：键哈希一样就没有旧前缀可换
+  assert.equal(await migrateRevisions(root.handle, 'c', 'c'), 0)
+})
+
+test('迁移：没有 .sidelight 时返回 0，不建目录、不读文件', async () => {
+  const root = fakeDir('工作区')
+  assert.equal(await migrateRevisions(root.handle, 'a', 'c'), 0)
+  assert.equal(root.dirs.size, 0)
+  assert.equal(root.reads.length, 0)
+})
+
+test('迁移：单份写失败 / 单份删失败都不抛，旧文件仍在', async () => {
+  const root = fakeDir('工作区')
+  const dir = await ensureRevisionsDir(root)
+  const oldHash = revisionKeyHash('a')
+  const newHash = revisionKeyHash('c')
+  const first = seedRevision(dir, 'a', 1_000, '正文一')
+  const second = seedRevision(dir, 'a', 2_000, '正文二')
+  // f1 的新名写不进去：只留旧名
+  dir.failWrite.add(newHash + first.slice(oldHash.length))
+  // f2 新名写成了、删旧名失败：新旧都在
+  dir.failRemove.add(second)
+
+  await assert.doesNotReject(
+    migrateRevisions(root.handle, 'a', 'c').then((moved) => assert.equal(moved, 0)),
+  )
+  const names = [...dir.files.keys()]
+  assert.equal(names.includes(first), true)
+  assert.equal(names.includes(newHash + first.slice(oldHash.length)), false)
+  assert.equal(names.includes(second), true)
+  assert.equal(names.includes(newHash + second.slice(oldHash.length)), true)
+  // 脏迁移后的可读结果：旧键剩 f1 与 f2（删失败）、新键只有 f2 的新名
+  assert.equal((await listRevisions(root.handle, 'a')).length, 2)
+  assert.equal((await listRevisions(root.handle, 'c')).length, 1)
 })

@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–122 轮，未发版）
+## Unreleased（第 29–123 轮，未发版）
+
+**第 123 轮（同一未发版区间）**
+
+- 重命名后该篇的修订快照不再一条也看不到（**B-254**，第 123 轮 finder 真机：a.md→c.md 后 `.rail-snap-row` 0、面板「保存一次后才会记录。」、磁盘仍是旧键的 2 份）——`src/lib/revisions.ts` 新增 `migrateRevisions(parent, oldKey, newKey)`：按 `parseRevisionName(name, oldHash)` 只挑旧键的 `<键哈希>-<base36 时刻>-<正文 id>.json`，**只换文件名**（`newHash + 旧名截掉 8 位前缀`，后缀逐字不动），读文本 → 写新名 → `removeEntry` 旧名，写删都成才 +1；同哈希、取不到目录、`entries()` 抛错都回 0，逐份 try/catch 永不抛（快照是附加物，不拖住改名）；JSON 不重写（不存正文、`id` 不可重算，`key` 字段无消费者）。`findSnapshotsDir` 从 `revisionList.ts` 搬进 `revisions.ts:206` 并导出（不带 create、取不到回 null），`revisionList.ts` 删副本改 import，行为不变。`src/App.tsx:81` import、`:3049` 在 `handleRenamedFile` 的缓存迁移 `try` 内、draft/annotations 循环之后 `await migrateRevisions(dir, cacheKey(oldFile.name), cacheKey(newName))`，deps 不加、notice 不动。`revisions.test.ts` 36→**39 条**（主路换前缀兼读回、空根返 0 且 `dirs.size===0`、单份写失败/删失败都不抛且旧文件仍在；fake 加 `failWrite`/`failRemove` 注入点）。tester 独立（未读 `impl.md`）：`revisions.test.ts` **39/39 0 fail**；负向把靶点改回旧哈希 → **2 红 exit 1**（计划预期「只主路 1 红」，因 `failWrite` 键在新哈希名上、该注入点永不命中而一并转红，不判 FAIL），备份 SHA256 `DC61861D…` 拷回后 39/39；`git diff --stat -- src` **4 文件**、`migrateRevisions` App.tsx 2 行 / src 3 文件、`findSnapshotsDir` 定义仅 1 处；自跑 E2E `.tmp/e2e-r123-a1-rename-snap.mjs`（ego CDP 57270、1440×900、假 FSA）**12/12、0 pageerror**（`.tmp/r123-a1-rename-snap.json`）：改名前三份？不——磁盘恰 2 份、面板 2 行；改 a.md→c.md 后磁盘 2 份前缀 `2b24d044`→`7729c516`、旧前缀 0、后缀 `-mwoo1vj4-…`/`-mwoo1x0u-…` **逐字同**；**重开**面板 `snaps.length===2` 且 `snapEmpty:null`；再存一次面板 3 行、磁盘 3 份全新前缀；截图 `shots/round-123/revision-snap-after-rename.png`。回归 `.tmp/e2e-r78-a2-rename.mjs` **11/11**、`.tmp/r114-tester-e2e.mjs` **27/27**。门禁：`npm test` **64 文件 913 条 0 fail**（基线 64/910）、`npm run verify` **PASS**、门 gzip **315,685 B**（净 **+126 B**、headroom 4,315；内部预算 310,000 超 5,685 只 WARN）、常驻 `MarginRail-BOWUh__F.js` gzip9 **7,416**、B-229 口径 **323,101**（超硬线 3,101，仍 `open` 只记）；`roundtrip` 不跑（未动编辑器/序列化）。UNVERIFIED：真 WebView2 宿主与真实 FSA 下的改名迁移；B-256（`recordRevision` fire-and-forget 与改名的竞态窗口）只有代码阅读，本轮 E2E 在保存后停 1.6 s 避开。见 `docs/iteration/round-123/test.md`。
 
 **第 122 轮（同一未发版区间）**
 

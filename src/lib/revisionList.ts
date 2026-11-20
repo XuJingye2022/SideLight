@@ -1,8 +1,7 @@
 import { reviewStatusOf } from './annotations.ts'
-import { CACHE_DIR } from './cache.ts'
 import {
   MAX_REVISIONS,
-  REVISIONS_DIR,
+  findSnapshotsDir,
   parseRevision,
   parseRevisionName,
   revisionKeyHash,
@@ -31,21 +30,6 @@ export function formatSavedAt(savedAt: number): string {
 /** 面板一行的文案：时刻 · 字节数 · 批注数（open 数） */
 export function revisionLabel(savedAt: number, bytes: number, total: number, open: number): string {
   return `${formatSavedAt(savedAt)} · ${bytes} B · 批注 ${total} 条（open ${open}）`
-}
-
-/**
- * 只读取 `.sidelight/revisions`：照 `cache.ts` 的 findCacheDir，不带 create。
- * 没有目录、没有权限都回 null，不建任何东西（CR-1）。
- */
-async function findSnapshotsDir(
-  parent: FileSystemDirectoryHandle,
-): Promise<FileSystemDirectoryHandle | null> {
-  try {
-    const cache = await parent.getDirectoryHandle(CACHE_DIR)
-    return await cache.getDirectoryHandle(REVISIONS_DIR)
-  } catch {
-    return null
-  }
 }
 
 /**

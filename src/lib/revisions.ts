@@ -200,6 +200,66 @@ async function revisionsDir(parent: FileSystemDirectoryHandle): Promise<FileSyst
 }
 
 /**
+ * 只读取 `.sidelight/revisions`：照 `cache.ts` 的 findCacheDir，不带 create。
+ * 没有目录、没有权限都回 null，不建任何东西（第 114 轮 CR-1；第 123 轮从 `revisionList.ts` 搬来共用）。
+ */
+export async function findSnapshotsDir(
+  parent: FileSystemDirectoryHandle,
+): Promise<FileSystemDirectoryHandle | null> {
+  try {
+    const cache = await parent.getDirectoryHandle(CACHE_DIR)
+    return await cache.getDirectoryHandle(REVISIONS_DIR)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 改名后把旧键的快照搬到新键（第 123 轮 B-254）：只换文件名，不重写 JSON——
+ * 正文不存、`id` 不可重算，读侧只认文件名前缀，`key` 字段没有消费者。
+ * 同键（大小写、扩展名互换）或取不到目录 → 0。逐份读 → 写新名 → 删旧名，写删都成才 +1；
+ * 每份各自 try/catch，永不抛（快照是附加物，改名本身不能被它拖住）。
+ */
+export async function migrateRevisions(
+  parent: FileSystemDirectoryHandle,
+  oldKey: string,
+  newKey: string,
+): Promise<number> {
+  const oldHash = revisionKeyHash(oldKey)
+  const newHash = revisionKeyHash(newKey)
+  if (oldHash === newHash) return 0
+  const dir = await findSnapshotsDir(parent)
+  if (!dir) return 0
+  // 先把名单收完再动手：真 FSA 在迭代期间增删目录的行为未定义，边读边写会漏迁
+  const names: string[] = []
+  try {
+    for await (const [name, handle] of dir.entries()) {
+      if (handle.kind !== 'file') continue
+      if (parseRevisionName(name, oldHash) === null) continue
+      names.push(name)
+    }
+  } catch {
+    return 0
+  }
+  let moved = 0
+  for (const name of names) {
+    try {
+      const file = await dir.getFileHandle(name)
+      const text = await (await file.getFile()).text()
+      const target = await dir.getFileHandle(newHash + name.slice(oldHash.length), { create: true })
+      const writer = await target.createWritable()
+      await writer.write(text)
+      await writer.close()
+      await dir.removeEntry(name)
+      moved += 1
+    } catch {
+      // 这一份留在旧名下：清单按新键读不到它，但文件还在，不丢
+    }
+  }
+  return moved
+}
+
+/**
  * 文件名里键的短哈希：把同键快照聚在一起；8 位与 id 同宽，清理前按前缀筛。
  * 第 114 轮起导出给只读清单 `revisionList.ts` 复用同一口径。
  */

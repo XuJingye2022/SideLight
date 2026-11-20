@@ -78,7 +78,7 @@ import { ensureKatex } from './lib/katexLazy.ts'
 import { MermaidPreview } from './lib/mermaidPreview.ts'
 import { createToc } from './lib/tocRender.ts'
 import { nextRestoreEntry, restoreLabel, type RestoreEntry } from './lib/restoreEntry.ts'
-import { migrateAnnotations, migrationOf, writeRevision } from './lib/revisions.ts'
+import { migrateAnnotations, migrateRevisions, migrationOf, writeRevision } from './lib/revisions.ts'
 import { eqDelimiterReveal, mathReveal } from './lib/mathReveal.ts'
 import { SidelightBlockMath, SidelightInlineMath, enterMathEdit } from './lib/mathNodeView.ts'
 import { SidelightCodeBlock } from './lib/codeBlockLang.ts'
@@ -3045,6 +3045,8 @@ export default function App() {
                 })
               }
             }
+            // 修订快照跟着改名：清单按文件名里的键哈希读，键不搬就一条都看不到（第 123 轮 B-254）
+            await migrateRevisions(dir, cacheKey(oldFile.name), cacheKey(newName))
           }
         } catch {
           setNotice({ text: '缓存迁移失败，旧草稿/批注仍在。', kind: 'error' })
