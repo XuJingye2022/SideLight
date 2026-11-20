@@ -179,3 +179,16 @@ npm run roundtrip  # 只在改动编辑器或 markdown 序列化时跑
 - **`ResolvedPos.marks()` 在光标挪出 code 片段一位后为空**：行内代码守卫若只判光标就会漏（第 93 轮真机把代码里的 `$x$` 收成了公式）；要按「整对 `from..to` 范围 `rangeHasMark`」判。
 - **按 `String(plugin.key)` 过滤探针要带大小写**：第 93 轮实际 key 是 `sidelightDelimiterPair$`，小写匹配恒 0 命中，会误判「插件没注册」。
 
+## 9. 迭代调度（v4，2026-11-20）
+
+v3 的「一条一轮、每条都走 planner+critic+executor+tester、每轮全量门禁」实测 42 轮 / 约 21 小时 / 30 分钟一条；文案、24px、焦点这类小修也走四段，主要开销在这里。v4 分两档：
+
+| 档 | 适用 | 代理 | 门禁 |
+| :--- | :--- | :--- | :--- |
+| 快车道 | 文案 / CSS / 24px / 焦点 / 单文件小修 | fixer + verifier，3 条一批 | 单条跑目标测试；批量末跑 `npm run verify` + `npm test`；改编辑器或序列化加 roundtrip |
+| 慢车道 | P0 / P1、逻辑、序列化、跨文件 | planner → critic → executor → tester | 每条全量 |
+
+- 复查：每 5 条或队列空时派 1 个提案者，只报 P0/P1；P2 进 BACKLOG，不阻塞。
+- 定位：先用 CodeGraph CLI（`.tmp/codegraph/node_modules/@colbymchenry/codegraph/npm-shim.js query|node|callers|impact`），找不到再 read/grep；同一符号不重复查。
+- 切档判据：改 <2 个文件且不动序列化 / 保存 / 批注模型 → 快车道；否则慢车道。
+- 停止：队列空 + 复查 0 个 P0/P1；P2 不阻塞。
