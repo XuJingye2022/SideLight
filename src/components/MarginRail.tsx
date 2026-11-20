@@ -15,7 +15,7 @@ import {
   type DocNote,
   type ReviewStatus,
 } from '../lib/annotations.ts'
-import { appendDelta, buildChatMessages, chatNearBottom, chatRefocusAfterStream, chatScrollOnUpdate, pushTurn, type ChatTurn } from '../lib/chat.ts'
+import { appendDelta, buildChatMessages, chatNearBottom, chatRefocusAfterStream, chatScrollOnUpdate, dropEmptyAssistantTail, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import { diffView, type DiffViewResult } from '../lib/diffView.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
 import {
@@ -212,7 +212,11 @@ export function MarginRail({
       })
     } catch (error) {
       const aborted = error instanceof DOMException && error.name === 'AbortError'
-      if (!aborted && aliveRef.current) setChatError(errorCopy(error).text)
+      // 第 113 轮 B-243：失败收尾撤掉从没被填过的空占位，别在记录底部留一条空框
+      if (!aborted && aliveRef.current) {
+        setChatError(errorCopy(error).text)
+        setTurns((previous) => dropEmptyAssistantTail(previous))
+      }
     } finally {
       if (ctrlRef.current === controller) ctrlRef.current = null
       if (aliveRef.current) {

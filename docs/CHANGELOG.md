@@ -2,7 +2,12 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–112 轮，未发版）
+## Unreleased（第 29–113 轮，未发版）
+
+**第 113 轮（同一未发版区间）**
+
+- 401（Key 错）失败收尾撤掉空 assistant 占位（A1/A2/A3，B-243，用户 2026-11-20 队列「对话区」残留）：`src/lib/chat.ts` 在 `appendDelta` 后加导出纯函数 `dropEmptyAssistantTail(turns)`（末条不存在 / 非 assistant / 有字 → 返回同一引用；否则 `slice(0,-1)`）；`src/components/MarginRail.tsx:216-219` 的 `catch (error)` 里 `setChatError(...)` 之后用函数式 `setTurns((previous) => dropEmptyAssistantTail(previous))`（闭包写法 0 处），渲染 `:728` 的 `turn.text ||` 与 busy 的「…」不动；`chat.test.ts` 18→**20 条**（纯函数 4 例 + 读源码静态门）。
+- 实测：tester 独立探针 **10/10**（纯函数 5 例 + 静态 4 门 + 改前证据），交付 E2E `.tmp/e2e-r113-chat-401.mjs` 现场重跑 **a–e 全 OK**、0 pageerror：401 后 turn 1 / assistant 0 / 空文本子元素 0、连续两次 401 不吞上一轮、假 SSE 成功回答保留、「新对话」清空；回归 r96 **42/42**、r112 **10/10**（跑前跑后还原 `shots/round-96|112`，两目录 `git status --porcelain` 为空）。门禁 `npm test` **62 文件 884 条 0 fail**、`npm run verify -- --max 316000` PASS、门 gzip **315,218 B**（改前 315,213、净 +5；距硬线 320,000 余 4,782 B）。截图 `shots/round-113/chat-401-no-bubble.png`。已知边界：200 成功但流里 0 字仍留空占位，另立 Deferred **B-246**。见 `docs/iteration/round-113/test.md`。
 
 **第 112 轮（同一未发版区间）**
 

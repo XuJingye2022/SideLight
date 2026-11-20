@@ -13,6 +13,7 @@ import {
   chatNearBottom,
   chatRefocusAfterStream,
   chatScrollOnUpdate,
+  dropEmptyAssistantTail,
   pushTurn,
   type ChatTurn,
 } from './chat.ts'
@@ -107,6 +108,57 @@ test('appendDelta 末条不是 assistant 或没有条目时原样返回', () => 
   assert.equal(appendDelta(onlyUser, '字'), onlyUser)
   const empty: ChatTurn[] = []
   assert.equal(appendDelta(empty, '字'), empty)
+})
+
+/**
+ * 第 113 轮 B-243：401 失败收尾不能留一条空 assistant 气泡。
+ *
+ * `send()` 先塞空占位等流式落字（`MarginRail.tsx:196`）；失败时它从没被填过，
+ * 改前留成 16 px 空框（`.tmp/r112-finder-ui2.json` 的 `error401.turns` 末条 `text:""`）。
+ * 这个函数就是那处收尾的纯逻辑：末条空 assistant 撤掉，其余返回同一引用。
+ */
+test('dropEmptyAssistantTail：末条空 assistant 撤成原前缀，其余情况返回同一引用', () => {
+  const asked = turns({ role: 'user', text: '问' })
+  const failed = turns({ role: 'user', text: '问' }, { role: 'assistant', text: '' })
+  assert.equal(dropEmptyAssistantTail(failed).length, 1, '[user]+[assistant,""] 要撤成 1 条')
+  assert.deepEqual(dropEmptyAssistantTail(failed), asked, '撤掉后必须与原前缀逐项相等')
+
+  // 无需删时必须返回同一引用：React 直接 bail out，否则每次收尾都多一次渲染
+  const answered = turns({ role: 'user', text: '问' }, { role: 'assistant', text: '答' })
+  assert.equal(dropEmptyAssistantTail(answered), answered, '有字的末条不能删')
+  const empty: ChatTurn[] = []
+  assert.equal(dropEmptyAssistantTail(empty), empty, '空数组原样返回')
+  const tailUser = turns({ role: 'assistant', text: '旧答' }, { role: 'user', text: '再问' })
+  assert.equal(dropEmptyAssistantTail(tailUser), tailUser, '末条是 user 原样返回')
+})
+
+/**
+ * 第 113 轮 B-243 静态门：撤空占位只能挂在失败收尾上，且必须函数式调用。
+ *
+ * 闭包写 `setTurns(dropEmptyAssistantTail(turns))` 用的是这次渲染的 `turns` 快照：
+ * 连续失败两次会把上一轮提问一起吞掉（A3 场景 b 会红）。渲染侧两条也要留住——
+ * 删掉 `turn.text ||` 会丢正常回答，删掉 busy 的「…」会让 200 空流的占位变成空白。
+ */
+test('MarginRail 的失败收尾（静态门）：撤空占位恰 1 处、在 catch (error) 后、函数式', () => {
+  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+  assert.equal(source.match(/dropEmptyAssistantTail\(/g)?.length, 1, 'dropEmptyAssistantTail( 全文件必须恰 1 处')
+
+  const at = source.indexOf('catch (error)')
+  assert.ok(at >= 0, '找不到 catch (error)')
+  const around = source.slice(at, at + 400)
+  assert.ok(around.includes('dropEmptyAssistantTail('), 'catch (error) 后 ≤400 字符必须含撤空占位')
+  assert.match(
+    around,
+    /setTurns\(\(previous\) => dropEmptyAssistantTail\(previous\)\)/,
+    '必须函数式写，闭包快照会吞掉上一轮提问',
+  )
+  assert.doesNotMatch(source, /setTurns\(dropEmptyAssistantTail\(turns\)\)/, '闭包写法必须 0 处')
+
+  const renderAt = source.indexOf('rail-chat-turn is-')
+  assert.ok(renderAt >= 0, '找不到 .rail-chat-turn 的渲染')
+  const render = source.slice(renderAt, renderAt + 240)
+  assert.ok(render.includes('turn.text ||'), '渲染仍要 turn.text ||，否则正常回答不显示')
+  assert.match(render, /busy && turn\.role === 'assistant' \? '…'/, 'busy 期间的「…」占位不能被顺手删掉')
 })
 
 test('对话提示词短，并指向「生成批注」而要求不编造', () => {

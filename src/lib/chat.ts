@@ -71,6 +71,19 @@ export function appendDelta(turns: ChatTurn[], delta: string): ChatTurn[] {
 }
 
 /**
+ * 第 113 轮 B-243：失败收尾撤掉空 assistant 占位。
+ *
+ * `send()` 先塞一条空占位给流式落字；401 / 网络失败时它从没被填过，留着就是一条
+ * 16 px 空框，读起来像「回答是空白的」。末条是空 assistant 就撤掉；其余情况
+ * 返回同一引用，让 React 直接 bail out（不多一次渲染）。
+ */
+export function dropEmptyAssistantTail(turns: ChatTurn[]): ChatTurn[] {
+  const last = turns[turns.length - 1]
+  if (!last || last.role !== 'assistant' || last.text) return turns
+  return turns.slice(0, -1)
+}
+
+/**
  * 第 111 轮 B-240：流式收尾要不要把焦点送回输入框。
  *
  * 只有「读者还在对话面板里」才送。两条出口都不送：
