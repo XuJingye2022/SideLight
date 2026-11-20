@@ -494,6 +494,11 @@ export default function App() {
    * 「在审」面板开着时据此重读清单——否则自动保存新写的快照要等下次开面板才出现。
    */
   const [revisionEpoch, setRevisionEpoch] = useState(0)
+  /**
+   * 文档实例计数（第 130 轮 B-261）：每换一篇 +1，对话清空按它判。
+   * 不能按 `docName`（basename）判：新建恒 `未命名.md`、异目录同名文档 basename 也相同。
+   */
+  const [docInstance, setDocInstance] = useState(0)
   const [bubble, setBubble] = useState<{ top: number; left: number } | null>(null)
   const [tick, setTick] = useState(0)
   const [dirty, setDirty] = useState(false)
@@ -2647,6 +2652,8 @@ export default function App() {
       savedContentVersionRef.current = contentVersionRef.current
       loadEpochRef.current += 1
       activeDocIdRef.current += 1
+      // 第 130 轮 B-261：换了一篇文档（打开 / 新建 / 草稿恢复都走这里），文档身份 +1
+      setDocInstance((value) => value + 1)
       setSaveWarned(false)
       setDraftShown(false)
       setAnalysisGoal('')
@@ -6095,6 +6102,8 @@ export default function App() {
                 onTabChange={setRailTab}
                 settings={settings}
                 docName={docName}
+                // 第 130 轮 B-261：文档身份（实例计数）。换篇才变，保存 / 改名 / 另存为都不变
+                docKey={docInstance}
                 // 第 125 轮 A1：上下文跟选区/光标走（拼装与截断在 chat.ts，这里只给块与位置）
                 getChatSource={() => {
                   if (!editor) return null

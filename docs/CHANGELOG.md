@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–129 轮，未发版）
+## Unreleased（第 29–130 轮，未发版）
+
+**第 130 轮（同一未发版区间）**
+
+- 对话记录按文档身份（实例计数）清空，不再只按 basename（**B-261**，第 123 轮 finder 真机：新建文档恒 `未命名.md`、异目录同名文档 basename 相同，切换后上一轮 2 条对话留在新文档上；用户 2026-11-20 队列「对话区」）——`src/App.tsx:501` 加 `docInstance` 计数，`:2656` 在 `loadIntoEditor` 的换篇点（`activeDocIdRef.current += 1` 之后）`+1`（保存 / 自动保存 / 改名 / 另存为都不经过），`:6106` 以 `docKey` 传给 `<MarginRail>`；`src/components/MarginRail.tsx:65` Props 加 `docKey: number`、`:149` 解构、`:201` 对话清空 effect `[docName] → [docKey]`（`:367` 面板 effect 仍按 `docName`，`railModalGate.test.ts:92-98` 钉着）；新 `src/lib/railChatReset.test.ts` 5 条静态门挂 `npm test` 链尾（66→**67 文件**、933→**938 条**），负向把 `[docKey]` 改回 `[docName]` 恰 2 红（T3=0、T4=2）、T1/T2/T5 绿，还原 5/5。tester 独立（未读 `impl.md`）：自写 `.tmp/r130-tester-chat-reset.mjs` before/after（ego CDP 57270、1440×900、清 storage、无 Key mock、假 FSA 记 ops）——after **4/4、0 pageerror**：S1 新建后 turn 2→0 + 空态 1 + 无确认框；S2 `a/note.md`→`b/note.md`（两处 `__slState.name` 均 `note.md`）后 turn 2→0、正文乙篇；S3 2 条对话时打 1 字 + `Ctrl+S` → turn 仍 2 且 `write:b/note.md` 1 次；before（`git stash push -- src/App.tsx src/components/MarginRail.tsx`，跑完 pop 并复核 SHA256 与模块门）S1/S2 FAIL、S3 PASS。回归 `.tmp/r116-tester-speaker.mjs` **10/10**、交付 `e2e-r116-speaker.mjs` 8 条署名断言全 OK。门禁：`npm test` **67 文件 938 条 0 fail**、`npm run verify -- --max 316300` **exit 0 PASS**、门 gzip **316,056 B**（raw 1,025,373、headroom 244）、常驻 `MarginRail-DUOL7uLQ.js` gzip9 **7,880**、B-229 口径合计 **323,936**（超硬线 3,936，仍 `open` 只记）；`roundtrip` 不跑（未动编辑器/序列化）。截图 `shots/round-130/chat-reset-tester.png`。见 `docs/iteration/round-130/test.md`。
 
 **第 129 轮（同一未发版区间）**
 

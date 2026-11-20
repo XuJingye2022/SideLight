@@ -56,8 +56,13 @@ type Props = {
   onTabChange: (tab: 'chat' | 'notes') => void
   /** 对话页签请求模型用（第 96 轮 B-223） */
   settings: Settings
-  /** 当前文档名：换了文档就清空对话 */
+  /** 当前文档名：在审行名与面板清空用（对话清空改按 docKey，第 130 轮 B-261） */
   docName: string
+  /**
+   * 文档身份（第 130 轮 B-261）：App 每换一篇 +1。对话清空按它判，不按 `docName`——
+   * 新建恒 `未命名.md`、异目录同名文档 basename 相同，按名字判都不会清。
+   */
+  docKey: number
   /** 取当前正文的块与光标/选区（拼装与截断在 chat.ts）；null = 没有编辑器（还没有正文） */
   getChatSource: () => { blocks: Block[]; from: number; to: number } | null
   /**
@@ -141,6 +146,7 @@ export function MarginRail({
   onTabChange,
   settings,
   docName,
+  docKey,
   getChatSource,
   getDiff,
   getReviewWorkspace,
@@ -188,10 +194,11 @@ export function MarginRail({
     }
   }, [])
 
-  // 换文档就清空：上一轮的对话和这一篇无关，留着会让人以为上下文还在
+  // 换文档就清空：上一轮的对话和这一篇无关，留着会让人以为上下文还在。
+  // 第 130 轮 B-261：判据是文档身份 `docKey`，不是 basename `docName`
   useEffect(() => {
     resetChat()
-  }, [docName])
+  }, [docKey])
 
   // 第 112 轮 A1：上翻看历史时 delta 不拽回。整轮 +1（新提问 / 切回页签）才无条件贴底；
   // 流式 delta 只在读者本来贴着底部时才跟（判据现场读，不缓存——缓存会被切页签与换文档弄过期）。
