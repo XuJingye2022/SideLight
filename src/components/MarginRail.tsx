@@ -25,6 +25,7 @@ import {
   collectReviewFiles,
   countOpenAnnotations,
   hasUnclosedReview,
+  reviewTruncatedNote,
   type ReviewFilesResult,
 } from '../lib/reviewFiles.ts'
 import type { Settings } from '../lib/settings.ts'
@@ -459,6 +460,8 @@ export function MarginRail({
   // 第 105 轮 B-234：当前篇全结项时只删行——磁盘档可能还写着 open（600 ms 防抖未落盘）
   const liveClosed = annotations.length > 0 && !hasUnclosedReview(annotations)
   const reviewRows = reviewData ? applyLiveReviewRow(reviewData, liveReviewRow, liveClosed) : null
+  // 第 133 轮：提示按上限写死，不按行数拼——结项后 LIVE 行被删，行数 50→49 仍算截断
+  const reviewNote = reviewRows ? reviewTruncatedNote(reviewRows) : null
 
   /**
    * 第 126 轮 A1：窄窗抽屉的 Tab 环回。抽屉挂在 `<main>` 里（背板与页边栏都是 main 的后代），
@@ -1007,8 +1010,8 @@ export function MarginRail({
                   {reviewRows.capped && (
                     <p className="rail-diff-empty">文件太多，只扫了前 {reviewRows.scanned} 篇。</p>
                   )}
-                  {reviewRows.truncated && (
-                    <p className="rail-diff-empty">在审文件太多，只显示前 {reviewRows.rows.length} 篇。</p>
+                  {reviewNote && (
+                    <p className="rail-diff-empty">{reviewNote}</p>
                   )}
                   <ul className="rail-diff-rows">
                     {reviewRows.rows.map((row) => (

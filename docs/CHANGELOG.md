@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–132 轮，未发版）
+## Unreleased（第 29–133 轮，未发版）
+
+**第 133 轮（同一未发版区间）**
+
+- 在审文件截断提示改固定上限、与 LIVE 行删除解耦（**B-265**，新条：上限 50 篇而当前篇结项后 LIVE 行被删（50→49），提示写成「只显示前 49 篇」，与上限自相矛盾且随行数漂移）——`src/lib/reviewFiles.ts:40` 私有常量改 `export const REVIEW_MAX_ROWS = 50`（含 JSDoc 共 5 处换名），新增 `reviewTruncatedNote(result: Pick<ReviewFilesResult,'truncated'>)`：只读 `truncated`（结构上拿不到 `rows`），真时恒写「在审文件太多，最多显示 50 篇。」；`src/components/MarginRail.tsx:464` 改算 `reviewNote`、`:1013-1015` 用它渲染（不再用 `reviewRows.rows.length` 拼串）；`src/lib/reviewFiles.test.ts` 20→**23 条**（逐字文案 + 结项 50→49 同字 + 60 篇夹具含「50 篇」/未截断 `null`）。tester 独立（未读 `impl.md`）：`node --experimental-strip-types src/lib/reviewFiles.test.ts` **23/23**（HEAD 基线 20/20），负向 `REVIEW_MAX_ROWS` 改 49 → 测试 ① 红 **exit 1**、恢复后 23/23（SHA256 `2380DC43…` 复原）；静态门 `DEFAULT_MAX_ROWS` 于 `reviewFiles.ts` 改前 **5 行（40/90/107/110/134）→ 0 行 exit 1**（`src` 全域 7→2，剩 `diffView.ts:30,58` 同名常量不动，按 plan-review P1-2 scoped 口径判；对照改前后都 2 行）、`REVIEW_MAX_ROWS` **7 行**、`在审文件太多` 落 `reviewFiles.ts`+`reviewFiles.test.ts` 各 1 行而 `MarginRail.tsx` **0**、`git diff --stat` 只 3 个 `src/` 文件；真机 before/after（ego CDP 57270、1440×900、52 篇夹具、假 FSA、`autoSave:false`；换码只走 `git stash push --` 三个 src 文件 + `pop`，三文件 SHA256 逐项等值、`git stash list` 0）：before（身份门两模块 `reviewTruncatedNote` **0** 且组件旧串 1）首开 rows **50** +「只显示前 50 篇。」，关面板→改档 resolved→**187.9 ms**（<600 ms 防抖窗）内点开 → rows **49**、`.is-current` **0** +「只显示前 49 篇。」（缺陷复现，9/9）；after（身份门 reviewFiles **1** / MarginRail **2**、旧串 **0**）rows **50→49→50**，两态文案恒逐字「在审文件太多，最多显示 50 篇。」（改档→点击 **188.9 ms**）、**13/13**、0 pageerror。回归 `node .tmp/e2e-r101-review.mjs` **57/57** exit 0、0 pageerror，跑后 `git checkout -- shots/round-101/` 无残留；`.tmp/e2e-r100-diff.mjs` **43/43**；门禁 `npm test` **68 文件 951 条 0 fail**、`npm run verify` PASS、`measure-first-screen --max 316400` exit 0 gzip **316,135 B**（raw 1,025,609、余 265；对 132 轮 316,134 净 **+1 B**）、常驻 `MarginRail-CA2BPyQ0.js` raw 22,309 / gzip9 **7,907**（≤8,050；改前 22,282 / 7,878）、B-229 口径合计 **324,042**（超硬线 4,042，仍 `open` 只记）；`roundtrip` 不跑（未动编辑器/序列化）。偏差（不判 FAIL）：任务书「`DEFAULT_MAX_ROWS -- src` 改后 0 行」照字面不可满足（diffView 同名 2 行），按 plan-review P1-2 改 scoped 并另记全域 7→2；首屏净增实测 +1 B（计划 0±10）。截图 `shots/round-133/review-note.png`（49 行态）。UNVERIFIED：真 WebView2 宿主、真实中文 IME、macOS。见 `docs/iteration/round-133/test.md`。
 
 **第 132 轮（同一未发版区间）**
 

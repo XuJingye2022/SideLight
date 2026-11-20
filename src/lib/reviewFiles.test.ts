@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { applyLiveReviewRow, collectReviewFiles, type ReviewFilesResult } from './reviewFiles.ts'
+import { applyLiveReviewRow, collectReviewFiles, reviewTruncatedNote, REVIEW_MAX_ROWS, type ReviewFilesResult } from './reviewFiles.ts'
 import type { Workspace, WorkspaceFileNode } from './workspace.ts'
 
 /* ---------- 假 FSA：按 files 键前缀判目录，create / write 都记进 ops ---------- */
@@ -401,4 +401,42 @@ test('合并：50 行上限仍然生效，截掉的行数与 truncated 同 colle
   assert.equal(added.rows[0].path, 'ws/zzz.md')
   // 截断的永远是尾部：第 50 行原样留着
   assert.equal(added.rows.at(-1)?.path, 'ws/f048.md')
+})
+
+/* ---------- 第 133 轮：截断提示写固定上限，与 LIVE 行删除解耦 ---------- */
+
+/** 提示的逐字文案：只在这里写一次，避免几条用例各写一份字面量 */
+const TRUNCATED_NOTE = '在审文件太多，最多显示 50 篇。'
+
+/** 50 行整（上限满行、截断成立）的扫描结果夹具 */
+const fiftyRows = (): ReviewFilesResult['rows'] =>
+  Array.from({ length: 50 }, (_, index) => {
+    const stem = `f${String(index).padStart(3, '0')}`
+    return { path: `ws/${stem}.md`, name: `${stem}.md`, open: 1, total: 1 }
+  })
+
+test('截断提示：50 行截断时逐字写「最多显示 50 篇」，REVIEW_MAX_ROWS 是 50', () => {
+  const note = reviewTruncatedNote(resultOf(fiftyRows(), true))
+  assert.equal(note, TRUNCATED_NOTE)
+  assert.equal(REVIEW_MAX_ROWS, 50)
+})
+
+test('截断提示：当前篇结项删行（50→49）后文案与 50 行截断逐字相等', () => {
+  assert.equal(reviewTruncatedNote(resultOf(fiftyRows(), true)), TRUNCATED_NOTE)
+  const closed = applyLiveReviewRow(resultOf(fiftyRows(), true), { path: 'ws/f010.md', name: 'f010.md', open: 0, total: 1 }, true)
+  assert.equal(closed.rows.length, 49)
+  assert.equal(closed.truncated, true)
+  // 不写第二个字面量：与同一函数在同一夹具上的 50 行结果比
+  assert.equal(reviewTruncatedNote(closed), reviewTruncatedNote(resultOf(fiftyRows(), true)))
+  assert.equal(reviewTruncatedNote(closed), TRUNCATED_NOTE)
+})
+
+test('截断提示：60 篇假 FSA 截成 50 行时含「50 篇」；未截断返回 null', async () => {
+  const { entries, files } = manyEntries(60)
+  const result = await collectReviewFiles(workspaceOf(makeFs(entries).root), files)
+  assert.equal(result.rows.length, 50)
+  assert.equal(result.truncated, true)
+  const note = reviewTruncatedNote(result)
+  assert.ok(note?.includes('50 篇'), `期望文案含「50 篇」，实际 ${note}`)
+  assert.equal(reviewTruncatedNote(resultOf(result.rows, false)), null)
 })

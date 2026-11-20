@@ -37,7 +37,7 @@ export type ReviewFilesResult = {
 }
 
 const DEFAULT_MAX_FILES = 200
-const DEFAULT_MAX_ROWS = 50
+export const REVIEW_MAX_ROWS = 50
 
 /** 取值兜底：非有限数用默认值，小于下限的抬到下限（与 diffView 的 atLeast 同口径） */
 function atLeast(value: number | undefined, fallback: number, min: number): number {
@@ -87,7 +87,7 @@ export function hasUnclosedReview(annotations: Annotation[]): boolean {
  * 所以渲染时按 path 覆盖/补上这一行：写盘落地与否，面板里的数都是这一刻真值。
  *
  * `live` 为 null 或 `total === 0` 时原样返回（载入期还没恢复批注、或当前篇一条不剩时
- * 不凭空造行——写盘可能还在飞，关掉重开即真值）。行数超过 `DEFAULT_MAX_ROWS` 时截断并置
+ * 不凭空造行——写盘可能还在飞，关掉重开即真值）。行数超过 `REVIEW_MAX_ROWS` 时截断并置
  * truncated，与 `collectReviewFiles` 同一口径。
  *
  * `liveClosed` 为真时（第 105 轮 B-234：当前篇全部结项）只删掉同 path 的那一行，
@@ -104,12 +104,23 @@ export function applyLiveReviewRow(
   if (liveClosed) return { ...result, rows }
   rows.push(live)
   rows.sort(compareRows)
-  const truncated = rows.length > DEFAULT_MAX_ROWS
+  const truncated = rows.length > REVIEW_MAX_ROWS
   return {
     ...result,
-    rows: truncated ? rows.slice(0, DEFAULT_MAX_ROWS) : rows,
+    rows: truncated ? rows.slice(0, REVIEW_MAX_ROWS) : rows,
     truncated: result.truncated || truncated,
   }
+}
+
+/**
+ * 截断提示的文案（第 133 轮）：固定说「最多显示 REVIEW_MAX_ROWS 篇」，不读 `rows.length`。
+ *
+ * 当前篇全部结项时 `applyLiveReviewRow` 的 liveClosed 分支只删行（第 105 轮 B-234），
+ * 盘上仍截断、行数 50→49；按行数拼文案会写成「只显示前 49 篇」，与上限自相矛盾。
+ * 只收 `truncated`，结构上拿不到 `rows`，以后行数再变也不会把提示带偏。
+ */
+export function reviewTruncatedNote(result: Pick<ReviewFilesResult, 'truncated'>): string | null {
+  return result.truncated ? `在审文件太多，最多显示 ${REVIEW_MAX_ROWS} 篇。` : null
 }
 
 /**
@@ -131,7 +142,7 @@ export async function collectReviewFiles(
   options: ReviewFilesOptions = {},
 ): Promise<ReviewFilesResult> {
   const maxFiles = atLeast(options.maxFiles, DEFAULT_MAX_FILES, 0)
-  const maxRows = atLeast(options.maxRows, DEFAULT_MAX_ROWS, 0)
+  const maxRows = atLeast(options.maxRows, REVIEW_MAX_ROWS, 0)
 
   const capped = files.length > maxFiles
   const scanFiles = capped ? files.slice(0, maxFiles) : files
