@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 
 import {
   ANNOTATION_PRIORITIES,
@@ -24,8 +24,8 @@ import { FOCUSABLE } from './useDialogFocus.ts'
 /**
  * 第 139 轮 B-229：三个面板按开合加载。静态 import 会把它们并进常驻的 `MarginRail-*.js`，
  * 真实首载一字节不降——只允许 `lazy(() => import(...))`，点开才下载。
+ * 第 140 轮 A2：「对比」搬去 App 的顶栏与全宽模式，这里只剩「在审」与「对话」两块。
  */
-const RailDiffPanel = lazy(() => import('./RailDiffPanel.tsx'))
 const RailReviewPanel = lazy(() => import('./RailReviewPanel.tsx'))
 const RailChat = lazy(() => import('./RailChat.tsx'))
 
@@ -62,11 +62,6 @@ type Props = {
   docKey: number
   /** 取当前正文的块与光标/选区（拼装与截断在 chat.ts）；null = 没有编辑器（还没有正文） */
   getChatSource: () => { blocks: Block[]; from: number; to: number } | null
-  /**
-   * 「与打开时相比」的一对正文（第 100 轮 B-227）。面板点开时才调，换文档后 App 那边会换基线；
-   * 返回 null 表示这篇还没有可对比的正文（宿主正文取不到等）
-   */
-  getDiff: () => { before: string; after: string } | null
   /** 「在审文件」面板取当前工作区（null = 没打开文件夹，第 101 轮 B-228） */
   getReviewWorkspace: () => Workspace | null
   /**
@@ -86,6 +81,14 @@ type Props = {
   canGenerate: boolean
   /** 窄窗抽屉的关闭按钮；宽窗不传就不显示 */
   onClose?: () => void
+  /**
+   * 第 140 轮 A1：宽窗贴右缘的网格轨宽度（280–520）。拖拽期间只写 CSS 变量，
+   * 抬手才 `onResize` 回传；键盘 ←/→ 直接按步长回传。
+   */
+  railWidth: number
+  onResize: (width: number) => void
+  /** 折叠右栏（宽窗）：App 收掉网格轨、把焦点交给右缘的展开钮 */
+  onCollapse: () => void
   goal: string
   discussingId: string | null
   /** 每条批注的核对状态（第 138 轮）：只在「核对中 / 失败」时有；成功不留，出处就列在卡上 */
@@ -121,6 +124,9 @@ export function MarginRail({
   docNotes = [],
   simulated,
   onClose,
+  railWidth,
+  onResize,
+  onCollapse,
   goal,
   discussingId,
   verifyStates,
@@ -146,7 +152,6 @@ export function MarginRail({
   docName,
   docKey,
   getChatSource,
-  getDiff,
   getReviewWorkspace,
   getRevisionSource,
   revisionEpoch,
@@ -155,7 +160,10 @@ export function MarginRail({
   onGenerateNotes,
   canGenerate,
 }: Props) {
-  const pending = annotations.filter((annotation) => annotation.status === 'pending')
+  const pending = annotations
+    .filter((annotation) => annotation.status === 'pending')
+    // 第 140 轮 A1：卡片按正文位置升序（分析流回来的顺序不保证），与 App 的 tops 排布同一口径
+    .sort((left, right) => left.from - right.from)
   const [openThread, setOpenThread] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [overallOpen, setOverallOpen] = useState(true)
@@ -191,18 +199,40 @@ export function MarginRail({
     }
   }, [discussingId])
 
-  /* ---------- 「与打开时相比」的只读 diff 面板（第 100 轮 B-227） ---------- */
+  /* ---------- 宽窗拖宽 / 折叠（第 140 轮 A1） ---------- */
+
+  const RAIL_MIN = 280
+  const RAIL_MAX = 520
+  const clampRailWidth = (value: number) => Math.min(RAIL_MAX, Math.max(RAIL_MIN, Math.round(value)))
+
+  /** 拖拽期间只改布局节点的自定义属性：逐帧 setState 会把整栏（含批注卡）重排一遍 */
+  const paintWidth = (width: number) => {
+    const layout = railRef.current?.closest<HTMLElement>('.doc-layout')
+    layout?.style.setProperty('--rail-width', `${width}px`)
+  }
 
   /**
-   * 第 139 轮 B-229：面板点了「对比」才挂载（lazy chunk 随开合加载），关掉即卸载。
-   * 谓词仍带 `!appDialogOpen`（第 119 轮 B-249）与「批注页签」两项；切页签、换文档都收掉。
+   * pointerdown 记起点；move 按「左移变宽」算（除以整页缩放，100% 时就是 1:1），
+   * 抬手才把最终宽度回传 App（`onResize`）。
    */
-  const [diffOn, setDiffOn] = useState(false)
-  const diffOpen = diffOn && railTab === 'notes' && !appDialogOpen
-
-  useEffect(() => {
-    if (railTab !== 'notes') setDiffOn(false)
-  }, [railTab])
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const zoom = settings.pageZoom / 100
+    const startX = event.clientX
+    const startWidth = railWidth
+    let latest = startWidth
+    const move = (moveEvent: PointerEvent) => {
+      latest = clampRailWidth(startWidth + (startX - moveEvent.clientX) / zoom)
+      paintWidth(latest)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      onResize(latest)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
 
   /* ---------- 页签焦点交接（第 102 轮 B-230） ---------- */
 
@@ -243,10 +273,9 @@ export function MarginRail({
     if (railTab !== 'notes') setReviewOn(false)
   }, [railTab])
 
-  // 换文档：两个面板都收掉（第 119 轮 B-249：让位期间不挂载，回来也不能是上一篇的）
+  // 换文档：「在审」面板收掉（第 119 轮 B-249：让位期间不挂载，回来也不能是上一篇的）
   useEffect(() => {
     setReviewOn(false)
-    setDiffOn(false)
   }, [docName])
 
   const overall = docNotes.filter((note) => note.kind === 'overall')
@@ -286,6 +315,24 @@ export function MarginRail({
       tabIndex={-1}
       onKeyDown={onRailKeyDown}
     >
+      {/* 第 140 轮 A1：拖宽把手（宽窗）。role=separator + 键盘 ←/→ 各 16px */}
+      <div
+        className="rail-resize"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整侧栏宽度"
+        aria-valuemin={RAIL_MIN}
+        aria-valuemax={RAIL_MAX}
+        aria-valuenow={railWidth}
+        tabIndex={0}
+        onPointerDown={startResize}
+        onKeyDown={(event) => {
+          const step = event.key === 'ArrowLeft' ? 16 : event.key === 'ArrowRight' ? -16 : 0
+          if (step === 0) return
+          event.preventDefault()
+          onResize(clampRailWidth(railWidth + step))
+        }}
+      />
       <div className="rail-head">
         <span className="rail-light" aria-hidden="true" />
         <span className="rail-title">侧灯</span>
@@ -301,19 +348,7 @@ export function MarginRail({
             ×
           </button>
         )}
-        {/* 第 100 轮 B-227：只在批注页签给入口。16px 高、别动 .rail-head 的盒模型 */}
-        {railTab === 'notes' && (
-          <button
-            type="button"
-            className="rail-diff-open"
-            aria-haspopup="dialog"
-            title="与打开时相比"
-            onClick={() => setDiffOn(true)}
-          >
-            对比
-          </button>
-        )}
-        {/* 第 101 轮 B-228：「在审文件」。跟在「对比」后面，右缘贴着 head 右缘；两钮间距 7px 走 .rail-head 的 gap */}
+        {/* 第 101 轮 B-228：「在审文件」。右缘贴着 head 右缘；间距 7px 走 .rail-head 的 gap */}
         {railTab === 'notes' && (
           <button
             type="button"
@@ -325,6 +360,17 @@ export function MarginRail({
             在审
           </button>
         )}
+        {/* 第 140 轮 A1：折叠右栏（宽窗）。窄窗由 CSS 隐藏，出口是顶栏「批注」抽屉 */}
+        <button
+          type="button"
+          className="rail-collapse"
+          aria-expanded="true"
+          aria-controls="rail-panel-notes"
+          title="收起批注栏"
+          onClick={onCollapse}
+        >
+          ▸
+        </button>
       </div>
 
       {/* 第 94 轮 B-221：右侧双页签。只做页签与占位，对话内容下一批接入 */}
@@ -652,17 +698,9 @@ export function MarginRail({
         </Suspense>
       </div>
 
-      {/* 第 100 轮 B-227：面板挂到 body（栏里卡片是绝对定位，塞进 .margin-rail 流会被压）。
-          只读：没有输入框、没有可编辑区，也不碰正文与批注。第 119 轮 B-249：appDialogOpen 时不挂。
-          第 139 轮 B-229：按开合加载的 lazy chunk，就地包 Suspense——不能靠 App.tsx 外层那个边界，
-          否则首开会把整条右栏换成 null，页签/对话状态与焦点一起丢（第 102 轮 B-230 的回焦也断） */}
-      <Suspense fallback={null}>
-        {diffOpen && <RailDiffPanel getDiff={getDiff} onClose={() => setDiffOn(false)} />}
-      </Suspense>
-
       {/* 第 101 轮 B-228：在审文件列表（只读）。复用 diff 面板的外壳与行样式：
           同一套 80vh / 60vh 上限、同一套关闭语义，省一遍样式与焦点代码。
-          第 139 轮 B-229：与对比面板同法按开合加载 */}
+          第 139 轮 B-229：与对比面板同法按开合加载；第 140 轮 A2 起「对比」搬去 App 的全宽模式 */}
       <Suspense fallback={null}>
         {reviewActive && (
           <RailReviewPanel

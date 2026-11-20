@@ -159,3 +159,46 @@ test('默认参数：context 2 / maxRows 400 / maxLine 500', () => {
   assert.equal(capped.rows.length, 400)
   assert.equal(capped.truncated, true)
 })
+
+/**
+ * 第 140 轮 A2：全宽对比面板用 `maxRows: 2000`（原来小窗是 400）。
+ * 2,400 行全改时只留前 2,000 行，计数仍按全文；两处改动的上下文窗口各自只留 2 行。
+ */
+test('maxRows 2000：2,400 行全改只留前 2,000 行，计数仍按全文', () => {
+  const before = numbers(2400).join('\n')
+  const after = numbers(2400)
+    .map((line) => `${line}改`)
+    .join('\n')
+  const result = diffView(before, after, { maxRows: 2000 })
+  assert.equal(result.rows.length, 2000)
+  assert.equal(result.truncated, true)
+  assert.equal(result.added, 2400)
+  assert.equal(result.removed, 2400)
+  // 截断的是后段：留下的仍是「先删后增」的头部
+  assert.equal(result.rows[0].kind, 'removed')
+})
+
+test('两处改动各留默认 2 行上下文，窗口之间不串', () => {
+  const before = numbers(12).join('\n')
+  const after = [...numbers(12)]
+    .map((line) => (line === '3' || line === '10' ? `${line}改` : line))
+    .join('\n')
+  const result = diffView(before, after)
+  assert.deepEqual(shape(result), [
+    'same:1',
+    'same:2',
+    'removed:3',
+    'added:3改',
+    'same:4',
+    'same:5',
+    'same:8',
+    'same:9',
+    'removed:10',
+    'added:10改',
+    'same:11',
+    'same:12',
+  ])
+  assert.equal(result.added, 2)
+  assert.equal(result.removed, 2)
+  assert.equal(result.truncated, false)
+})

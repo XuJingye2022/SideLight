@@ -326,6 +326,39 @@ export function findRange(
   return { from, to: index.positions[start + quote.length - 1] + 1 }
 }
 
+/**
+ * 第 140 轮 A2：把 diff 行里的 Markdown 标记剥掉，得到正文里应该能找到的纯文本。
+ * 空行、围栏行、表格行、水平线返回空串（对比面板据此不给手型、点它也不弹提示）；
+ * 标题标记、引用/列表/任务前缀、行内强调与代码标记、表格竖线都在这里去掉。
+ */
+export function stripLineMarkup(text: string): string {
+  let body = text.trim()
+  if (body.length === 0) return ''
+  if (/^(?:```|~~~)/.test(body)) return ''
+  if (/^\|/.test(body) || /^[-:|\s]+$/.test(body)) return ''
+  if (/^(?:[-*_]\s*){3,}$/.test(body)) return ''
+  body = body.replace(/^#{1,6}\s+/, '')
+  body = body.replace(/^>\s?/, '')
+  body = body.replace(/^(?:[-*+]|\d+\.)\s+/, '')
+  body = body.replace(/^\[[ xX]\]\s+/, '')
+  body = body.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+  body = body.replace(/[`*_~]/g, '')
+  body = body.replace(/\|/g, ' ')
+  return body.replace(/\s+#+\s*$/, '').trim()
+}
+
+/**
+ * 第 140 轮 A2：在正文索引里定位一条 diff 行。行文本可能被 `clip` 截过（尾「…」），
+ * 超长行再按前 24 字试一次；都不中就返回 null（调用方给「定位不到」的提示）。
+ */
+export function locateMarkdownLine(index: TextIndex, line: string): { from: number; to: number } | null {
+  const text = stripLineMarkup(line.replace(/…$/, ''))
+  if (text.length === 0) return null
+  const hit = findRange(index, text)
+  if (hit || text.length <= 24) return hit
+  return findRange(index, text.slice(0, 24))
+}
+
 /** 这段引文在全文出现几次，用来判断能不能安全地回退全篇定位 */
 function countOccurrences(index: TextIndex, quote: string): number {
   if (quote.length === 0) return 0

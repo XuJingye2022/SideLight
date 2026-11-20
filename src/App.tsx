@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Extension, type ChainedCommands, type Editor } from '@tiptap/core'
 import { Markdown } from '@tiptap/markdown'
 import { EditorContent, useEditor } from '@tiptap/react'
@@ -23,6 +23,9 @@ const MarginRail = lazy(() =>
 const PreviewPane = lazy(() =>
   import('./components/PreviewPane.tsx').then((module) => ({ default: module.PreviewPane })),
 )
+// 第 140 轮 A2：「与打开时相比」从右栏小窗改成顶栏切换的全宽模式。面板与 diffView 仍是懒 chunk，
+// 只有点「对比」才下载；App 侧只出接线与按钮。
+const RailDiffPanel = lazy(() => import('./components/RailDiffPanel.tsx'))
 import { SaveDialog } from './components/SaveDialog.tsx'
 import { CloseGuardDialog } from './components/CloseGuardDialog.tsx'
 
@@ -59,6 +62,7 @@ import {
   buildTextIndex,
   collectDocNotes,
   findRange,
+  locateMarkdownLine,
   parseAnnotationStore,
   parseStream,
   readAnnotationStore,
@@ -94,6 +98,8 @@ import { hasTocSource } from './lib/toc.ts'
 import { findAll, type Match } from './lib/find.ts'
 import { replaceNoticeText } from './lib/findBarState.ts'
 import type { SearchHit } from './lib/globalSearch.ts'
+// 只借类型：diffView 本体仍只在懒 chunk 里
+import type { DiffRow } from './lib/diffView.ts'
 import { applyReplacements, type ReplaceRange } from './lib/replaceRanges.ts'
 import { extractFootnotes, joinFootnotes } from './lib/footnotes.ts'
 import { joinFrontmatter, leadingNewlines, splitFrontmatter } from './lib/frontmatter.ts'
@@ -464,6 +470,11 @@ export default function App() {
   const [globalSearch, setGlobalSearch] = useState(false)
   /** 窄窗时页边栏变抽屉：顶栏「批注」开关它 */
   const [railOpen, setRailOpen] = useState(false)
+  /** 宽窗右栏宽度（280–520，网格轨的自定义属性）与折叠态（第 140 轮 A1） */
+  const [railWidth, setRailWidth] = useState(320)
+  const [railCollapsed, setRailCollapsed] = useState(false)
+  /** 「与打开时相比」全宽模式（第 140 轮 A2）：只加表面板，diff 数据仍在懒 chunk 里算 */
+  const [diffOpen, setDiffOpen] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<'files' | 'outline'>('files')
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   /** 渲染期同步的批注快照：重跑要拿「窗口开始前」那批当可复用池（第 95 轮 B-222） */
@@ -532,6 +543,8 @@ export default function App() {
   const sourceApplyingRef = useRef(false)
   const sourceMode = viewMode === 'source'
   const previewMode = viewMode === 'preview'
+  /** 第 140 轮 A2：全宽对比只在编辑视图里成立（源码/预览态切走时由 switchView 收掉） */
+  const diffActive = diffOpen && viewMode === 'edit'
   const [sourceText, setSourceText] = useState('')
   const [focusMode, setFocusMode] = useState(false)
   const [typewriterMode, setTypewriterMode] = useState(false)
@@ -647,6 +660,14 @@ export default function App() {
   const railRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const cardRefs = useRef(new Map<string, HTMLElement>())
+  /** 第 140 轮 A1：拖宽时直接写这个布局节点的 `--rail-width`（不逐帧 setState） */
+  const layoutRef = useRef<HTMLDivElement | null>(null)
+  /** 折叠/展开后的焦点去向（在 effect 里消费，避免裸 rAF 抢焦点） */
+  const pendingRailFocusRef = useRef<'reopen' | 'collapse' | null>(null)
+  const railReopenRef = useRef<HTMLButtonElement | null>(null)
+  /** 第 140 轮 A2：顶栏「对比」钮（Esc/关闭后焦点回它）与进出面板时的阅读位置 */
+  const diffToggleRef = useRef<HTMLButtonElement | null>(null)
+  const diffScrollRef = useRef(0)
   const analyzeRef = useRef<() => void>(() => {})
   /** 目录条目的跳转入口（第 58 轮 B-106）：jumpTo 声明在 useEditor 之后，用 ref 转一手 */
   const jumpToRef = useRef<(item: OutlineItem) => void>(() => {})
@@ -1032,6 +1053,49 @@ export default function App() {
     // 抽屉渲染出来再把焦点送进去，键盘用户才不会掉在背景里
     requestAnimationFrame(() => document.querySelector<HTMLElement>('.rail-close')?.focus())
   }, [])
+
+  /* ---------- 第 140 轮 A1：宽窗右栏折叠 / 展开 ---------- */
+
+  const collapseRail = useCallback(() => {
+    pendingRailFocusRef.current = 'reopen'
+    setRailCollapsed(true)
+  }, [])
+
+  const expandRail = useCallback(() => {
+    pendingRailFocusRef.current = 'collapse'
+    setRailCollapsed(false)
+  }, [])
+
+  // 折叠后焦点交给右缘的展开钮，展开后回到栏头折叠钮：等 DOM 落地再聚焦（不裸 rAF）
+  useEffect(() => {
+    const want = pendingRailFocusRef.current
+    if (want === null) return
+    pendingRailFocusRef.current = null
+    if (want === 'reopen') railReopenRef.current?.focus()
+    else document.querySelector<HTMLElement>('.rail-collapse')?.focus()
+  }, [railCollapsed])
+
+  /* ---------- 第 140 轮 A2：全宽「对比」 ---------- */
+
+  const openDiff = useCallback(() => {
+    // 进出面板会把编辑块收成 hidden（滚动高度归 0）：先记阅读位置，关掉时还原（P2-5）
+    diffScrollRef.current = scrollRef.current?.scrollTop ?? 0
+    setRailOpen(false)
+    setDiffOpen(true)
+  }, [])
+
+  const closeDiff = useCallback(() => {
+    setDiffOpen(false)
+    requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = diffScrollRef.current
+      diffToggleRef.current?.focus()
+    })
+  }, [])
+
+  // 换篇就收掉：面板里是上一篇的行，点行会拿新正文选中错句（P1-1）
+  useEffect(() => {
+    setDiffOpen(false)
+  }, [docInstance])
 
   // 智能标点开关走 ref：把 settings 放进 useEditor 依赖会重建编辑器、丢撤销栈
   const smartPunctRef = useRef(true)
@@ -2564,9 +2628,9 @@ export default function App() {
   }, [editor])
 
   useLayoutEffect(() => {
-    if (!editor || sourceMode) return
+    if (!editor || sourceMode || diffActive || railCollapsed) return
     const rail = railRef.current
-    if (!rail) return
+    if (!rail || !rail.offsetParent) return
 
     const railRect = rail.getBoundingClientRect()
     // 第 94 轮 B-221：批注卡都在 #rail-panel-notes 里；「对话」页签时那块是 hidden、矩形全 0，
@@ -2592,8 +2656,12 @@ export default function App() {
       }
       let floor = flowBottom
       const next: Record<string, number> = {}
+      // 第 140 轮 A1：卡片按正文位置升序排（分析流回来的顺序不保证），tops 才不会上下乱跳
+      const sorted = annotations
+        .filter((item) => item.status === 'pending')
+        .sort((left, right) => left.from - right.from)
 
-      for (const annotation of annotations.filter((item) => item.status === 'pending')) {
+      for (const annotation of sorted) {
         const position = Math.min(Math.max(annotation.from, 0), Math.max(docSize - 1, 0))
         const height = cardRefs.current.get(annotation.id)?.offsetHeight ?? 96
         let natural = floor + 12
@@ -2608,8 +2676,7 @@ export default function App() {
       }
 
       // 最后一张卡的底 − 流内内容底 = 面板要占的高度（React 对相同值会 bail out）
-      const pendingCount = annotations.filter((item) => item.status === 'pending').length
-      setRailSpace(pendingCount > 0 ? Math.max(0, Math.round(floor - flowBottom)) : 0)
+      setRailSpace(sorted.length > 0 ? Math.max(0, Math.round(floor - flowBottom)) : 0)
 
       setTops((previous) => (JSON.stringify(previous) === JSON.stringify(next) ? previous : next))
     }
@@ -2627,7 +2694,7 @@ export default function App() {
     } else {
       setBubble(null)
     }
-  }, [annotations, editor, railTab, selection, sourceMode, tick])
+  }, [annotations, editor, railTab, selection, sourceMode, tick, diffActive, railCollapsed, railWidth])
 
   /* ---------- 文件 ---------- */
 
@@ -4586,7 +4653,7 @@ export default function App() {
       // 第 131 轮 B-262：右侧「对比 / 在审」两个只读面板挂 body、z 60，开着时按模态处理。
       // 产品键与撤销/重做只吞浏览器默认动作、不执行，口径同下面的 dialogOpen 分支。
       // 撤销只对只读面板吞：快速打开 / 全局搜索自带输入框，禁掉原生撤销是回归。
-      const railModal = document.querySelector('.rail-diff-overlay') !== null
+      const railModal = document.querySelector('.rail-diff-overlay, #diff-view') !== null
       const undoCombo = mod && !event.altKey && (key === 'z' || key === 'y')
       const productCombo =
         (mod && !event.shiftKey && !event.altKey && key === 's') ||
@@ -4666,6 +4733,12 @@ export default function App() {
         if (previewMode) {
           togglePreviewRef.current()
           focusEditor()
+          return
+        }
+        // 第 140 轮 A2：全宽对比开着时一个 Esc 退出，焦点回顶栏「对比」
+        if (diffActive) {
+          event.preventDefault()
+          closeDiff()
           return
         }
         // 正文里 Tab 是缩进（第 24 轮）：Esc 是键盘用户按文档顺序的正向出口（WCAG 2.1.2）
@@ -4873,6 +4946,8 @@ export default function App() {
     show,
     guardBlockInTable,
     railOpen,
+    diffActive,
+    closeDiff,
     newDocument,
     openSingleFile,
     openFolder,
@@ -5060,6 +5135,7 @@ export default function App() {
   const switchView = useCallback(
     (next: 'edit' | 'source' | 'preview') => {
       if (!editor) return
+      setDiffOpen(false)
       const leavingSource = viewMode === 'source' && next !== 'source'
       // 组合输入中退出源码（第 69 轮 B-149）：先收尾组合，拿收尾后的现值再走下面的退出逻辑。
       // 收尾失败（候选字被 blur 丢掉）就留在源码里，不卸载、盘不变。
@@ -5224,6 +5300,37 @@ export default function App() {
   useEffect(() => {
     jumpToRef.current = jumpTo
   }, [jumpTo])
+
+  /**
+   * 第 140 轮 A2：点对比行 → 关面板、等编辑块摘掉 hidden，再选中正文里对应的句子。
+   * 行文本是 Markdown（`## 标题`、`- 项`、`**粗**`），定位前先剥标记（P1-1）。
+   */
+  const jumpToDiffRow = useCallback(
+    (row: DiffRow) => {
+      if (!editor) return
+      const hit = locateMarkdownLine(buildTextIndex(editor.state.doc), row.text)
+      if (!hit) {
+        show('这一行在正文里定位不到。')
+        return
+      }
+      closeDiff()
+      const focusWhenShown = (attempt = 0) => {
+        requestAnimationFrame(() => {
+          const element = document.querySelector<HTMLElement>('.ProseMirror:not(.preview-pane)')
+          const host = element?.closest('.doc-layout')
+          if (!element || !host || host.hasAttribute('hidden')) {
+            if (attempt < 10) focusWhenShown(attempt + 1)
+            return
+          }
+          editor.commands.focus()
+          editor.commands.setTextSelection(hit)
+          editor.commands.scrollIntoView()
+        })
+      }
+      focusWhenShown()
+    },
+    [editor, closeDiff, show],
+  )
 
   const openStatsDetail = useCallback(() => {
     // 第 126 轮 A2：面板与抽屉不同时在场（只关抽屉，不把焦点抢回 .rail-toggle）
@@ -5536,6 +5643,9 @@ export default function App() {
     setLinkEdit(null)
   }, [editor, linkEdit])
 
+  // 宽度断点与抽屉共用一处口径（≤1119px 走抽屉，宽窗走可折叠的网格轨）
+  const narrow = window.matchMedia('(max-width: 1119px)').matches
+
   return (
     <div className={`app${focusMode ? ' focus-mode' : ''}${railOpen ? ' rail-open' : ''}`}>
       {/* 第一下 Tab 就到这里；Enter 直接把焦点送进正文 */}
@@ -5681,16 +5791,33 @@ export default function App() {
         <button type="button" onClick={() => setSettingsOpen(true)}>
           设置
         </button>
+        {/* 第 140 轮 A2：「与打开时相比」入口从右栏小窗搬到顶栏，点开进全宽模式 */}
+        {viewMode === 'edit' && (
+          <button
+            ref={diffToggleRef}
+            type="button"
+            className={`diff-toggle${diffActive ? ' is-on' : ''}`}
+            aria-pressed={diffActive}
+            aria-controls="diff-view"
+            title="与打开时相比"
+            onClick={() => (diffOpen ? closeDiff() : openDiff())}
+          >
+            对比
+          </button>
+        )}
         {viewMode === 'edit' && (
           <button
             ref={railToggleRef}
             type="button"
             className="rail-toggle"
-            aria-expanded={railOpen}
+            aria-expanded={narrow ? railOpen : !railCollapsed}
             aria-controls="margin-rail"
             aria-label={`批注（${annotations.length} 条）`}
             title={`批注（${annotations.length} 条）`}
-            onClick={() => (railOpen ? closeRail() : openRail())}
+            disabled={diffActive}
+            onClick={() =>
+              narrow ? (railOpen ? closeRail() : openRail()) : railCollapsed ? expandRail() : collapseRail()
+            }
           >
             批注
             {railOpen && annotations.length > 0 && <span className="rail-count">{annotations.length}</span>}
@@ -5698,7 +5825,7 @@ export default function App() {
         )}
       </header>
 
-      <div className="toolbar">
+      <div className="toolbar" inert={diffActive}>
         <div className="toolbar-group">
           <button
             type="button"
@@ -5947,7 +6074,7 @@ export default function App() {
       )}
 
       {viewMode === 'edit' && editor?.isActive('table') && (
-        <div className="table-bar">
+        <div className="table-bar" inert={diffActive}>
           <span className="table-bar-label">表格</span>
           <button type="button" title="在当前行上方插入行" onClick={() => run((chain) => chain.addRowBefore())}>
             上插入
@@ -6159,10 +6286,30 @@ export default function App() {
               )
             })()
           )}
+          {/* 第 140 轮 A2：全宽对比也是 main 的直系子节点（编辑块 hidden 让位），宽度天然等于 main */}
+          {diffActive && (
+            <Suspense fallback={null}>
+              <RailDiffPanel
+                getDiff={() => {
+                  const before = openedBaselineRef.current
+                  return before === null ? null : { before, after: contentRef.current() }
+                }}
+                onJump={jumpToDiffRow}
+                onClose={closeDiff}
+              />
+            </Suspense>
+          )}
           {!previewMode && (
             // 源码模式只收尺寸、不卸载：编辑器（含 44,446 块）重建一次要 300–400 ms，
             // 退出源码的卡顿就来自这里（第 53 轮实测，`.source-hidden` 见 styles.css）
-            <div className={sourceMode ? 'doc-layout source-hidden' : 'doc-layout'} hidden={sourceMode}>
+            <div
+              ref={layoutRef}
+              className={`doc-layout${sourceMode || diffActive ? ' source-hidden' : ''}${
+                railCollapsed ? ' is-rail-collapsed' : ''
+              }`}
+              hidden={sourceMode || diffActive}
+              style={{ '--rail-width': `${railWidth}px` } as CSSProperties}
+            >
               <div className="doc-column">
                 {!sourceMode && !previewMode && stats.chars === 0 && (
                   <div className="editor-placeholder" aria-hidden="true">从这一句开始写</div>
@@ -6191,11 +6338,10 @@ export default function App() {
                   const { from, to } = editor.state.selection
                   return { blocks: readBlocks(editor), from: live ? from : 1, to: live ? to : 1 }
                 }}
-                // 第 100 轮 B-227：getDiff 按需给「打开时正文 → 当前正文」；没载入过就 null
-                getDiff={() => {
-                  const before = openedBaselineRef.current
-                  return before === null ? null : { before, after: contentRef.current() }
-                }}
+                // 第 140 轮 A1：宽窗网格轨的宽度与折叠（拖宽只写 CSS 变量，抬手才回传 state）
+                railWidth={railWidth}
+                onResize={setRailWidth}
+                onCollapse={collapseRail}
                 // 第 101 轮 B-228：在审文件列表按当前工作区现读批注档；null = 没打开文件夹
                 getReviewWorkspace={() => workspaceRef.current}
                 // 第 114 轮 B-247：修订快照清单的目录与键（文档同级 .sidelight）；null = 没有句柄
@@ -6249,7 +6395,10 @@ export default function App() {
                 onHover={setActiveId}
                 onFocusNote={(annotation) => {
                   if (!editor) return
-                  // 点卡片就把正文里的对应句子选中并滚到眼前，专注模式下也顺带切到那一段
+                  // 点卡片就把正文里的对应句子选中并滚到眼前，专注模式下也顺带切到那一段。
+                  // 第 140 轮 A1：先 focus——ProseMirror 只在有焦点时把选区同步到 DOM，
+                  // 少了这一步看得见滚动、看不见选区（验收「点卡跳句」）。
+                  editor.commands.focus()
                   editor.commands.setTextSelection({ from: annotation.from, to: annotation.to })
                   editor.commands.scrollIntoView()
                   setActiveId(annotation.id)
@@ -6312,7 +6461,7 @@ export default function App() {
         </div>
       )}
 
-      {bubble && selection.to > selection.from && !analyzing && viewMode === 'edit' && !findOpen && (
+      {bubble && selection.to > selection.from && !analyzing && viewMode === 'edit' && !findOpen && !diffActive && (
         <button
           type="button"
           className="analyze-bubble"
@@ -6381,6 +6530,21 @@ export default function App() {
 
       {railOpen && viewMode === 'edit' && (
         <div className="rail-backdrop" role="presentation" onClick={closeRail} />
+      )}
+
+      {/* 第 140 轮 A1：折叠后的展开出口。固定在窗口右缘、只在宽窗显示（窄窗走顶栏「批注」抽屉） */}
+      {railCollapsed && viewMode === 'edit' && (
+        <button
+          ref={railReopenRef}
+          type="button"
+          className="rail-reopen"
+          aria-expanded="false"
+          aria-controls="margin-rail"
+          title="展开批注栏"
+          onClick={expandRail}
+        >
+          ◂
+        </button>
       )}
 
       <SaveDialog

@@ -16,8 +16,9 @@ import test from 'node:test'
 
 type CssRule = { selector: string; selectors: string[]; body: string }
 
-const DIFF = '.rail-diff-open'
 const REVIEW = '.rail-review-open'
+/** 第 140 轮 A1：右栏折叠钮，与「在审」同一规则块（对比入口已搬去顶栏） */
+const COLLAPSE = '.rail-collapse'
 const RESET = '.rail-chat-reset'
 const HEAD = '.rail-head'
 /** 第 121 轮 B-251：对比 / 在审共用的关闭钮与「判错了，重来」原先只有 24×19 / 72×18.6 */
@@ -101,16 +102,16 @@ const assertTapTarget = (selector: string): void => {
   }
 }
 
-test('「对比」「在审」在同一规则块，min-height ≥24（写了 height 也须 ≥24）', () => {
+test('「在审」「折叠」在同一规则块，min-height ≥24（写了 height 也须 ≥24）', () => {
   const shared = rules().find(
-    (rule) => rule.selectors.length === 2 && rule.selectors.includes(DIFF) && rule.selectors.includes(REVIEW),
+    (rule) => rule.selectors.length === 2 && rule.selectors.includes(REVIEW) && rule.selectors.includes(COLLAPSE),
   )
   assert.ok(
     shared,
-    `styles.css 里必须有一条规则块同时写 ${DIFF} 与 ${REVIEW}（两条分开写会各写各的高度，迟早漂）`,
+    `styles.css 里必须有一条规则块同时写 ${REVIEW} 与 ${COLLAPSE}（两条分开写会各写各的高度，迟早漂）`,
   )
   const { declared, small } = targetSizes(shared)
-  assert.ok(declared.length > 0, `${DIFF} / ${REVIEW} 的规则块要写 min-height（24×24 口径）`)
+  assert.ok(declared.length > 0, `${REVIEW} / ${COLLAPSE} 的规则块要写 min-height（24×24 口径）`)
   assert.deepEqual(small, [], `两个入口的可点高度必须 ≥${MIN_TARGET}px，现在：${small.join('、')}`)
 })
 

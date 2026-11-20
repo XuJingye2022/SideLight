@@ -281,6 +281,12 @@ button:disabled {
   background: var(--accent);
 }
 
+/* 第 140 轮 A2：顶栏「对比」开着时的按下态（与工具栏 .is-on 同一对 token） */
+.diff-toggle.is-on {
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+}
+
 /* ---------- 工作台 ---------- */
 
 .workbench {
@@ -304,17 +310,22 @@ button:disabled {
   box-shadow: inset 0 2px 0 0 var(--accent);
 }
 
+/* 第 140 轮 A1：右栏改成贴窗口右缘的网格轨（1fr + 可拖宽的自定义属性），不再居中摆一条固定轨。
+   正文列在剩下的轨里自己居中（max-width 36rem），所以右 padding 归 0、栏右缘 = main 右缘。 */
 .doc-layout {
   display: grid;
-  grid-template-columns: minmax(0, 36rem) 320px;
+  grid-template-columns: minmax(0, 1fr) var(--rail-width, 320px);
   column-gap: 28px;
   justify-content: center;
-  padding: 52px 32px 220px;
+  padding: 52px 0 220px 32px;
   min-height: 100%;
 }
 
 .doc-column {
   min-width: 0;
+  width: 100%;
+  max-width: 36rem;
+  margin: 0 auto;
   position: relative;
 }
 
@@ -1147,8 +1158,26 @@ button:disabled {
 .margin-rail {
   position: relative;
   min-height: 100%;
+  /* 第 140 轮 A1：栏贴右缘后给流内 chrome 留 12px 内缩；卡片是绝对定位（参照 padding 盒），
+     另写 .note{right:12px}，否则右缘贴死窗口 */
   padding-top: 4px;
+  padding-right: 12px;
   padding-bottom: 12px;
+}
+
+/* 第 140 轮 A1：拖宽把手。放在轨与正文之间的 28px 间隙里，10px 可点、不占布局 */
+.rail-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -19px;
+  z-index: 4;
+  width: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
 }
 
 .rail-overall {
@@ -1327,11 +1356,10 @@ button:disabled {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-/* 第 100 轮 B-227：只读 diff 入口，第 107 轮起 min-height 24（24×24 口径，宽仍 35）。
-   批注页签 head 16→24、.rail-tabs 及之后整体下移 8px（tabs 底 − head 底 仍 39、
-   tabs 底相对栏顶 59→67）是已知偏差；不给 .rail-head 定高；面板定位独立于 .margin-rail */
-.rail-diff-open,
-.rail-review-open {
+/* 第 100 轮 B-227：「对比」入口已搬去顶栏（第 140 轮 A2），这里只剩「在审」与「折叠」；
+   min-height 24 仍是 24×24 口径（第 107 轮 B-236）。面板独立于 .margin-rail 定位 */
+.rail-review-open,
+.rail-collapse {
   flex: none;
   margin-left: auto;
   min-height: 24px;
@@ -1343,14 +1371,9 @@ button:disabled {
   color: var(--ink-soft);
 }
 
-/* .rail-count 在左边已经 margin-left:auto 顶开：两个 auto 会各分一半空位，这里退掉 */
-.rail-count ~ .rail-diff-open {
-  margin-left: 0;
-}
-
-/* 第 101 轮 B-228：两钮只在批注页签共现、「对比」恒在前，所以「在审」的 auto 退掉、贴着右缘；
-   不用 .rail-count ~：没有计数（空态）时它不命中，两钮的 auto 会把「对比」挤离右缘 */
-.rail-diff-open ~ .rail-review-open {
+/* .rail-count / 「在审」在左边已经 margin-left:auto 顶开：两个 auto 会各分一半空位，这里退掉 */
+.rail-count ~ .rail-review-open,
+.rail-review-open ~ .rail-collapse {
   margin-left: 0;
 }
 
@@ -1393,6 +1416,7 @@ button:disabled {
   color: var(--ink-faint);
 }
 
+/* 第 101 轮 B-228：在审面板仍复用这套浮层外壳（对比在 140 轮改成全宽模式，不再用它们） */
 .rail-diff-overlay {
   position: fixed;
   inset: 0;
@@ -1416,6 +1440,25 @@ button:disabled {
   box-shadow: 0 18px 48px var(--shadow);
   font-size: var(--text-xs);
   color: var(--ink);
+}
+
+/* 第 140 轮 A2：「与打开时相比」改成全宽模式，不再悬浮小窗。
+   #diff-view 是 main 的直系子节点（编辑块 hidden 让位），所以宽度天然等于 main.clientWidth */
+.diff-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 32px 24px 64px;
+  font-size: var(--text-xs);
+  color: var(--ink);
+}
+
+.diff-view .rail-diff-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px 0;
+  background: var(--paper);
 }
 
 .rail-diff-head {
@@ -1484,6 +1527,23 @@ button:disabled {
 .rail-diff-row.is-removed {
   background: var(--mark-wash);
   color: var(--warn);
+}
+
+/* 第 140 轮 A2：可跳回正文的行给手型；空行 / 围栏 / 表格 / removed 行不定位，保持默认光标 */
+.rail-diff-row.is-jump {
+  cursor: pointer;
+}
+
+.rail-diff-row.is-jump:hover {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+/* 全宽模式里行列表自己滚：上方头行与提示不随内容滚出视口 */
+.diff-view .rail-diff-rows {
+  flex: none;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
 }
 
 /* 第 101 轮 B-228：在审文件列表的一行（ul/li 复用 .rail-diff-rows，行内是整行按钮）。
@@ -1636,7 +1696,8 @@ button:disabled {
 .note {
   position: absolute;
   left: 0;
-  right: 0;
+  /* 第 140 轮 A1：绝对定位参照 .margin-rail 的 padding 盒，右缘要单独内缩 12px 才离窗口边 */
+  right: 12px;
   padding: 9px 11px 7px;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -3595,9 +3656,11 @@ button:disabled {
   padding-bottom: 80px;
 }
 
-/* 两个类写：小视口的 @media .doc-layout 是单层类，同权重会盖掉单层写法 */
+/* 两个类写：小视口的 @media .doc-layout 是单层类，同权重会盖掉单层写法。
+   第 140 轮 A1：编辑布局右侧 padding 归 0 后，预览的单列还要 32px 右内缩才不右移（P2-4） */
 .doc-layout.preview-layout {
   grid-template-columns: minmax(0, 36rem);
+  padding-right: 32px;
 }
 
 .preview-layout .preview-column {
@@ -3661,7 +3724,8 @@ button:disabled {
 
 .rail-toggle,
 .rail-close,
-.rail-backdrop {
+.rail-backdrop,
+.rail-reopen {
   display: none;
 }
 
@@ -3690,6 +3754,12 @@ button:disabled {
   }
 
   .margin-rail {
+    display: none;
+  }
+
+  /* 第 140 轮 A1：折叠钮与拖宽把手只服务宽窗，窄窗走抽屉 */
+  .rail-collapse,
+  .rail-resize {
     display: none;
   }
 
@@ -3772,6 +3842,40 @@ button:disabled {
 
   .risk-banner {
     flex-wrap: wrap;
+  }
+}
+
+/* 第 140 轮 A1：宽窗折叠——右轨收成 0 宽、栏整块藏起来，正文列在剩下的轨里重新居中。
+   只在 ≥1120px 生效：窄窗的单列 + 抽屉优先（第 126 轮 A1 的 .app.rail-open 更高优先度） */
+@media (min-width: 1120px) {
+  .doc-layout.is-rail-collapsed {
+    grid-template-columns: minmax(0, 1fr) 0;
+    column-gap: 0;
+  }
+
+  .doc-layout.is-rail-collapsed .margin-rail {
+    display: none;
+  }
+
+  .rail-reopen {
+    display: inline-flex;
+    position: fixed;
+    right: 18px;
+    top: 50%;
+    z-index: 30;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: var(--paper-raised);
+    box-shadow: 0 1px 2px var(--shadow);
+    color: var(--ink-soft);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
   }
 }
 

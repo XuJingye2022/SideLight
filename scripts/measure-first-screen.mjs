@@ -9,14 +9,16 @@
 //   传递闭包（已在门里计过的入口文件排除）」算，否则拆出共享 chunk 后会漏算（第 136 轮 plan-review CR-6）。
 //
 // **默认判定口径 = 真实首载（real）**（第 139 轮 B-229 翻转）：
-//   `--max` 就是真实首载硬线（默认 320000）——写成 `--max 316200` 这种旧门槛的调用会直接红；
-//   `--target` 内部预算（默认 310000）仍只 WARN；`headroom` 与「距硬线 <5%」也按 real 判。
-//   实测（第 139 轮翻口径时的三数）：门 total=315,616 / 常驻 resident=4,190 / 真实首载 real=319,806。
+//   `--max` 就是真实首载硬线（默认 325000，第 140 轮 A3 按授权 320000→325000）——写成 `--max 316200`
+//   这种旧门槛的调用会直接红；`--target` 内部预算（默认 310000）仍只 WARN；`headroom` 与「距硬线 <5%」也按 real 判。
+//   实测（第 140 轮最终 build）：门 total=316,648 / 常驻 resident=4,473 / 真实首载 real=321,121。
+//   第 140 轮 A3 调线理由：右栏贴右缘 + 可拖宽/折叠与顶栏全宽对比净增 1,315 B（先删旧浮层/网格 CSS 与
+//   MarginRail 的对比链抵消后仍超 320,000 1,121 B），按授权最多到 325,000；超过 325,000 必须拆批。
 // `--no-resident` 复旧口径：不扫常驻、不打印 real 行，预算与 --target 都判 total（CI/发布门用的就是默认口径，
-//   第 139 轮起同步变成 real ≤320,000；本轮不 push，CI 侧未验）。
+//   第 139 轮起同步变成 real ≤325,000；本轮不 push，CI 侧未验）。
 // `--real-max N` 单独改真实首载硬线（默认等于 --max）。
 //
-// 用法：node scripts/measure-first-screen.mjs [--dir dist] [--max 320000] [--target 310000]
+// 用法：node scripts/measure-first-screen.mjs [--dir dist] [--max 325000] [--target 310000]
 //       [--real-max N] [--no-resident]
 // 只读产物，不构建；超预算 exit 1，首屏集合里出现 katex / lazy chunk 也 exit 1。
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
@@ -52,7 +54,7 @@ const readArg = (name, fallback) => {
 }
 const positional = args.find((arg, i) => !arg.startsWith('--') && !(args[i - 1] ?? '').startsWith('--'))
 const dir = resolve(readArg('--dir', positional || 'dist'))
-const max = Number(readArg('--max', '320000'))
+const max = Number(readArg('--max', '325000'))
 const target = Number(readArg('--target', '310000'))
 // 第 139 轮 B-229：默认真实首载硬线就是 --max；显式 --real-max 才另给一条（--no-resident 时不看它）
 const realMax = Number(readArg('--real-max', String(max)))

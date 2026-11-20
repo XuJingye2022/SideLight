@@ -28,6 +28,7 @@ const railSource = source('src/components/MarginRail.tsx')
 const diffSource = source('src/components/RailDiffPanel.tsx')
 const reviewSource = source('src/components/RailReviewPanel.tsx')
 const chatSource = source('src/components/RailChat.tsx')
+const appSource = source('src/App.tsx')
 /** 两块面板已拆出：ul 的归属按「合起来的源码」判 */
 const panelsSource = `${railSource}\n${diffSource}\n${reviewSource}`
 const styles = source('src/styles.css')
@@ -65,10 +66,11 @@ test('在审文件那条 ul：行是按钮、不加 tabIndex（Tab 序只多对�
   assert.ok(!tagText(reviewTag).includes('tabIndex'), '在审文件列表的 ul 不许加 tabIndex')
 })
 
-test('批注卡 / 对话记录 / 对比 ul 合起来 tabIndex={0} 恰 3 处，且滚动样式不改', () => {
+test('批注卡 / 对话记录 / 对比 ul / 拖宽把手合起来 tabIndex={0} 恰 4 处，且滚动样式不改', () => {
+  // 第 140 轮 A1：批注卡 1 + 拖宽把手 1 + 对比 ul 1 + 对话记录 1
   assert.equal(
     count(railSource + diffSource + chatSource, 'tabIndex={0}'),
-    3,
+    4,
     'tabIndex={0} 的处数变了：先确认新增/删除是否本轮计划内',
   )
   // CSS 0 行：焦点环走 :192 的全局 :focus-visible，滚动仍是这块的 max-height + overflow
@@ -82,14 +84,14 @@ test('批注卡 / 对话记录 / 对比 ul 合起来 tabIndex={0} 恰 3 处，�
 /**
  * 第 139 轮 B-229 新增硬门：三块面板必须按开合加载。
  *
- * 「搬文件」不等于不进常驻：`MarginRail.tsx` 只要还静态 import 它们，rollup 仍把面板留在
- * `MarginRail-*.js` 里，真实首载一字节不降，而面板 E2E 照样全绿。所以按源码文本判：
- * ① 三个面板各恰一条 `lazy(() => import('./X.tsx'))`；② 不许出现静态说明符 `from './X.tsx'`。
- * 负向证据：加一条静态 import → ② 红；把一条 lazy 换成直接 import → ① 红（`docs/iteration/round-139/impl.md`）。
+ * 第 140 轮 A2：「对比」搬去 App（顶栏 + 全宽模式），懒加载接线跟着搬：
+ * ① `MarginRail.tsx` 只剩「在审」与「对话」两条 `lazy(() => import(...))`；
+ * ② `App.tsx` 恰一条 `lazy(() => import('./components/RailDiffPanel.tsx'))`，且不许静态 import；
+ * ③ 三个面板文件都不许被静态说明符拉进来（静态 import 会把面板留在常驻 chunk 里）。
  */
-test('MarginRail.tsx：三个面板只经 lazy(() => import(...)) 加载，静态说明符 0', () => {
-  assert.equal(count(railSource, 'lazy(() => '), 3, '三个面板各一条 lazy(() => …)，多一条少一条都要先说明来源')
-  for (const name of ['RailDiffPanel', 'RailReviewPanel', 'RailChat']) {
+test('MarginRail.tsx：在审 / 对话两块仍只经 lazy(...) 加载，对比搬去 App，静态说明符 0', () => {
+  assert.equal(count(railSource, 'lazy(() => '), 2, '两个面板各一条 lazy(() => …)，多一条少一条都要先说明来源')
+  for (const name of ['RailReviewPanel', 'RailChat']) {
     assert.equal(
       count(railSource, `lazy(() => import('./${name}.tsx'))`),
       1,
@@ -97,14 +99,19 @@ test('MarginRail.tsx：三个面板只经 lazy(() => import(...)) 加载，静�
     )
     assert.equal(count(railSource, `from './${name}.tsx'`), 0, `${name} 不许静态 import：会把它留在常驻 chunk 里`)
   }
+  assert.equal(count(railSource, 'RailDiffPanel'), 0, '「对比」已搬去 App：MarginRail 不许再引它')
+  assert.equal(count(appSource, "lazy(() => import('./components/RailDiffPanel.tsx'))"), 1, '对比面板要在 App 里懒加载')
+  assert.equal(count(appSource, "from './components/RailDiffPanel.tsx'"), 0, '对比面板不许被 App 静态 import')
 })
 
 /** 面板文件自己也不许把对侧面板静态拉进来（否则拆完又被合回去） */
-test('三块面板文件：互不静态 import 对方，各自直接走 createPortal / no portal', () => {
+test('三块面板文件：互不静态 import 对方；对比面板不再走 portal，在审面板仍走', () => {
   assert.equal(count(diffSource, "from './RailReviewPanel.tsx'"), 0, '对比面板不许静态 import 在审面板')
   assert.equal(count(reviewSource, "from './RailDiffPanel.tsx'"), 0, '在审面板不许静态 import 对比面板')
   assert.equal(count(chatSource, "from './RailDiffPanel.tsx'"), 0, '对话面板不许静态 import 对比面板')
   assert.equal(count(chatSource, "from './RailReviewPanel.tsx'"), 0, '对话面板不许静态 import 在审面板')
-  assert.ok(diffSource.includes('createPortal('), '对比面板要自己挂到 body（原来是 MarginRail 的 portal）')
-  assert.ok(reviewSource.includes('createPortal('), '在审面板要自己挂到 body（原来是 MarginRail 的 portal）')
+  // 第 140 轮 A2：对比是全宽模式（main 的直系子节点），不再是 portal + 模态
+  assert.ok(!diffSource.includes('createPortal('), '全宽对比不该再挂到 body')
+  assert.ok(!diffSource.includes('useDialogFocus('), '全宽对比不是模态，不再接管焦点')
+  assert.ok(reviewSource.includes('createPortal('), '在审面板仍要自己挂到 body（原来是 MarginRail 的 portal）')
 })

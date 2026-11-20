@@ -18,6 +18,7 @@ import {
   findRange,
   isClosedReview,
   legacyReviewStatus,
+  locateMarkdownLine,
   marksBody,
   normalizePriority,
   normalizeReviewStatus,
@@ -29,6 +30,7 @@ import {
   reviewStatusOnReply,
   serializeAnnotationStore,
   shiftAnnotations,
+  stripLineMarkup,
   threadText,
   type Annotation,
   type ParsedAnnotation,
@@ -820,4 +822,48 @@ test('批注写盘三枚新名各 ≥2，且 flushAnnotationWrite 声明在 ref 
   assert.ok(refAt > 0 && applyAt > 0 && flushAt > 0, '锚点缺失')
   assert.ok(flushAt > refAt, 'flushAnnotationWrite 声明必须在 ref 区之后（否则 TDZ）')
   assert.ok(flushAt < applyAt, 'flushAnnotationWrite 声明必须早于 applyHostPayload')
+})
+
+/* ---------- diff 行回正文（第 140 轮 A2：stripLineMarkup / locateMarkdownLine） ---------- */
+
+test('stripLineMarkup：标题 / 引用 / 列表 / 任务 / 强调 / 表格竖线都剥掉，不可定位的行回空串', () => {
+  assert.equal(stripLineMarkup('## 标题'), '标题')
+  assert.equal(stripLineMarkup('> 引用一句'), '引用一句')
+  assert.equal(stripLineMarkup('- 列表项'), '列表项')
+  assert.equal(stripLineMarkup('1. 有序项'), '有序项')
+  assert.equal(stripLineMarkup('- [x] 任务项'), '任务项')
+  assert.equal(stripLineMarkup('**粗体** 与 `代码` 与 ~~删除~~'), '粗体 与 代码 与 删除')
+  assert.equal(stripLineMarkup('甲 | 乙').replace(/\s+/g, ' '), '甲 乙')
+  // 不可定位：空行、围栏、表格行、水平线与整行竖线
+  assert.equal(stripLineMarkup(''), '')
+  assert.equal(stripLineMarkup('   '), '')
+  assert.equal(stripLineMarkup('```js'), '')
+  assert.equal(stripLineMarkup('~~~'), '')
+  assert.equal(stripLineMarkup('| 甲 | 乙 |'), '')
+  assert.equal(stripLineMarkup('---'), '')
+})
+
+test('locateMarkdownLine：剥过标记的 diff 行落到正文，长行按前 24 字回退，定位不到回 null', () => {
+  const index = buildTextIndex(doc)
+  const bold = locateMarkdownLine(index, '**第一段写得很平。**')
+  assert.ok(bold, '`**…**` 的行要能剥出正文原句')
+  assert.equal(doc.textBetween(bold.from, bold.to, ' '), '第一段写得很平。')
+
+  // 行被 clip 截过（尾「…」）：先去掉省略号再定位
+  const clipped = locateMarkdownLine(index, '第一段写得很平。…')
+  assert.ok(clipped)
+  assert.equal(doc.textBetween(clipped.from, clipped.to, ' '), '第一段写得很平。')
+
+  assert.equal(locateMarkdownLine(index, '正文里没有这句话。'), null)
+  assert.equal(locateMarkdownLine(index, '| 甲 | 乙 |'), null)
+  assert.equal(locateMarkdownLine(index, ''), null)
+
+  // 超过 24 字的行：整句找不到时按前 24 字定位（选区只覆盖这 24 字）
+  const long = '长句定位测试甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥一二三四五六七八九十'
+  const longIndex = buildTextIndex(
+    schema.nodeFromJSON({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: long }] }] }),
+  )
+  const head = locateMarkdownLine(longIndex, `${long}后面还有更多字…`)
+  assert.ok(head, '整句被截断时按前 24 字回退')
+  assert.equal(head.to - head.from, 24)
 })

@@ -25,6 +25,7 @@ const source = (path: string): string =>
 const appSource = source('src/App.tsx')
 const railSource = source('src/components/MarginRail.tsx')
 const diffSource = source('src/components/RailDiffPanel.tsx')
+const reviewSource = source('src/components/RailReviewPanel.tsx')
 
 const count = (haystack: string, needle: string): number => haystack.split(needle).length - 1
 
@@ -70,32 +71,37 @@ test('MarginRail.tsx：Props 与解构各一处（漏了就是 always undefined�
   assert.equal(count(railSource, 'appDialogOpen,'), 1, '解构里 appDialogOpen 只许写一次')
 })
 
-test('MarginRail.tsx：两个只读面板的挂载谓词都带 !appDialogOpen', () => {
+test('MarginRail.tsx：只读面板（在审）的挂载谓词带 !appDialogOpen', () => {
   // 第 139 轮 B-229：面板改按开合挂载（lazy chunk），谓词从「数据非空」换成「点开过」的状态
-  assert.ok(
-    railSource.includes("const diffOpen = diffOn && railTab === 'notes' && !appDialogOpen"),
-    '「对比」的 diffOpen 必须带 !appDialogOpen',
-  )
+  // 第 140 轮 A2：「对比」搬去 App 的全宽模式，右栏只剩「在审」这一处让位谓词
   assert.ok(
     railSource.includes("const reviewActive = reviewOn && railTab === 'notes' && !appDialogOpen"),
     '「在审」的 reviewActive 必须带 !appDialogOpen',
   )
-  assert.ok(count(railSource, '!appDialogOpen') >= 2, '两个面板各要一处 !appDialogOpen')
+  assert.equal(count(railSource, '!appDialogOpen'), 1, '右栏只剩在审面板一处 !appDialogOpen')
 })
 
-test('MarginRail.tsx：对比面板的挂载条件走 diffOpen，portal 在面板文件里', () => {
+test('MarginRail.tsx：在审面板的挂载条件走 reviewActive，portal 与焦点接管在面板文件里', () => {
   // 第 139 轮 B-229：portal 跟面板一起搬出；MarginRail 只剩「开关 + 就地 Suspense」这一层
-  assert.match(railSource, /\{diffOpen && <RailDiffPanel /, '挂载条件必须是 diffOpen（打开状态 × 页签 × 让位）')
-  assert.ok(diffSource.includes('createPortal('), 'portal 应搬进 RailDiffPanel.tsx')
-  assert.ok(diffSource.includes("useDialogFocus(true, sheetRef, '.rail-diff-overlay')"), '焦点接管跟面板走')
+  assert.match(railSource, /\{reviewActive && \(\s*<RailReviewPanel/, '挂载条件必须是 reviewActive（打开状态 × 页签 × 让位）')
+  assert.ok(reviewSource.includes('createPortal('), 'portal 应在 RailReviewPanel.tsx')
+  assert.ok(
+    reviewSource.includes("useDialogFocus(true, sheetRef, '.rail-review-overlay')"),
+    '焦点接管跟面板走',
+  )
+  // 第 140 轮 A2：全宽对比不是模态——不许再走 portal / useDialogFocus
+  assert.ok(!diffSource.includes('createPortal('), '全宽对比不该再挂 body')
+  assert.ok(!diffSource.includes('useDialogFocus('), '全宽对比不该接管焦点')
 })
 
-test('MarginRail.tsx：换文档清掉两个面板的打开态（让位期间不挂载也不留上一篇）', () => {
+test('MarginRail.tsx：换文档清掉在审面板的打开态（让位期间不挂载也不留上一篇）', () => {
   assert.match(
     railSource,
-    /setReviewOn\(false\)\s+setDiffOn\(false\)\s*\}, \[docName\]\)/,
-    'docName effect 里要把两个面板都收掉：关掉对话框回来时不许还是上一篇的面板',
+    /setReviewOn\(false\)\s*\}, \[docName\]\)/,
+    'docName effect 里要把在审面板收掉：关掉对话框回来时不许还是上一篇的面板',
   )
+  // 第 140 轮 A2：对比的换篇重置搬去 App（docInstance effect）
+  assert.match(appSource, /setDiffOpen\(false\)\s*\}, \[docInstance\]\)/, '对比面板换篇要收掉（P1-1）')
 })
 
 /*
@@ -108,8 +114,8 @@ test('MarginRail.tsx：换文档清掉两个面板的打开态（让位期间不
 test('App.tsx：只读面板的模态态由唯一一处 querySelector 判定', () => {
   assert.equal(count(appSource, '.rail-diff-overlay'), 1, '选择器只许出现一次（多一处就多一个真源）')
   assert.ok(
-    appSource.includes("const railModal = document.querySelector('.rail-diff-overlay') !== null"),
-    '模态态必须按 DOM 事实取：面板挂在 body，App state 看不见',
+    appSource.includes("const railModal = document.querySelector('.rail-diff-overlay, #diff-view') !== null"),
+    '模态态必须按 DOM 事实取：在审面板挂 body、全宽对比是 main 的子节点，App state 看不见',
   )
 })
 

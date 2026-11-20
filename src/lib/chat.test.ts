@@ -518,7 +518,9 @@ test('chatContextFor：文首/第一块内取开头切片，空文档与全空�
  */
 test('对话上下文的接线（静态门）：App 传选区+viewMode 守卫，RailChat 调 chatContextFor 恰 1 处', () => {
   const app = readFileSync('src/App.tsx', 'utf8')
-  const prop = between(app, 'getChatSource=', 'getDiff=')
+  // 第 140 轮 A2：`getDiff` 已搬进 App 的全宽对比模式，App 里不再有 `getDiff=` 这个 prop 段，
+  // 段尾锚点改用下一个仍在的 prop `getReviewWorkspace=`（断言本身不放宽）
+  const prop = between(app, 'getChatSource=', 'getReviewWorkspace=')
   assert.ok(prop.includes(`viewMode === 'edit'`), '非编辑视图要把 from/to 压成文首')
   assert.ok(prop.includes('state.selection'), '要给的是编辑器当前选区/光标')
   assert.ok(prop.includes('readBlocks('), '块要现读，不能缓存')
