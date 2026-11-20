@@ -1179,12 +1179,13 @@ button:disabled {
   pointer-events: auto;
 }
 
+/* 第 122 轮 B-252：徽标字色改 --ink，暖纸对比度 4.02:1 → 8.20:1（三主题 ≥8.20） */
 .rail-overall-count {
   min-width: 16px;
   padding: 1px 5px;
   border-radius: 999px;
   background: var(--line);
-  color: var(--ink-soft);
+  color: var(--ink);
   font-size: 10px;
   text-align: center;
 }

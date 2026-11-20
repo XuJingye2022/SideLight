@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–121 轮，未发版）
+## Unreleased（第 29–122 轮，未发版）
+
+**第 122 轮（同一未发版区间）**
+
+- 暖纸主题「整体评价」条数徽标对比度补到 AA（**B-252**，第 119 轮三主题扫描唯一失败项）：`.rail-overall-count` 的 `color: var(--ink-soft)` 改 **`color: var(--ink)`**（`src/styles.css:1182` 加第 122 轮注释、`:1188` 改动，`git diff` **+2/−1**；`background: var(--line)`、`font-size: 10px`、`padding`、`border-radius` 一律不动）——三主题比值 5.10 / **4.02** / 6.03 → **12.32 / 8.20 / 10.97**，药丸底 vs 整体评价底仍是 1.21 / 1.31 / 1.31（外观不变）；`src/lib/themes.test.ts` 追加 1 条（`ruleDeclarations('.rail-overall-count')` 取字色/底色，三档先算比值各断 ≥4.5 并 `table.push`、再断 `table.length===3`、最后断 `color==='var(--ink)'`），`npm test` 64 文件 909→**910 条**。tester 独立（未读 `impl.md`）：自读 CSS 变量复算 **12.3173 / 8.2048 / 10.9689**、旧 `--ink-soft` 4.0181；负向改回 `--ink-soft` → **11 pass / 1 fail exit 1**、报文「暖纸的徽标只有 4.02:1」，还原 **12/12 exit 0**；自写真机探针（ego CDP 57270、1440×900）**20/20、0 pageerror**：sepia 徽标底逐字 `rgb(221, 203, 170)`、三档比值与静态同值、徽标 16×16 / 10 px；门禁 `npm run verify` PASS、gzip **315,559 B**（净 **+6 B**、余硬线 4,441、距本轮验收线 1 B；内部预算 310,000 仍超 5,559 B 只 WARN）、chunk `MarginRail-CQzq6gd5.js` gzip9 **7,417**、B-229 口径合计 **322,976**（仍 `open`，只记）；回归 `theme-acceptance` **27/27** 后已 `git checkout -- shots/round-05/`；`roundtrip` 不跑（未动编辑器/序列化）。证据 `.tmp/r122-tester-*.{mjs,json,log}`、截图 `shots/round-122/rail-overall-count-sepia-tester.png`。UNVERIFIED：真实屏幕阅读器、真 WebView2 宿主、真实中文 IME、原生打印。见 `docs/iteration/round-122/test.md`。
 
 **第 121 轮（同一未发版区间）**
 

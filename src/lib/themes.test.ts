@@ -207,6 +207,31 @@ test('批注四态字色与底色在三套主题下都 ≥4.5:1（第 97 轮 B-2
   assert.equal(table.length, 12, table.join(' '))
 })
 
+test('右侧整体评价徽标在三套主题下都 ≥4.5:1（第 122 轮 B-252）', () => {
+  const declarations = ruleDeclarations('.rail-overall-count')
+  const themes: [string, string][] = [
+    ['浅色', ':root'],
+    ['暖纸', "html[data-theme='sepia']"],
+    ['深色', "html[data-theme='dark']"],
+  ]
+  const table: string[] = []
+  for (const [name, selector] of themes) {
+    const vars = cssVars(selector)
+    assert.ok(declarations.color, '徽标没写字色')
+    assert.ok(declarations.background, '徽标没写底色')
+    const ratio = contrastRatio(
+      resolveColor(declarations.color, vars),
+      resolveColor(declarations.background, vars),
+    )
+    table.push(`${name}/${ratio.toFixed(2)}`)
+    assert.ok(ratio >= 4.5, `${name}的徽标只有 ${ratio.toFixed(2)}:1`)
+  }
+  // 三档全算过：主题数被改少时这里先红
+  assert.equal(table.length, 3, table.join(' '))
+  // 口径钉死：改回 --ink-soft 时上面的暖纸档先红（4.02），这里再挡一次手改字色
+  assert.equal(declarations.color, 'var(--ink)', '徽标字色应吃 --ink')
+})
+
 test('对话输入框有主题配色，三套主题下字色 / 边框色都过 AA（第 106 轮 B-235）', () => {
   const declarations = ruleDeclarations('.rail-chat-compose textarea')
   assert.equal(declarations.color, 'var(--ink)', '输入框字色应吃 --ink')
