@@ -106,7 +106,6 @@ import { disableSingleTildeStrike } from './lib/tilde.ts'
 import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline.ts'
 import { clampFontSize, clampPageZoom, DEFAULT_SETTINGS, PAGE_ZOOM_STEP } from './lib/settings.ts'
 import { matchKeybinding, resolveKeybindings, type Keybindings } from './lib/keybindings.ts'
-import { searchWeb } from './lib/search.ts'
 import { hasKey, loadSettings, saveSettings, type Settings } from './lib/settings.ts'
 import { createSmartTyping } from './lib/smartTyping.ts'
 import { countParagraphs, countText, type TextStats } from './lib/wordcount.ts'
@@ -128,7 +127,6 @@ import {
   type Workspace,
   type WorkspaceFileNode,
 } from './lib/workspace.ts'
-import { assetFileName, writeAsset } from './lib/asset.ts'
 import {
   clearAssetCache,
   hostAssetUrl,
@@ -1998,6 +1996,8 @@ export default function App() {
       setVerifyingId(annotation.id)
       try {
         const query = `${annotation.quote} ${annotation.note}`.replace(/\s+/g, ' ').trim().slice(0, 200)
+        // 按需加载（第 136 轮体积）：三种搜索服务只在真的点「联网核对」时才进来，不进首屏
+        const { searchWeb } = await import('./lib/search.ts')
         const sources = await searchWeb({ provider, apiKey }, query)
         setAnnotations((previous) =>
           previous.map((item) => (item.id === annotation.id ? { ...item, sources } : item)),
@@ -5265,6 +5265,8 @@ export default function App() {
 
       if (dir) {
         try {
+          // 按需加载（第 136 轮体积）：图片写盘只在有工作区且真拖入图片时才进来，不进首屏
+          const { assetFileName, writeAsset } = await import('./lib/asset.ts')
           const name = assetFileName(file.name || 'image.png', Date.now())
           const relative = await writeAsset(dir, name, file)
           // 先解析一次再插节点：否则插入瞬间会闪一下破图（失败不影响插入）

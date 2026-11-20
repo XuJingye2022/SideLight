@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–135 轮，未发版）
+## Unreleased（第 29–136 轮，未发版）
+
+**第 136 轮（同一未发版区间）**
+
+- 测量脚本报告真实首载、R1/R2 按需拆（**B-229**，慢车道；真实首载 324,130 仍超硬线 4,130）——`scripts/measure-first-screen.mjs` 新增常驻口径：`RESIDENT = [/^MarginRail-.*\.js$/]` 扫 `assets`，按「seed + 静态 import 传递闭包（门里已计的文件排除）」算常驻，打印 `resident raw/gzip/files`、`real raw/gzip/headroom` 与 `total=… resident=… real=…`；**`total`/`--max`/`--target`/headroom 与默认门禁全不动**（CI `ci.yml:39`、`release.yml:82/155` 照旧），real 超硬线只 WARN，显式 `--real-max N` 才 FAIL exit 1，`--no-resident` 复旧口径；计数守卫：0 命中 → FAIL「常驻 chunk 未找到」、入口与常驻重复 → FAIL「重复计数」（先于总门判）。`src/App.tsx:2000` `searchWeb` 改 `await import('./lib/search.ts')`、`:5269` `assetFileName/writeAsset` 改 `await import('./lib/asset.ts')`；`collectReviewFiles` 及只服务它的 `atLeast`/`directoryKey`/`DEFAULT_MAX_FILES` 搬进新 `src/lib/reviewScan.ts`，`compareRows` 留 `reviewFiles.ts:34` 导出并两处共用（`reviewFiles.ts:85`、`reviewScan.ts:89`，单向依赖无环），`MarginRail.tsx:465` 点开面板才 `await import('../lib/reviewScan.ts')`、动态 import 或读目录失败按空态收场；`reviewFiles.test.ts` 导入随之改；不做 `diffView` 异步化。tester 独立（未读 `impl.md`）：脚本五个口径逐项实跑（默认 exit 0 且三数 + WARN 行、`--no-resident` exit 0 无 real 行、`--real-max 320000` exit 1、只拷入口产物 → exit 1「常驻 chunk 未找到」、自造重复夹具 → exit 1「重复计数」），静态门 `App.tsx` 两个静态 import **0（exit 1）** 而两处 `await import(` 各 **1**、`MarginRail.tsx` 静态块已无 `collectReviewFiles` 且惰性 import **1**；`dist/assets` 真产物 `search-*`（2,090 / 939）、`reviewScan-*`（839 / 524）、`asset-*`（557 / 364）与常驻 `MarginRail-*`（22,217 / 7,801）；自写 E2E `.tmp/r136-tester-a3.mjs`（ego CDP 57270、1440×900、假 FSA + stub fetch）**11/11、0 pageerror**：① 出处 2 条且 `search.ts` 点按钮前 0 → 后 1、② 在审 2 行与快照 1 行且 `reviewScan.ts` 点开前 0 → 后 1、③ 对话 2 条切页签往返仍 2 条且 `#rail-panel-chat` 仍是 `#rail-tab-chat` 的 `aria-controls` 目标；交付脚本 `.tmp/e2e-r136-a2.mjs` 复跑 **21/21**（截图 `shots/round-136/{review-panel,verify-sources}.png`）、回归 r135 **23/23**。门禁：`npm run verify` **exit 0 PASS**、门 gzip **315,279 B**（raw 1,023,265、headroom 4,721）、常驻 gzip9 **7,801**、真实首载 **323,080**（对轮初 324,130 **−1,050**，仍超硬线 **3,080** → `open` 只记）；`npm test` **69 文件 955 条 0 fail**。UNVERIFIED：真 WebView2 宿主、真实中文 IME、真实 FSA。见 `docs/iteration/round-136/test.md`。
 
 **第 135 轮（同一未发版区间）**
 

@@ -22,7 +22,6 @@ import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
 import type { RevisionSummary } from '../lib/revisionList.ts'
 import {
   applyLiveReviewRow,
-  collectReviewFiles,
   countOpenAnnotations,
   hasUnclosedReview,
   reviewTruncatedNote,
@@ -439,7 +438,12 @@ export function MarginRail({
     loadSnapshots(reviewRunRef.current)
   }, [revisionEpoch, reviewActive])
 
-  /** 点入口才现读：批注档在磁盘上，面板里的 open 数永远是这一刻的 */
+  /**
+   * 点入口才现读：批注档在磁盘上，面板里的 open 数永远是这一刻的。
+   *
+   * 扫描逻辑走惰性 import（第 136 轮体积，B-229）：数据层只在点开面板时加载，不进常驻 chunk。
+   * 动态 import 失败时按「没有在审文件」的空态收场，绝不留 unhandled rejection（plan-review CR-7）。
+   */
   const openReview = async () => {
     setReviewOpen(true)
     setReviewData(null)
@@ -458,8 +462,11 @@ export function MarginRail({
       }
       // 两份清单并行读：在审列表与快照互不等待
       loadSnapshots(run)
+      const { collectReviewFiles } = await import('../lib/reviewScan.ts')
       const result = await collectReviewFiles(workspace, flattenFiles(workspace.root))
       if (reviewRunRef.current === run) setReviewData(result)
+    } catch {
+      // 数据层没加载起来（动态 import 或读目录抛错）只让「在审」这一段空着，面板其余部分照常
     } finally {
       if (reviewRunRef.current === run) setReviewBusy(false)
     }

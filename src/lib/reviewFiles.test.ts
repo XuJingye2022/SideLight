@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { applyLiveReviewRow, collectReviewFiles, reviewTruncatedNote, REVIEW_MAX_ROWS, type ReviewFilesResult } from './reviewFiles.ts'
+import { applyLiveReviewRow, reviewTruncatedNote, REVIEW_MAX_ROWS, type ReviewFilesResult } from './reviewFiles.ts'
+import { collectReviewFiles } from './reviewScan.ts'
 import type { Workspace, WorkspaceFileNode } from './workspace.ts'
 
 /* ---------- 假 FSA：按 files 键前缀判目录，create / write 都记进 ops ---------- */
