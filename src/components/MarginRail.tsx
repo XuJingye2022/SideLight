@@ -871,7 +871,8 @@ export function MarginRail({
               ) : (
                 <>
                   {diffData.truncated && <p className="rail-diff-empty">改动太多，只显示前 400 行。</p>}
-                  <ul className="rail-diff-rows">
+                  {/* 第 120 轮 B-250：面板里只有关闭钮一个 Tab 站，长 diff 键盘读不到第二屏——ul 自己进 Tab 序、焦点环走全局 :focus-visible */}
+                  <ul className="rail-diff-rows" role="list" tabIndex={0} aria-label="改动对比行">
                     {diffData.rows.map((row, index) => (
                       <li key={index} className={`rail-diff-row is-${row.kind}`}>
                         {`${markOf(row.kind)} ${row.text || ' '}`}

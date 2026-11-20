@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–119 轮，未发版）
+## Unreleased（第 29–120 轮，未发版）
+
+**第 120 轮（同一未发版区间）**
+
+- 「对比」面板的长 diff 现在可键盘滚动（**B-250**，第 119 轮 finder 真机：119 行 diff 时 `.rail-diff-rows` 是 `max-height:60vh; overflow:auto` 的纯 `<li>` 列表、无 tabindex，面板唯一 Tab 站是关闭钮，PageDown/ArrowDown/End 后 scrollTop 全 0、同一容器滚轮 400；WCAG 2.1.1）：`src/components/MarginRail.tsx:874` 的对比 ul 加 `role="list"`/`tabIndex={0}`/`aria-label="改动对比行"`（上一行第 120 轮注释），在审文件 ul（`:934`）不动；新静态门 `src/lib/railDiffA11y.test.ts` **4 条**挂 `npm test` 链尾（63→**64 文件**、903→**907 条**：两处 ul 按子节点分派、对比那条断三属性、在审那条禁 `tabIndex`、全文件 `tabIndex={0}` 恰 3 处且 `.rail-diff-rows` 的 `max-height`/`overflow` 仍在），负向只删对比 ul 的 `tabIndex={0}` → **2 红 exit 1**（②④）。tester 独立（未读 `impl.md`）：静态 diffstat **1 file changed, 2 insertions(+), 1 deletion(-)**、`-U0` 1/2、diff 内 `rail-review` 0 命中、`git diff -- src/styles.css` 空；before **7/7**（119 行 / scrollH 2380 / 溢出 1840 / 键盘 4 键全 0 / 滚轮 400）→ after **12/12、0 pageerror**（`tabindex="0"`/`role="list"`/`aria-label`、关闭钮 Tab 一次落 ul 且 `:focus-visible`、三主题四块 outline 2px 且色 = 页内 `--focus-ring`、溢出 1840、PageDown 472→944 / ArrowDown 984 / End 1840=max / Home 0、End 后末行底 = ul 底、Esc 关面板 + `[inert]` 0 + 焦点回 `.rail-diff-open`），截图 `shots/round-120/diff-kb-scroll.png`。门禁：`npm test` **64 文件 907 条 0 fail**、`npm run verify` PASS，门 gzip **315,546 B**（净 **+4 B**、headroom 4,454；偏差已查因——chunk 哈希全局换名使入口 gzip +4，把 `MarginRail.tsx` 换回 HEAD 版重建可复现 315,542，非主包体积增长）、常驻 `MarginRail-D1qNoJ-u.js` gzip9 **7,419**（B-229 口径合计 322,965，仍 `open`）；回归 `.tmp/e2e-r100-diff.mjs` **43/43**、`.tmp/e2e-r101-review.mjs` **57/57**；`roundtrip` 不跑（未动编辑器/序列化）。UNVERIFIED：真实屏幕阅读器、⑧⑪ 两条可裁组、真 WebView2 宿主/真实中文 IME/原生打印。见 `docs/iteration/round-120/test.md`。
 
 **第 119 轮（同一未发版区间）**
 
