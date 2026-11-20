@@ -228,12 +228,50 @@ test('chatRefocusAfterStream：只有「没中止且焦点还在对话面板」�
   assert.equal(chatRefocusAfterStream(true, false), false, '两样都占：不回焦')
 })
 
-test('MarginRail 的收尾回焦唯一且必须过 chatRefocusAfterStream（静态门）', () => {
+test('MarginRail 的两处回焦：先移焦再置灰，收尾必过 chatRefocusAfterStream（静态门）', () => {
   const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
   const focusLines = source.split('\n').filter((line) => line.includes('inputRef.current?.focus()'))
-  assert.equal(focusLines.length, 1, `inputRef.current?.focus() 全文件必须恰 1 处（本缺陷原形是无条件回焦）`)
-  assert.match(focusLines[0], /chatRefocusAfterStream\(/, '回焦必须挂在谓词上，删掉条件就红')
-  assert.match(focusLines[0], /controller\.signal\.aborted/, '判据要读本轮的 signal，不能读别的状态')
+  assert.equal(focusLines.length, 2, `inputRef.current?.focus() 全文件必须恰 2 处（发送前先移焦 + 收尾回焦；本缺陷原形是无条件回焦）`)
+  // 第 134 轮 A1（B-264）：鼠标点亮「发送」会让钮 disabled，Chromium 把焦点还给 body；先移焦必须早于置灰
+  assert.ok(
+    source.indexOf('inputRef.current?.focus()') < source.indexOf('setBusy(true)'),
+    '先移焦必须在 setBusy(true)（置灰）之前，挪到后面焦点已经掉了',
+  )
+  assert.match(focusLines[1], /chatRefocusAfterStream\(/, '回焦必须挂在谓词上，删掉条件就红')
+  assert.match(focusLines[1], /controller\.signal\.aborted/, '判据要读本轮的 signal，不能读别的状态')
+  const panelLine = source.split('\n').find((line) => line.includes('const focusInPanel'))
+  assert.ok(panelLine, '找不到 focusInPanel 那一行')
+  assert.match(
+    panelLine,
+    /document\.activeElement === document\.body/,
+    '点「发送」丢焦点时 activeElement 是 body，要按「焦点没落地」豁免；否则本缺陷原样重现',
+  )
+})
+
+/**
+ * 第 134 轮 A1（B-264）：追问的「发送」同样因置灰把焦点还给 body，且收尾还要把焦点还回那条线程。
+ * 浏览器侧（鼠标点发送后 180 ms 与 [AGENT] 到齐、状态转 in-progress 后的 activeElement）
+ * 见 `.tmp/e2e-r134-focus.mjs` 与 `.tmp/r134-{before,after}.json`。
+ */
+test('MarginRail 的追问回焦（静态门）：先移焦、记意图、只回本线程', () => {
+  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+  const declares = source.match(/const threadInputRef = useRef<HTMLInputElement \| null>\(null\)/g) ?? []
+  assert.equal(declares.length, 1, 'threadInputRef 必须声明 1 处')
+  assert.equal((source.match(/ref=\{threadInputRef\}/g) ?? []).length, 1, '追问 input 必须挂 ref={threadInputRef}')
+  assert.equal(
+    (source.match(/threadInputRef\.current\?\.focus\(\)/g) ?? []).length,
+    2,
+    'threadInputRef.current?.focus() 必须恰 2 处：点击时先移焦 + 收尾回焦',
+  )
+  assert.equal(
+    (source.match(/threadRefocusRef\.current = annotation\.id/g) ?? []).length,
+    1,
+    '点击追问发送时要记下这条线程的 id（意图），否则收尾不知道该回哪条',
+  )
+  const effect = /useEffect\(\(\)\s*=>\s*\{(?:(?!useEffect\()[\s\S])*?\}, \[discussingId\]\)/.exec(source)?.[0]
+  assert.ok(effect, '缺少依赖 [discussingId] 的 effect：线程收尾没有回焦触发点')
+  assert.match(effect, /openThread/, '回焦要认意图 id 与当前打开的线程是同一条')
+  assert.match(effect, /threadInputRef\.current\?\.focus\(\)/, '回焦落点必须是线程输入框')
 })
 
 /**

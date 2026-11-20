@@ -172,6 +172,9 @@ export function MarginRail({
   const ctrlRef = useRef<AbortController | null>(null)
   const logRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  /** 第 134 轮 A1（B-264）：追问输入框，与「点完发送该回哪条线程」的意图 id */
+  const threadInputRef = useRef<HTMLInputElement | null>(null)
+  const threadRefocusRef = useRef<string | null>(null)
   /** 卸载后流式回调还会到：先记活着，再决定要不要 setState */
   const aliveRef = useRef(true)
   /** 第 112 轮 A1：上一次渲染的轮数 / 页签，只认「整轮变化」（delta 只加字，不加条） */
@@ -216,9 +219,25 @@ export function MarginRail({
     log.scrollTop = log.scrollHeight
   }, [turns, railTab])
 
+  // 第 134 轮 A1（B-264）：追问流式收尾把「发送」钮还原时，焦点可能已在 body 上；
+  // 只认本次点击记下的那条线程，且读者没把焦点交给别处（body = 丢焦点，仍在本条线程里 = 没走开）。
+  useEffect(() => {
+    if (discussingId !== null) return
+    const want = threadRefocusRef.current
+    if (want === null) return
+    threadRefocusRef.current = null
+    if (want !== openThread) return
+    const notes = document.getElementById('rail-panel-notes')
+    if (document.activeElement === document.body || !!notes?.contains(document.activeElement)) {
+      threadInputRef.current?.focus()
+    }
+  }, [discussingId])
+
   const send = async () => {
     const text = chatDraft.trim()
     if (!text || busy) return
+    // 第 134 轮 A1（B-264）：鼠标点「发送」后钮会置灰，Chromium 把焦点还给 body；先移焦再置灰
+    inputRef.current?.focus()
     const next = pushTurn(turns, 'user', text)
     // 先放一条空的 assistant 占位：流式回来的字才有地方落
     setTurns([...next, { role: 'assistant', text: '' }])
@@ -253,8 +272,9 @@ export function MarginRail({
       if (aliveRef.current) {
         setBusy(false)
         // 第 111 轮 B-240：中止（换文档 / 卸载）或读者已把焦点移出对话面板时，收尾别再抢焦点
+        // 第 134 轮 A1（B-264）：鼠标点「发送」会让钮置灰、焦点掉 body——读到 body 就是「丢焦点」，不算读者走开
         const panel = document.getElementById('rail-panel-chat')
-        const focusInPanel = !!panel?.contains(document.activeElement)
+        const focusInPanel = !!panel?.contains(document.activeElement) || document.activeElement === document.body
         if (chatRefocusAfterStream(controller.signal.aborted, focusInPanel)) inputRef.current?.focus()
       }
     }
@@ -761,6 +781,7 @@ export function MarginRail({
           {openThread === annotation.id && (
             <div className="thread-input" onClick={(event) => event.stopPropagation()}>
               <input
+                ref={threadInputRef}
                 value={draft}
                 placeholder="就这条批注追问一句…"
                 onChange={(event) => setDraft(event.target.value)}
@@ -777,6 +798,9 @@ export function MarginRail({
                 type="button"
                 disabled={discussingId === annotation.id || draft.trim().length === 0}
                 onClick={() => {
+                  // 第 134 轮 A1（B-264）：追问的「发送」点完也置灰；先移焦到输入框并记下这条线程
+                  threadInputRef.current?.focus()
+                  threadRefocusRef.current = annotation.id
                   onDiscuss(annotation, draft.trim())
                   setDraft('')
                   onRequestLayout()

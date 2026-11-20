@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–133 轮，未发版）
+## Unreleased（第 29–134 轮，未发版）
+
+**第 134 轮（同一未发版区间）**
+
+- 两处「发送」鼠标点后焦点不再掉 `BODY`（**B-264**，第 131 轮 findings-ui F1：点对话「发送」/追问「发送」后钮置灰，Chromium 把焦点送回 body；收尾用「焦点在面板里」判回焦，读到 body 即不接管，mock 回复到齐也不回焦，下一次 Tab 落状态栏）——`src/components/MarginRail.tsx` 的 `send()` 在 `setTurns` 前 `inputRef.current?.focus()`（`:240`）、finally 的 `focusInPanel` 加 `|| document.activeElement === document.body`（`:277`，谓词仍 `chatRefocusAfterStream(controller.signal.aborted, …)`）；追问加 `threadInputRef`/`threadRefocusRef`（`:176-177`），点击先移焦并记 `annotation.id` 再 `onDiscuss`（`:802-803`）、`<input ref={threadInputRef}>`（`:784`）、新 `useEffect([discussingId])`（`:222-234`）在回 null 且意图 id === `openThread`、焦点在 `#rail-panel-notes` 或 body 时回焦并清意图；`chat.ts`/`App.tsx`/`styles.css` 不动。`src/lib/chat.test.ts:231-289` 静态门改「两处 focus + 顺序 + body 豁免」并新增追问门（31→**32 条**），负向删前置 focus / 挪到 `setBusy(true)` 之后各 **1 红 exit 1**，SHA256 `B2199250…` 还原。tester 独立（未读 `impl.md`）：真机 before/after（ego CDP 57270、1440×900、假 FSA 2 篇 + mock 分析 3 卡；身份门 fetch `/src/components/MarginRail.tsx`：before `threadInputRef` **0** / body 豁免 0 / chat focus 1，after **4** / 2 / 2，`.tmp/r134-tester-{before,after}.json`；before 相 `git stash push/pop -- src/components/MarginRail.tsx`、SHA256 等值、stash list 0）before **9/9**（S1 点 `.rail-chat-send` 后 180 ms 与 `aria-busy=false` 后均 `BODY`；S2 点 `.thread-input button` 后 180 ms 与 `[AGENT]` 到齐、`in-progress` 后均 `BODY`）→ after **12/12、0 pageerror**（S1 两处均 `TEXTAREA.rail-chat-input`、S2 两处均 `.thread-input input`、S3 流式中点 `.ProseMirror p` 收流后焦点仍在正文），截图 `shots/round-134/chat-focus-after.png`；回归 `OUT=.tmp/r134-tester-r111-focus.json node .tmp/e2e-r111-a1-focus.mjs` **`allPass:true`**、`node .tmp/e2e-r98-a1-agent.mjs` **36/36**（脚本自身 36 条，任务书写 38；exit 0、0 fail），跑后还原 `shots/round-98/` 与 `shots/round-111/`。门禁：`npm run build` exit 0（tsc + vite + host-www 99 文件）、`node scripts/measure-first-screen.mjs --max 316400` **exit 0 PASS**、门 gzip **316,137 B**（raw 1,025,609、余硬线 263、对 133 轮 316,135 净 **+2 B**）、常驻 `MarginRail-Dc6iBNG5.js` raw 22,712 / gzip9 **7,992**（≤8,060），B-229 口径合计 **324,129**（超硬线 4,129，仍 `open` 只记）；`npm test` **68 文件 952 条 0 fail**、`roundtrip` 不跑（未动编辑器/序列化）。偏差（不判 FAIL）：任务书 r98「38/38」实为脚本 36 条断言；after 身份门 body 豁免实测 2（`focusInPanel` 与追问 effect 各 1），首版探针按 ===1 误判、改 ≥1 后 12/12，产品无问题。BACKLOG B-264 → `fixed`。UNVERIFIED：真 WebView2 宿主、真实中文 IME；追问 effect 的「焦点在 `#rail-panel-notes` 内」与 body 两分支在 S2 同时成立，未单独隔离。见 `docs/iteration/round-134/test.md`。
 
 **第 133 轮（同一未发版区间）**
 
