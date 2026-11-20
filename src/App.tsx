@@ -5885,7 +5885,9 @@ export default function App() {
           ref={scrollRef}
           onKeyDownCapture={(event) => {
             // 自动聚焦正文后仍保留「第一个 Tab 到 skip link」；只在文档开头劫持
-            if (event.key !== 'Tab' || event.shiftKey || !editor) return
+            if (event.key !== 'Tab' || event.shiftKey || !editor || editor.isDestroyed) return
+            // 第 115 轮 B-241：侧栏（对话/批注）也在 main 里，别把侧栏自己的 Tab 送回 skip link
+            if (!editor.view.dom.contains(event.target as Node)) return
             const { from, to } = editor.state.selection
             if (from !== 1 || to !== 1) return
             event.preventDefault()

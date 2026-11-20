@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–114 轮，未发版）
+## Unreleased（第 29–115 轮，未发版）
+
+**第 115 轮（同一未发版区间）**
+
+- 侧栏页签的 Tab 不再被文首 1/1 劫持（**B-241**，用户 2026-11-20 队列「对话区」的键盘路径）：`src/App.tsx:5886-5895` 的 `main#editor` `onKeyDownCapture` 只加两个守卫——`:5888` 原有条件后补 `editor.isDestroyed`、新 `:5890` `if (!editor.view.dom.contains(event.target as Node)) return`（+1 行注释，diff 3+/1−，`MarginRail.tsx`/`styles.css` 0 改动）。右侧侧栏在 `main` 内（`MarginRail.tsx:420` 由 `App.tsx:6000` 渲染、`</main>` 在 `:6089`），所以此前在对话/批注面板里按 Tab 会直接跳到 `.skip-link`；改后焦点在侧栏或 `main` 自身时不劫持，正文 `1/1` 的首个 Tab 仍到 skip-link（`defaultPrevented===true`）。tester 独立（未读 `impl.md`）：自写 `.tmp/r115-tester-b241.mjs`（ego CDP 57270、1440×900，先 `node .tmp/reset.mjs 57270`）**26/26 断言、0 pageerror/console error**（`.tmp/r115-tester-b241.json`）——批注路 Tab×3 = `[.rail-review-open, #rail-tab-notes, .stats-trigger]`、对话路填「草稿」后 Tab×3 = `[.rail-chat-send, .rail-chat-generate, .stats-trigger]`，逐项相等且无 `.skip-link`；打 1 字（`from=2`）+ `Ctrl+End` 后两路不变；`Ctrl+Home` 回 `{1,1}` 后 Tab 仍 `A.skip-link` 且 `defaultPrevented`；`Shift+Tab` 从发送钮回输入框；预览态 `main#editor.focus()` 后 Tab 0 新 pageerror；`.margin-rail` 宽 320、横溢 0。改前三条互证：`.tmp/r115-b241-before.json`（`head=ad2cd11`、两路首站 `.skip-link`）、`git grep -nF 'view.dom.contains' ad2cd11 -- src` 与 `'editor.isDestroyed'` 均 **0（exit 1）**、正控在改后代码仍复现劫持。门禁：`verify -- --max 315600` **exit 0**、门 gzip **315,492 B**（净 **+28**、headroom 108）、常驻 `MarginRail-*.js` gzip9 **7,337**、B-229 口径合计 **322,829**（超硬线 **2,829**，B-229 仍 `open`、只记）；`npm test` **62 文件 892 条 0 fail**；回归 `keyboard-acceptance` **52/52**（`SIDELIGHT_CDP=57270`、`http://localhost:5175`，跑完 `git checkout -- shots/round-05/`）；未加测试文件（2 行守卫由 E2E + 静态门覆盖）、`roundtrip` 不跑（未动编辑器/序列化）。见 `docs/iteration/round-115/test.md`。
 
 **第 114 轮（同一未发版区间）**
 
