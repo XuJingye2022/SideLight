@@ -954,6 +954,8 @@ export default function App() {
 
   const openRail = useCallback(() => {
     setRailOpen(true)
+    // 第 126 轮 A2：字数明细（z 40）在抽屉背板（z 44）下面，两个永不同时在场
+    setStatsDetail(null)
     // 抽屉渲染出来再把焦点送进去，键盘用户才不会掉在背景里
     requestAnimationFrame(() => document.querySelector<HTMLElement>('.rail-close')?.focus())
   }, [])
@@ -5081,6 +5083,8 @@ export default function App() {
   }, [jumpTo])
 
   const openStatsDetail = useCallback(() => {
+    // 第 126 轮 A2：面板与抽屉不同时在场（只关抽屉，不把焦点抢回 .rail-toggle）
+    if (railOpen) setRailOpen(false)
     setStatsDetail((current) => {
       // 再点一次触发按钮就关掉
       if (current !== null) return null
@@ -5104,7 +5108,7 @@ export default function App() {
       const paragraphs = body === null ? countParagraphs(editor.state.doc) : countInSource()
       return { text, selection, paragraphs }
     })
-  }, [editor, sourceMode, sourceText])
+  }, [editor, sourceMode, sourceText, railOpen])
 
   const exportAs = useCallback(
     async (kind: 'html' | 'markdown' | 'text') => {
@@ -6023,6 +6027,8 @@ export default function App() {
               <Suspense fallback={null}>
               <MarginRail
                 appDialogOpen={appDialogOpen}
+                // 第 126 轮 A1：窄窗抽屉的模态语义与 Tab 环回；宽度变化靠 resize→setTick 重算（同背板）
+                drawerOpen={railOpen && viewMode === 'edit' && window.matchMedia('(max-width: 1119px)').matches}
                 annotations={annotations}
                 tops={tops}
                 railSpace={railSpace}

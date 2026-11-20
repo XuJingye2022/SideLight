@@ -3,7 +3,8 @@ import type { RefObject } from 'react'
 
 import { firstTabbableIndex, lastTabbableIndex } from '../lib/dialogFocus.ts'
 
-const FOCUSABLE = [
+/** 对话框内可聚焦的选择器；第 126 轮导出给窄窗抽屉的 Tab 环回用（`MarginRail` 的 onRailKeyDown）。 */
+export const FOCUSABLE = [
   'a[href]',
   'button:not([disabled])',
   'input:not([disabled])',

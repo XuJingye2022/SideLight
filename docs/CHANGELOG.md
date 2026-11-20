@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–125 轮，未发版）
+## Unreleased（第 29–126 轮，未发版）
+
+**第 126 轮（同一未发版区间）**
+
+- 窄窗（≤1119px）抽屉把 Tab 收在栏内并补模态语义：1024×700 点 `.rail-toggle` 41 ms 内焦点落 `.rail-close`，`#margin-rail` 在抽屉态带 `role="dialog"` / `aria-modal="true"` / `tabIndex={-1}`；`MarginRail.tsx` 新 `onRailKeyDown` 只拦 `Tab`，按栏内 `FOCUSABLE` 中 `tabIndex>=0` 且 `getClientRects()` 可见的站收口（末站/根 Tab → 首站、首站/根 Shift+Tab → 末站，`preventDefault`），`useDialogFocus.ts` 导出 `FOCUSABLE`；`App.tsx:6031` 传 `drawerOpen={railOpen && viewMode === 'edit' && window.matchMedia('(max-width: 1119px)').matches}`，拉宽 1440 后属性自愈、computed `position=relative`、Tab 可穿出（P1-1/P2-3）。字数明细（z 40）与抽屉（背板 z 44）永不同时在场：`openRail` 加 `setStatsDetail(null)`、`openStatsDetail` 加 `if (railOpen) setRailOpen(false)` 并把 `railOpen` 补进 deps；`.rail-close` 的 `aria-label` 跟页签念「关闭批注」/「关闭对话」（P1-2/P2-4）。新 `src/lib/railDrawerGate.test.ts` 6 条静态接线门挂 `npm test` 链尾（65→**66 文件**、923→**929 条**），负向删 `aria-modal` **1 红 exit 1**、还原全绿。tester 独立（未读 `impl.md`）：自写 `.tmp/e2e-r126-tester-drawer.mjs`（ego CDP 57270、1024×700、先 `reset.mjs 57270`）**20/20、0 pageerror**；回归 `keyboard-acceptance` **52/52**、`.tmp/e2e-r97-a1-status.mjs` **44/44**、`.tmp/e2e-r100-diff.mjs` **43/43**；门禁 `npm test` **66 文件 929 条 0 fail**、`npm run verify -- --max 315900` **exit 0**（gzip **315,792 B**、headroom 108）。见 `docs/iteration/round-126/test.md`。
 
 **第 125 轮（同一未发版区间）**
 

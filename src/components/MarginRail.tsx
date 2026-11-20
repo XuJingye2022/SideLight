@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 
 import { errorCopy, streamChat } from '../lib/ai.ts'
@@ -30,11 +30,16 @@ import {
 import type { Settings } from '../lib/settings.ts'
 import { flattenFiles, relativePath, type Workspace } from '../lib/workspace.ts'
 import { InlineText } from './InlineText.tsx'
-import { useDialogFocus } from './useDialogFocus.ts'
+import { FOCUSABLE, useDialogFocus } from './useDialogFocus.ts'
 
 type Props = {
   /** 第 119 轮 B-249：App 级对话框开着时两个只读面板不挂载（否则 z 60 + inert 压住确认框） */
   appDialogOpen: boolean
+  /**
+   * 第 126 轮 A1：窄窗（≤1119px）抽屉开着。抽屉在 `<main>` 里、主区不能整个 inert，
+   * 所以用 `role=dialog` + `aria-modal` 声明，并靠 onRailKeyDown 把 Tab 收在栏内。
+   */
+  drawerOpen: boolean
   annotations: Annotation[]
   tops: Record<string, number>
   activeId: string | null
@@ -104,6 +109,7 @@ type Props = {
 
 export function MarginRail({
   appDialogOpen,
+  drawerOpen,
   annotations,
   tops,
   activeId,
@@ -447,15 +453,52 @@ export function MarginRail({
   const liveClosed = annotations.length > 0 && !hasUnclosedReview(annotations)
   const reviewRows = reviewData ? applyLiveReviewRow(reviewData, liveReviewRow, liveClosed) : null
 
+  /**
+   * 第 126 轮 A1：窄窗抽屉的 Tab 环回。抽屉挂在 `<main>` 里（背板与页边栏都是 main 的后代），
+   * 主区不能整个 inert，所以只把 Tab 收在栏内的 Tab 序里：末站与根（aside，tabIndex −1）Tab → 首站，
+   * 首站与根 Shift+Tab → 末站。焦点在栏外的门后节点时 at === −1，同样收回来。
+   */
+  const onRailKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab' || !drawerOpen) return
+    const rail = railRef.current
+    if (!rail) return
+    const items = Array.from(rail.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+      (element) => element.tabIndex >= 0 && element.getClientRects().length > 0,
+    )
+    if (items.length === 0) return
+    const at = items.indexOf(document.activeElement as HTMLElement)
+    if (!event.shiftKey && (at === -1 || at === items.length - 1)) {
+      event.preventDefault()
+      items[0].focus()
+    } else if (event.shiftKey && at <= 0) {
+      event.preventDefault()
+      items[items.length - 1].focus()
+    }
+  }
+
   return (
-    <aside className="margin-rail" id="margin-rail" ref={railRef} aria-label="侧灯">
+    <aside
+      className="margin-rail"
+      id="margin-rail"
+      ref={railRef}
+      role={drawerOpen ? 'dialog' : undefined}
+      aria-modal={drawerOpen ? 'true' : undefined}
+      aria-label="侧灯"
+      tabIndex={-1}
+      onKeyDown={onRailKeyDown}
+    >
       <div className="rail-head">
         <span className="rail-light" aria-hidden="true" />
         <span className="rail-title">侧灯</span>
         {analyzing && <span className="rail-busy">正在读</span>}
         {!analyzing && pending.length > 0 && <span className="rail-count">{pending.length} 条</span>}
         {onClose && (
-          <button type="button" className="rail-close" onClick={onClose} aria-label="关闭批注">
+          <button
+            type="button"
+            className="rail-close"
+            onClick={onClose}
+            aria-label={railTab === 'chat' ? '关闭对话' : '关闭批注'}
+          >
             ×
           </button>
         )}
