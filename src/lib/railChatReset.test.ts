@@ -7,7 +7,7 @@ import test from 'node:test'
  *
  * 三处接线同时成立，换篇才会真的清空对话：
  * ① `MarginRail.tsx` 的 Props 声明 `docKey: number`，解构里拿到它；
- * ② 对话清空 effect 依赖 `[docKey]`；
+ * ② 对话面板以 `key={docKey}` 挂载（第 139 轮 B-229 前是清空 effect 依赖 `[docKey]`）；
  * ③ `App.tsx` 在 `loadIntoEditor` 的换篇计数点 +1，并把 `docKey={docInstance}` 传下去。
  *
  * 漏一处不报错：没有 prop 时 `docKey` 恒 undefined，effect 只在挂载跑一次，上一轮的对话会留在新文档上
@@ -28,6 +28,13 @@ const railSource = source('src/components/MarginRail.tsx')
 
 const count = (haystack: string, needle: string): number => haystack.split(needle).length - 1
 
+/** 取 `needle` 起的一段，给「这块里到底有什么」按项断言用 */
+const sliceFrom = (haystack: string, needle: string, length: number): string => {
+  const at = haystack.indexOf(needle)
+  assert.ok(at >= 0, `找不到「${needle}」`)
+  return haystack.slice(at, at + length)
+}
+
 test('MarginRail.tsx：Props 声明 docKey: number 恰一处', () => {
   assert.equal(count(railSource, 'docKey: number'), 1, 'Props 里 docKey 只许声明一次')
 })
@@ -36,8 +43,12 @@ test('MarginRail.tsx：解构里 docKey 恰一处（漏了就是 always undefine
   assert.equal(count(railSource, 'docKey,'), 1, '解构里 docKey 只许写一次')
 })
 
-test('MarginRail.tsx：对话清空 effect 依赖 [docKey] 恰一处', () => {
-  assert.equal(count(railSource, '}, [docKey])'), 1, '换文档清空对话必须依赖 docKey')
+test('MarginRail.tsx：对话清空按文档身份——RailChat 以 key={docKey} 重挂（第 139 轮起面板已拆出）', () => {
+  // 第 139 轮 B-229：对话面板搬进 RailChat.tsx；清空不再靠 effect 依赖，而是 React key 换身份重挂
+  assert.equal(count(railSource, 'key={docKey}'), 1, 'RailChat 必须以 key={docKey} 挂载，换篇才真的清空')
+  const mount = sliceFrom(railSource, 'key={docKey}', 400)
+  assert.ok(mount.includes('getChatSource={getChatSource}'), 'docKey 要挂在对话面板上（后面紧跟它的 props）')
+  assert.ok(!railSource.includes('}, [docKey])'), '旧 effect 清空已删，别留第二份判据')
 })
 
 test('MarginRail.tsx：面板清空 effect 仍依赖 [docName]（第 119 轮 B-249 不回归）', () => {

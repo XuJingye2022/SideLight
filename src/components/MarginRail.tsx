@@ -1,7 +1,5 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { createPortal } from 'react-dom'
+import { Suspense, lazy, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 
-import { errorCopy, streamChat } from '../lib/ai.ts'
 import {
   ANNOTATION_PRIORITIES,
   ANNOTATION_PRIORITY_LABELS,
@@ -16,22 +14,20 @@ import {
   type ReviewStatus,
 } from '../lib/annotations.ts'
 import type { VerifyState } from '../lib/autoVerify.ts'
-import { appendDelta, buildChatMessages, chatContextFor, chatNearBottom, chatRefocusAfterStream, chatScrollOnUpdate, chatSpeaker, dropEmptyAssistantTail, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import type { Block } from '../lib/context.ts'
-import { diffView, type DiffViewResult } from '../lib/diffView.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
-import type { RevisionSummary } from '../lib/revisionList.ts'
-import {
-  applyLiveReviewRow,
-  countOpenAnnotations,
-  hasUnclosedReview,
-  reviewTruncatedNote,
-  type ReviewFilesResult,
-} from '../lib/reviewFiles.ts'
 import type { Settings } from '../lib/settings.ts'
-import { flattenFiles, relativePath, type Workspace } from '../lib/workspace.ts'
+import type { Workspace } from '../lib/workspace.ts'
 import { InlineText } from './InlineText.tsx'
-import { FOCUSABLE, useDialogFocus } from './useDialogFocus.ts'
+import { FOCUSABLE } from './useDialogFocus.ts'
+
+/**
+ * 第 139 轮 B-229：三个面板按开合加载。静态 import 会把它们并进常驻的 `MarginRail-*.js`，
+ * 真实首载一字节不降——只允许 `lazy(() => import(...))`，点开才下载。
+ */
+const RailDiffPanel = lazy(() => import('./RailDiffPanel.tsx'))
+const RailReviewPanel = lazy(() => import('./RailReviewPanel.tsx'))
+const RailChat = lazy(() => import('./RailChat.tsx'))
 
 type Props = {
   /** 第 119 轮 B-249：App 级对话框开着时两个只读面板不挂载（否则 z 60 + inert 压住确认框） */
@@ -166,59 +162,20 @@ export function MarginRail({
 
   /* ---------- 对话页签（第 96 轮 B-223） ---------- */
 
-  const [turns, setTurns] = useState<ChatTurn[]>([])
-  const [chatDraft, setChatDraft] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [chatError, setChatError] = useState('')
-  const ctrlRef = useRef<AbortController | null>(null)
-  const logRef = useRef<HTMLDivElement | null>(null)
-  const inputRef = useRef<HTMLTextAreaElement | null>(null)
-  /** 第 134 轮 A1（B-264）：追问输入框，与「点完发送该回哪条线程」的意图 id */
+  /**
+   * 第 139 轮 B-229：对话面板首开 `railTab === 'chat'` 才加载（lazy chunk，`chat.ts` 随组件走），
+   * 之后保持挂载（外层 `#rail-panel-chat` 用 hidden 藏住）保住 `turns`；换文档由 `key={docKey}`
+   * 重挂清空。逻辑与 JSX 都在 `RailChat.tsx`。
+   */
+  const [chatMounted, setChatMounted] = useState(railTab === 'chat')
+
+  useEffect(() => {
+    if (railTab === 'chat') setChatMounted(true)
+  }, [railTab])
+
+  /** 第 134 轮 A1（B-264）：追问输入框，与「点完发送该回哪条线程」的意图 id（追问在批注卡上） */
   const threadInputRef = useRef<HTMLInputElement | null>(null)
   const threadRefocusRef = useRef<string | null>(null)
-  /** 卸载后流式回调还会到：先记活着，再决定要不要 setState */
-  const aliveRef = useRef(true)
-  /** 第 112 轮 A1：上一次渲染的轮数 / 页签，只认「整轮变化」（delta 只加字，不加条） */
-  const turnCountRef = useRef(0)
-  const prevTabRef = useRef(railTab)
-
-  const resetChat = () => {
-    ctrlRef.current?.abort()
-    ctrlRef.current = null
-    setTurns([])
-    setChatDraft('')
-    setChatError('')
-    setBusy(false)
-  }
-
-  useEffect(() => {
-    aliveRef.current = true
-    return () => {
-      aliveRef.current = false
-      ctrlRef.current?.abort()
-    }
-  }, [])
-
-  // 换文档就清空：上一轮的对话和这一篇无关，留着会让人以为上下文还在。
-  // 第 130 轮 B-261：判据是文档身份 `docKey`，不是 basename `docName`
-  useEffect(() => {
-    resetChat()
-  }, [docKey])
-
-  // 第 112 轮 A1：上翻看历史时 delta 不拽回。整轮 +1（新提问 / 切回页签）才无条件贴底；
-  // 流式 delta 只在读者本来贴着底部时才跟（判据现场读，不缓存——缓存会被切页签与换文档弄过期）。
-  // 第 104 轮 B-232 的前提仍成立：批注页签下面板 hidden、scrollHeight 恒 0，所以切回时才贴底。
-  useEffect(() => {
-    const tabChanged = prevTabRef.current !== railTab
-    prevTabRef.current = railTab
-    if (railTab !== 'chat') return
-    const log = logRef.current
-    if (!log) return
-    const grew = turns.length !== turnCountRef.current || tabChanged
-    turnCountRef.current = turns.length
-    if (!chatScrollOnUpdate(grew, chatNearBottom(log))) return
-    log.scrollTop = log.scrollHeight
-  }, [turns, railTab])
 
   // 第 134 轮 A1（B-264）：追问流式收尾把「发送」钮还原时，焦点可能已在 body 上；
   // 只认本次点击记下的那条线程，且读者没把焦点交给别处（body = 丢焦点，仍在本条线程里 = 没走开）。
@@ -234,75 +191,17 @@ export function MarginRail({
     }
   }, [discussingId])
 
-  const send = async () => {
-    const text = chatDraft.trim()
-    if (!text || busy) return
-    // 第 134 轮 A1（B-264）：鼠标点「发送」后钮会置灰，Chromium 把焦点还给 body；先移焦再置灰
-    inputRef.current?.focus()
-    const next = pushTurn(turns, 'user', text)
-    // 先放一条空的 assistant 占位：流式回来的字才有地方落
-    setTurns([...next, { role: 'assistant', text: '' }])
-    setChatDraft('')
-    setChatError('')
-    setBusy(true)
-
-    const controller = new AbortController()
-    ctrlRef.current = controller
-    // 第 125 轮 A1：上下文跟选区/光标走；没有编辑器就是空串（buildChatMessages 走「还没有正文」）
-    const source = getChatSource()
-    const docText = source ? chatContextFor(source.blocks, source.from, source.to) : ''
-    try {
-      await streamChat({
-        settings,
-        messages: buildChatMessages(docText, next),
-        signal: controller.signal,
-        onDelta: (delta) => {
-          if (!aliveRef.current) return
-          setTurns((previous) => appendDelta(previous, delta))
-        },
-      })
-    } catch (error) {
-      const aborted = error instanceof DOMException && error.name === 'AbortError'
-      // 第 113 轮 B-243：失败收尾撤掉从没被填过的空占位，别在记录底部留一条空框
-      if (!aborted && aliveRef.current) {
-        setChatError(errorCopy(error).text)
-        setTurns((previous) => dropEmptyAssistantTail(previous))
-      }
-    } finally {
-      if (ctrlRef.current === controller) ctrlRef.current = null
-      if (aliveRef.current) {
-        setBusy(false)
-        // 第 111 轮 B-240：中止（换文档 / 卸载）或读者已把焦点移出对话面板时，收尾别再抢焦点
-        // 第 134 轮 A1（B-264）：鼠标点「发送」会让钮置灰、焦点掉 body——读到 body 就是「丢焦点」，不算读者走开
-        const panel = document.getElementById('rail-panel-chat')
-        const focusInPanel = !!panel?.contains(document.activeElement) || document.activeElement === document.body
-        if (chatRefocusAfterStream(controller.signal.aborted, focusInPanel)) inputRef.current?.focus()
-      }
-    }
-  }
-
-  const generateNotes = () => {
-    const instruction = chatDraft.trim()
-    if (!instruction || busy || analyzing || !canGenerate) return
-    // 第 104 轮 B-232：这句指令留在对话记录里。它没有送模型（只作分析偏好），
-    // 但失败/早退（Key 错、正文太短）时读者还能照着这句重来，不是凭空清空。
-    setTurns((previous) => pushTurn(previous, 'user', instruction))
-    setChatDraft('')
-    setChatError('')
-    onGenerateNotes(instruction)
-  }
-
   /* ---------- 「与打开时相比」的只读 diff 面板（第 100 轮 B-227） ---------- */
 
-  /** null = 面板关着；'none' = 这篇没有可对比的正文；其余是算好的行 */
-  const [diffData, setDiffData] = useState<DiffViewResult | 'none' | null>(null)
-  const diffSheetRef = useRef<HTMLDivElement | null>(null)
-  /** 面板只挂在「批注」页签上，且 App 级对话框开着时让位（第 119 轮 B-249）；切到对话页签就关 */
-  const diffOpen = diffData !== null && railTab === 'notes' && !appDialogOpen
-  useDialogFocus(diffOpen, diffSheetRef, '.rail-diff-overlay', railTab === 'notes')
+  /**
+   * 第 139 轮 B-229：面板点了「对比」才挂载（lazy chunk 随开合加载），关掉即卸载。
+   * 谓词仍带 `!appDialogOpen`（第 119 轮 B-249）与「批注页签」两项；切页签、换文档都收掉。
+   */
+  const [diffOn, setDiffOn] = useState(false)
+  const diffOpen = diffOn && railTab === 'notes' && !appDialogOpen
 
   useEffect(() => {
-    if (railTab !== 'notes') setDiffData(null)
+    if (railTab !== 'notes') setDiffOn(false)
   }, [railTab])
 
   /* ---------- 页签焦点交接（第 102 轮 B-230） ---------- */
@@ -327,170 +226,31 @@ export function MarginRail({
     requestAnimationFrame(() => document.getElementById('rail-tab-notes')?.focus())
   }, [railTab])
 
-  // App 的 Esc 链挂在 window 上：在 document 就停掉冒泡，一次按键只关面板
-  useEffect(() => {
-    if (!diffOpen) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.stopPropagation()
-      setDiffData(null)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [diffOpen])
-
-  /** 点入口才现算：面板里的行永远是「这一刻的正文 vs 打开时」 */
-  const openDiff = () => {
-    const pair = getDiff()
-    setDiffData(pair === null ? 'none' : diffView(pair.before, pair.after))
-  }
-
-  const markOf = (kind: 'same' | 'added' | 'removed') =>
-    kind === 'added' ? '+' : kind === 'removed' ? '−' : ' '
+  // App 的 Esc 链挂在 window 上：在 document 就停掉冒泡，一次按键只关面板。
+  // 第 139 轮 B-229：Esc 处理随面板搬进 RailDiffPanel / RailReviewPanel（挂载即注册）。
 
   /* ---------- 「在审文件」只读面板（第 101 轮 B-228） ---------- */
 
-  const [reviewOpen, setReviewOpen] = useState(false)
-  const [reviewData, setReviewData] = useState<ReviewFilesResult | null>(null)
-  /** 没有工作区：与「有工作区但一篇批注也没有」给不同提示 */
-  const [reviewNoWorkspace, setReviewNoWorkspace] = useState(false)
-  const [reviewBusy, setReviewBusy] = useState(false)
-  const reviewSheetRef = useRef<HTMLDivElement | null>(null)
-  /** 连点两次只认最后一次的扫描结果 */
-  const reviewRunRef = useRef(0)
-  /** 第 124 轮 B-257：快照读取另用一条序号——epoch 重读与面板重开可能同时在途，只认后发起的那次 */
-  const snapSeqRef = useRef(0)
-  /** 上一次重读快照时的代际：openReview 现读一次就同步，effect 不跟着重复读 */
-  const loadedEpochRef = useRef(revisionEpoch)
-  const reviewActive = reviewOpen && railTab === 'notes' && !appDialogOpen
-  useDialogFocus(reviewActive, reviewSheetRef, '.rail-review-overlay', railTab === 'notes')
+  /**
+   * 第 139 轮 B-229：与对比面板同法——点「在审」才挂载 lazy chunk；换文档、切页签、
+   * App 对话框都收掉。面板自己的扫描/快照在途读取由卸载（run 序号）作废。
+   */
+  const [reviewOn, setReviewOn] = useState(false)
+  const reviewActive = reviewOn && railTab === 'notes' && !appDialogOpen
 
-  /** 修订快照清单（第 114 轮 B-247）：null = 还没读到（不渲染这一段），[] = 读到但没有快照 */
-  const [snapData, setSnapData] = useState<RevisionSummary[] | null>(null)
-
-  // 面板只挂在「批注」页签上：切到对话页签就收掉（同一次 run 递增也让在途的快照读取作废）
+  // 面板只挂在「批注」页签上：切到对话页签就收掉
   useEffect(() => {
-    if (railTab !== 'notes') {
-      reviewRunRef.current += 1
-      setReviewOpen(false)
-      setSnapData(null)
-    }
+    if (railTab !== 'notes') setReviewOn(false)
   }, [railTab])
 
-  // 面板开着换文档：面板收掉，上一份的快照行与在审行一个都不留（CR-4③，推进 run 让在途读取作废）
-  // 第 119 轮 B-249：让位期间（App 对话框开着）面板不挂载但 diffData 还在，换文档也要清，回来才是新一篇
+  // 换文档：两个面板都收掉（第 119 轮 B-249：让位期间不挂载，回来也不能是上一篇的）
   useEffect(() => {
-    reviewRunRef.current += 1
-    setReviewOpen(false)
-    setReviewBusy(false)
-    setReviewData(null)
-    setSnapData(null)
-    setDiffData(null)
+    setReviewOn(false)
+    setDiffOn(false)
   }, [docName])
-
-  // App 的 Esc 链挂在 window 上：在 document 就停掉冒泡，一次按键只关面板
-  useEffect(() => {
-    if (!reviewActive) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.stopPropagation()
-      setReviewOpen(false)
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [reviewActive])
-
-  const closeReview = () => {
-    reviewRunRef.current += 1
-    setSnapData(null)
-    setReviewOpen(false)
-    setReviewBusy(false)
-    setReviewData(null)
-    setReviewNoWorkspace(false)
-  }
-
-  /**
-   * 快照清单走惰性 import（第 114 轮体积口径）：数据层只在点开面板时加载，不进常驻 chunk。
-   * 源为空 / 动态 import 失败 / 读目录失败都只让这一段不显示，不影响在审列表，永不抛。
-   */
-  const loadSnapshots = (run: number) => {
-    const seq = snapSeqRef.current + 1
-    snapSeqRef.current = seq
-    void (async () => {
-      try {
-        const source = await getRevisionSource()
-        if (!source || reviewRunRef.current !== run || snapSeqRef.current !== seq) return
-        const { listRevisions } = await import('../lib/revisionList.ts')
-        const rows = await listRevisions(source.dir, source.key)
-        if (reviewRunRef.current === run && snapSeqRef.current === seq) setSnapData(rows)
-      } catch {
-        // 读不到快照不影响在审列表
-      }
-    })()
-  }
-
-  /**
-   * 第 124 轮 B-257：保存成功写完快照（`revisionEpoch` +1）时，面板开着就重读清单。
-   * 面板关着不读、也不更新 `loadedEpochRef`——下次开面板由 `openReview` 现读。
-   * epoch 路径不推进 `reviewRunRef`：那个序号管面板有效期，推进会让 `openReview` 的 finally 判不了 busy。
-   */
-  useEffect(() => {
-    if (revisionEpoch === loadedEpochRef.current || !reviewActive) return
-    loadedEpochRef.current = revisionEpoch
-    loadSnapshots(reviewRunRef.current)
-  }, [revisionEpoch, reviewActive])
-
-  /**
-   * 点入口才现读：批注档在磁盘上，面板里的 open 数永远是这一刻的。
-   *
-   * 扫描逻辑走惰性 import（第 136 轮体积，B-229）：数据层只在点开面板时加载，不进常驻 chunk。
-   * 动态 import 失败时按「没有在审文件」的空态收场，绝不留 unhandled rejection（plan-review CR-7）。
-   */
-  const openReview = async () => {
-    setReviewOpen(true)
-    setReviewData(null)
-    setReviewNoWorkspace(false)
-    setReviewBusy(true)
-    setSnapData(null)
-    const run = reviewRunRef.current + 1
-    reviewRunRef.current = run
-    // 这次现读就是最新的一份，effect 不用再读一遍
-    loadedEpochRef.current = revisionEpoch
-    try {
-      const workspace = getReviewWorkspace()
-      if (!workspace) {
-        if (reviewRunRef.current === run) setReviewNoWorkspace(true)
-        return
-      }
-      // 两份清单并行读：在审列表与快照互不等待
-      loadSnapshots(run)
-      const { collectReviewFiles } = await import('../lib/reviewScan.ts')
-      const result = await collectReviewFiles(workspace, flattenFiles(workspace.root))
-      if (reviewRunRef.current === run) setReviewData(result)
-    } catch {
-      // 数据层没加载起来（动态 import 或读目录抛错）只让「在审」这一段空着，面板其余部分照常
-    } finally {
-      if (reviewRunRef.current === run) setReviewBusy(false)
-    }
-  }
 
   const overall = docNotes.filter((note) => note.kind === 'overall')
   const unresolvedNotes = docNotes.filter((note) => note.kind === 'unresolved')
-
-  /**
-   * 当前篇那一行改用内存里的批注算（第 103 轮）：写盘有 600 ms 防抖，
-   * 改档后立刻开面板读到的是旧档，而面板开着不重扫。渲染时按 path 合并，
-   * 面板开着时 `annotations` 变了（含流式到货）也立刻是新数。
-   */
-  const liveReviewRow =
-    activePath && annotations.length > 0
-      ? { path: activePath, name: docName, open: countOpenAnnotations(annotations), total: annotations.length }
-      : null
-  // 第 105 轮 B-234：当前篇全结项时只删行——磁盘档可能还写着 open（600 ms 防抖未落盘）
-  const liveClosed = annotations.length > 0 && !hasUnclosedReview(annotations)
-  const reviewRows = reviewData ? applyLiveReviewRow(reviewData, liveReviewRow, liveClosed) : null
-  // 第 133 轮：提示按上限写死，不按行数拼——结项后 LIVE 行被删，行数 50→49 仍算截断
-  const reviewNote = reviewRows ? reviewTruncatedNote(reviewRows) : null
 
   /**
    * 第 126 轮 A1：窄窗抽屉的 Tab 环回。抽屉挂在 `<main>` 里（背板与页边栏都是 main 的后代），
@@ -548,7 +308,7 @@ export function MarginRail({
             className="rail-diff-open"
             aria-haspopup="dialog"
             title="与打开时相比"
-            onClick={openDiff}
+            onClick={() => setDiffOn(true)}
           >
             对比
           </button>
@@ -560,7 +320,7 @@ export function MarginRail({
             className="rail-review-open"
             aria-haspopup="dialog"
             title="在审文件"
-            onClick={() => void openReview()}
+            onClick={() => setReviewOn(true)}
           >
             在审
           </button>
@@ -874,230 +634,49 @@ export function MarginRail({
         aria-labelledby="rail-tab-chat"
         hidden={railTab !== 'chat'}
       >
-        <div className="rail-chat-head">
-          <span className="rail-chat-title">和侧灯说一句</span>
-          <button
-            type="button"
-            className="rail-chat-reset"
-            disabled={busy || (turns.length === 0 && !chatDraft)}
-            onClick={resetChat}
-          >
-            新对话
-          </button>
-        </div>
-
-        {simulated && <p className="rail-chat-mock">未配置 API Key，回答是本地模拟的，不调用模型</p>}
-
-        <div className="rail-chat-log" tabIndex={0} role="log" aria-live={busy ? 'off' : 'polite'} aria-busy={busy} aria-label="对话记录" ref={logRef}>
-          {turns.length === 0 && (
-            <div className="rail-empty rail-chat-empty">
-              <p className="rail-empty-title">和侧灯说一句</p>
-              <p className="rail-empty-sub">让它找问题、给改法；要落正文点「生成批注」。上下文最多 2000 字：有选区用选区，没选区取光标所在段；刚打开时取开头。</p>
-            </div>
+        {/* 第 139 轮 B-229：首开才加载，之后保持挂载（hidden）保 turns；就地包 Suspense，
+            首开只让这一格空一帧，`.margin-rail` 与页签不换 null（B-230 的回焦依赖它还在） */}
+        <Suspense fallback={null}>
+          {chatMounted && (
+            <RailChat
+              key={docKey}
+              settings={settings}
+              simulated={simulated}
+              tabActive={railTab === 'chat'}
+              analyzing={analyzing}
+              canGenerate={canGenerate}
+              getChatSource={getChatSource}
+              onGenerateNotes={onGenerateNotes}
+            />
           )}
-          {turns.map((turn, index) => (
-            <p key={index} className={`rail-chat-turn is-${turn.role}`}>
-              {(turn.text || busy) && <span className="rail-chat-speaker">{chatSpeaker(turn.role)}</span>}
-              {turn.text || (busy && turn.role === 'assistant' ? '…' : '')}
-            </p>
-          ))}
-        </div>
-
-        {chatError && (
-          <p className="rail-chat-error" role="alert">
-            {chatError}
-          </p>
-        )}
-
-        <div className="rail-chat-compose">
-          <textarea
-            ref={inputRef}
-            className="rail-chat-input"
-            rows={2}
-            aria-label="和侧灯说一句"
-            placeholder="和侧灯说一句…"
-            value={chatDraft}
-            onChange={(event) => setChatDraft(event.target.value)}
-            onKeyDown={(event) => {
-              // 组合输入里的回车是选字，不是发送；Shift+Enter 换行
-              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-              event.preventDefault()
-              void send()
-            }}
-          />
-          <button type="button" className="rail-chat-send" disabled={busy || !chatDraft.trim()} onClick={() => void send()}>
-            发送
-          </button>
-          <button
-            type="button"
-            className="rail-chat-generate"
-            disabled={busy || !chatDraft.trim() || analyzing || !canGenerate}
-            title={
-              !canGenerate
-                ? '切回编辑视图再生成批注'
-                : !chatDraft.trim()
-                  ? '先写一句要落成批注的话'
-                  : analyzing
-                    ? '正在分析，稍等'
-                    : '按这句话分析当前这一段，生成批注'
-            }
-            onClick={generateNotes}
-          >
-            生成批注
-          </button>
-        </div>
+        </Suspense>
       </div>
 
       {/* 第 100 轮 B-227：面板挂到 body（栏里卡片是绝对定位，塞进 .margin-rail 流会被压）。
-          只读：没有输入框、没有可编辑区，也不碰正文与批注。第 119 轮 B-249：appDialogOpen 时不挂 */}
-      {diffData !== null &&
-        diffOpen &&
-        createPortal(
-          <div
-            className="rail-diff-overlay"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget) setDiffData(null)
-            }}
-          >
-            <div
-              className="rail-diff-sheet"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="rail-diff-title"
-              tabIndex={-1}
-              ref={diffSheetRef}
-            >
-              <div className="rail-diff-head">
-                <span className="rail-diff-title" id="rail-diff-title">
-                  改动对比
-                </span>
-                <span>与打开时相比</span>
-                {diffData !== 'none' && (diffData.added > 0 || diffData.removed > 0) && (
-                  <span className="rail-diff-count">
-                    +{diffData.added} −{diffData.removed} 行
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className="rail-diff-close"
-                  aria-label="关闭对比"
-                  onClick={() => setDiffData(null)}
-                >
-                  ×
-                </button>
-              </div>
-              {diffData === 'none' ? (
-                <p className="rail-diff-empty">这篇还没有可对比的正文。</p>
-              ) : diffData.added === 0 && diffData.removed === 0 ? (
-                <p className="rail-diff-empty">与打开时相比，没有改动。</p>
-              ) : (
-                <>
-                  {diffData.truncated && <p className="rail-diff-empty">改动太多，只显示前 400 行。</p>}
-                  {/* 第 120 轮 B-250：面板里只有关闭钮一个 Tab 站，长 diff 键盘读不到第二屏——ul 自己进 Tab 序、焦点环走全局 :focus-visible */}
-                  <ul className="rail-diff-rows" role="list" tabIndex={0} aria-label="改动对比行">
-                    {diffData.rows.map((row, index) => (
-                      <li key={index} className={`rail-diff-row is-${row.kind}`}>
-                        {`${markOf(row.kind)} ${row.text || ' '}`}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
-          </div>,
-          document.body,
-        )}
+          只读：没有输入框、没有可编辑区，也不碰正文与批注。第 119 轮 B-249：appDialogOpen 时不挂。
+          第 139 轮 B-229：按开合加载的 lazy chunk，就地包 Suspense——不能靠 App.tsx 外层那个边界，
+          否则首开会把整条右栏换成 null，页签/对话状态与焦点一起丢（第 102 轮 B-230 的回焦也断） */}
+      <Suspense fallback={null}>
+        {diffOpen && <RailDiffPanel getDiff={getDiff} onClose={() => setDiffOn(false)} />}
+      </Suspense>
 
       {/* 第 101 轮 B-228：在审文件列表（只读）。复用 diff 面板的外壳与行样式：
-          同一套 80vh / 60vh 上限、同一套关闭语义，省一遍样式与焦点代码 */}
-      {reviewActive &&
-        createPortal(
-          <div
-            className="rail-diff-overlay rail-review-overlay"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget) closeReview()
-            }}
-          >
-            <div
-              className="rail-diff-sheet"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="rail-review-title"
-              tabIndex={-1}
-              ref={reviewSheetRef}
-            >
-              <div className="rail-diff-head">
-                <span className="rail-diff-title" id="rail-review-title">
-                  在审文件
-                </span>
-                <span>按待处理数排序</span>
-                <button
-                  type="button"
-                  className="rail-diff-close"
-                  aria-label="关闭在审文件"
-                  onClick={closeReview}
-                >
-                  ×
-                </button>
-              </div>
-              {reviewBusy ? (
-                <p className="rail-diff-empty">正在读…</p>
-              ) : reviewNoWorkspace ? (
-                <p className="rail-diff-empty">先点「打开文件夹」，才能看到在审文件。</p>
-              ) : reviewRows === null || reviewRows.rows.length === 0 ? (
-                <p className="rail-diff-empty">还没有在审的文件：有未结项的批注才会出现在这里。</p>
-              ) : (
-                <>
-                  {reviewRows.capped && (
-                    <p className="rail-diff-empty">文件太多，只扫了前 {reviewRows.scanned} 篇。</p>
-                  )}
-                  {reviewNote && (
-                    <p className="rail-diff-empty">{reviewNote}</p>
-                  )}
-                  <ul className="rail-diff-rows">
-                    {reviewRows.rows.map((row) => (
-                      <li key={row.path}>
-                        <button
-                          type="button"
-                          className={row.path === activePath ? 'rail-review-row is-current' : 'rail-review-row'}
-                          aria-current={row.path === activePath ? 'true' : undefined}
-                          title={row.path}
-                          onClick={() => {
-                            closeReview()
-                            onOpenReviewFile(row.path)
-                          }}
-                        >
-                          <span>{relativePath(row.path)}</span>
-                          <span className="rail-diff-count">{`${REVIEW_STATUS_LABELS.open} ${row.open} · 共 ${row.total} 条`}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              {/* 第 114 轮 B-247：修订快照清单（只读、只列时刻/字节/批注数，不存正文）。
-                  与在审列表同一张 sheet，放在列表下面；读取中或没有工作区都不渲染 */}
-              {!reviewBusy && !reviewNoWorkspace && snapData !== null && (
-                <section className="rail-snap" aria-label="修订快照">
-                  <h3 className="rail-snap-title">修订快照</h3>
-                  {snapData.length === 0 ? (
-                    <p className="rail-snap-empty">保存一次后才会记录。</p>
-                  ) : (
-                    <ul className="rail-snap-rows">
-                      {snapData.map((row) => (
-                        <li key={row.name} className="rail-snap-row rail-diff-row">
-                          {row.label}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <p className="rail-snap-note">快照只记批注与字节数，不存正文，不能回到旧版正文。</p>
-                </section>
-              )}
-            </div>
-          </div>,
-          document.body,
+          同一套 80vh / 60vh 上限、同一套关闭语义，省一遍样式与焦点代码。
+          第 139 轮 B-229：与对比面板同法按开合加载 */}
+      <Suspense fallback={null}>
+        {reviewActive && (
+          <RailReviewPanel
+            annotations={annotations}
+            activePath={activePath}
+            docName={docName}
+            revisionEpoch={revisionEpoch}
+            getReviewWorkspace={getReviewWorkspace}
+            getRevisionSource={getRevisionSource}
+            onOpenReviewFile={onOpenReviewFile}
+            onClose={() => setReviewOn(false)}
+          />
         )}
+      </Suspense>
     </aside>
   )
 }

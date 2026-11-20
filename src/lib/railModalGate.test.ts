@@ -24,6 +24,7 @@ const source = (path: string): string =>
 
 const appSource = source('src/App.tsx')
 const railSource = source('src/components/MarginRail.tsx')
+const diffSource = source('src/components/RailDiffPanel.tsx')
 
 const count = (haystack: string, needle: string): number => haystack.split(needle).length - 1
 
@@ -70,30 +71,30 @@ test('MarginRail.tsx：Props 与解构各一处（漏了就是 always undefined�
 })
 
 test('MarginRail.tsx：两个只读面板的挂载谓词都带 !appDialogOpen', () => {
+  // 第 139 轮 B-229：面板改按开合挂载（lazy chunk），谓词从「数据非空」换成「点开过」的状态
   assert.ok(
-    railSource.includes("const diffOpen = diffData !== null && railTab === 'notes' && !appDialogOpen"),
+    railSource.includes("const diffOpen = diffOn && railTab === 'notes' && !appDialogOpen"),
     '「对比」的 diffOpen 必须带 !appDialogOpen',
   )
   assert.ok(
-    railSource.includes("const reviewActive = reviewOpen && railTab === 'notes' && !appDialogOpen"),
+    railSource.includes("const reviewActive = reviewOn && railTab === 'notes' && !appDialogOpen"),
     '「在审」的 reviewActive 必须带 !appDialogOpen',
   )
   assert.ok(count(railSource, '!appDialogOpen') >= 2, '两个面板各要一处 !appDialogOpen')
 })
 
-test('MarginRail.tsx：对比面板的 portal 条件走 diffOpen，不再是 railTab === notes', () => {
-  assert.match(
-    railSource,
-    /\{diffData !== null &&\s+diffOpen &&\s+createPortal\(/,
-    'portal 条件必须是 diffData !== null && diffOpen（前段只供 TS 收窄）',
-  )
+test('MarginRail.tsx：对比面板的挂载条件走 diffOpen，portal 在面板文件里', () => {
+  // 第 139 轮 B-229：portal 跟面板一起搬出；MarginRail 只剩「开关 + 就地 Suspense」这一层
+  assert.match(railSource, /\{diffOpen && <RailDiffPanel /, '挂载条件必须是 diffOpen（打开状态 × 页签 × 让位）')
+  assert.ok(diffSource.includes('createPortal('), 'portal 应搬进 RailDiffPanel.tsx')
+  assert.ok(diffSource.includes("useDialogFocus(true, sheetRef, '.rail-diff-overlay')"), '焦点接管跟面板走')
 })
 
-test('MarginRail.tsx：换文档清掉对比数据（让位期间不挂载也要清）', () => {
+test('MarginRail.tsx：换文档清掉两个面板的打开态（让位期间不挂载也不留上一篇）', () => {
   assert.match(
     railSource,
-    /setSnapData\(null\)\s+setDiffData\(null\)\s*\}, \[docName\]\)/,
-    'docName effect 里要 setDiffData(null)：关掉对话框回来时不许挂上一篇的 diff',
+    /setReviewOn\(false\)\s+setDiffOn\(false\)\s*\}, \[docName\]\)/,
+    'docName effect 里要把两个面板都收掉：关掉对话框回来时不许还是上一篇的面板',
   )
 })
 

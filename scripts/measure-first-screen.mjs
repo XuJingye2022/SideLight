@@ -1,21 +1,24 @@
 // 体积预算：首屏「必须等待」的字节（脚本 + 样式 + modulepreload + preload）。
 // 口径：首屏集合 = dist/index.html 里的 JS/CSS 与 modulepreload/preload 产物，不含入口 HTML 自身；
 // 宿主经回环 HTTP 加载 dist，不发 gzip，「首屏 gzip」指线上经 gzip 传输时的字节。
-// 两条线：--target 内部预算（默认 310000，超了只打 WARN，不 exit）；
-//         --max 硬线（默认 320000，超了 exit 1）。
-// 用法：node scripts/measure-first-screen.mjs [--dir dist] [--max 320000] [--target 310000]
-//       [--real-max N] [--no-resident]
-// 只读产物，不构建；超硬线 exit 1，首屏集合里出现 katex / lazy chunk 也 exit 1。
 //
-// 两个口径（第 136 轮，B-229）：
-//   门（total）= 仍按上面的首屏集合算，默认门禁与 CI（ci.yml:39、release.yml:82/155）都用它，不改。
-//   真实首载（real）= 门 + 常驻 chunk；常驻 = 启动后立刻动态 import、默认视图下无条件挂载的 chunk，
+// 两个口径（第 136 轮 B-229 引入，第 139 轮 B-229 翻成默认）：
+//   门（total）= 上面那个首屏集合，打 `total=` 行；
+//   真实首载（real）= 门 + 常驻 chunk。常驻 = 启动后立刻动态 import、默认视图下无条件挂载的 chunk，
 //   目前只有 MarginRail-*.js（App.tsx 的 lazy + 默认 edit 下挂载）。常驻按「seed 名单 + 它静态 import 的
 //   传递闭包（已在门里计过的入口文件排除）」算，否则拆出共享 chunk 后会漏算（第 136 轮 plan-review CR-6）。
-//   实测（第 136 轮 A2 前）：门 316,131 + 常驻 7,999 = 真实首载 324,130（超硬线 4,130）；
-//   A2 拆完 R1/R2/asset 后：门 315,279 + 常驻 7,801 = 323,080（仍超线 3,080，B-229 保持 open）。
-//   real 超硬线只 WARN（默认门禁不动，B-229 仍 open）；显式 --real-max N 才 FAIL exit 1（不进 verify/CI）。
-//   --no-resident 复旧口径：不扫不入常驻，也不打印 real 行。
+//
+// **默认判定口径 = 真实首载（real）**（第 139 轮 B-229 翻转）：
+//   `--max` 就是真实首载硬线（默认 320000）——写成 `--max 316200` 这种旧门槛的调用会直接红；
+//   `--target` 内部预算（默认 310000）仍只 WARN；`headroom` 与「距硬线 <5%」也按 real 判。
+//   实测（第 139 轮翻口径时的三数）：门 total=315,616 / 常驻 resident=4,190 / 真实首载 real=319,806。
+// `--no-resident` 复旧口径：不扫常驻、不打印 real 行，预算与 --target 都判 total（CI/发布门用的就是默认口径，
+//   第 139 轮起同步变成 real ≤320,000；本轮不 push，CI 侧未验）。
+// `--real-max N` 单独改真实首载硬线（默认等于 --max）。
+//
+// 用法：node scripts/measure-first-screen.mjs [--dir dist] [--max 320000] [--target 310000]
+//       [--real-max N] [--no-resident]
+// 只读产物，不构建；超预算 exit 1，首屏集合里出现 katex / lazy chunk 也 exit 1。
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { URL } from 'node:url'
@@ -51,9 +54,8 @@ const positional = args.find((arg, i) => !arg.startsWith('--') && !(args[i - 1] 
 const dir = resolve(readArg('--dir', positional || 'dist'))
 const max = Number(readArg('--max', '320000'))
 const target = Number(readArg('--target', '310000'))
-// --real-max 显式给了才把「真实首载超线」当 FAIL（默认只 WARN，门禁口径不动）
-const realMaxArg = readArg('--real-max', '')
-const realMax = realMaxArg === '' ? null : Number(realMaxArg)
+// 第 139 轮 B-229：默认真实首载硬线就是 --max；显式 --real-max 才另给一条（--no-resident 时不看它）
+const realMax = Number(readArg('--real-max', String(max)))
 const noResident = args.includes('--no-resident')
 const indexHtml = readFileSync(join(dir, 'index.html'), 'utf8')
 
@@ -95,22 +97,14 @@ for (const entry of entries) {
 // 预算按 gzip（首屏传输字节）算；raw 只做对照。与 Vite 日志的 gzip 相差约 1.3%，验收以本脚本为准。
 const saved = totalRaw - totalGzip
 const percent = totalRaw === 0 ? 0 : (saved / totalRaw) * 100
+// 门的三个数照旧打一行（日志兼容）；预算判定见文件末段的 budgetGzip（默认判 real）
 console.log(`total raw=${totalRaw} gzip=${totalGzip} headroom=${max - totalGzip} files=${entries.length} max=${max}`)
-console.log(`target=${target} gap=${target - totalGzip}`)
 console.log(`gzip 省下 ${saved} B（${percent.toFixed(1)}%）`)
 
 const banned = entries.filter((entry) => /katex/i.test(entry.url) || /lazy/i.test(entry.url) || /mermaid/i.test(entry.url))
 if (banned.length > 0) {
   console.log(`FAIL 首屏集合含 katex/lazy/mermaid chunk：${banned.map((entry) => entry.url).join(', ')}`)
   process.exit(1)
-}
-if (totalGzip > target) {
-  console.log(`WARN 首屏 gzip ${totalGzip} 超过内部预算 ${target}（越过 ${totalGzip - target} B），仍在硬线 ${max} 内`)
-}
-// 余量预警：距硬线不到 5% 时提醒下一轮先算体积（第 37 轮；只提醒，不改 exit 码）
-const headroom = max - totalGzip
-if (headroom > 0 && headroom < max * 0.05) {
-  console.log(`WARN 首屏距硬线 ${max} 只余 ${headroom} B（<5%），下一轮加静态代码前先算体积`)
 }
 
 // 常驻 seed 与两条计数守卫先跑：计数错了要立刻红，不能被后面的总门 FAIL 盖住（第 136 轮验收）。
@@ -134,12 +128,14 @@ if (!noResident) {
     process.exit(1)
   }
 }
+// 门本身仍受 --max 约束：real ≥ total，门超线时先按门报（信息更直接）
 if (totalGzip > max) {
   console.log(`FAIL 首屏 gzip ${totalGzip} 超过上限 ${max}`)
   process.exit(1)
 }
 
-// ── 真实首载 = 门 + 常驻（第 136 轮，B-229；默认门禁不翻，--no-resident 复旧口径）──
+// ── 真实首载 = 门 + 常驻（第 136 轮 B-229；第 139 轮起这是默认判定口径）──
+let realGzip = 0
 if (!noResident) {
   const resident = []
   const visited = new Set()
@@ -167,16 +163,27 @@ if (!noResident) {
     console.log(`${entry.raw.toString().padStart(9)} ${entry.gzip.toString().padStart(8)}  ${entry.url}  （常驻）`)
   }
   const realRaw = totalRaw + residentRaw
-  const realGzip = totalGzip + residentGzip
+  realGzip = totalGzip + residentGzip
   console.log(`resident raw=${residentRaw} gzip=${residentGzip} files=${resident.length}`)
-  console.log(`real raw=${realRaw} gzip=${realGzip} headroom=${max - realGzip} max=${max}`)
+  console.log(`real raw=${realRaw} gzip=${realGzip} headroom=${realMax - realGzip} max=${realMax}`)
   console.log(`total=${totalGzip} resident=${residentGzip} real=${realGzip}`)
-  if (realMax !== null && realGzip > realMax) {
-    console.log(`FAIL 真实首载 gzip ${realGzip} 超过 --real-max ${realMax}（越过 ${realGzip - realMax} B）`)
-    process.exit(1)
-  }
-  if (realGzip > max) {
-    console.log(`WARN 真实首载 gzip ${realGzip} 超硬线 ${max}（越过 ${realGzip - max} B），默认门禁仍按旧口径（B-229）`)
-  }
+}
+
+// ── 预算判定（第 139 轮 B-229 翻转：默认 = 真实首载；--no-resident 复旧口径判门）──
+const budgetGzip = noResident ? totalGzip : realGzip
+const budgetMax = noResident ? max : realMax
+const budgetName = noResident ? '首屏' : '真实首载'
+console.log(`target=${target} gap=${target - budgetGzip}（按${budgetName}）`)
+if (budgetGzip > target) {
+  console.log(`WARN ${budgetName} gzip ${budgetGzip} 超过内部预算 ${target}（越过 ${budgetGzip - target} B），仍在硬线 ${budgetMax} 内`)
+}
+// 余量预警：距硬线不到 5% 时提醒下一轮先算体积（第 37 轮；只提醒，不改 exit 码）
+const headroom = budgetMax - budgetGzip
+if (headroom > 0 && headroom < budgetMax * 0.05) {
+  console.log(`WARN ${budgetName}距硬线 ${budgetMax} 只余 ${headroom} B（<5%），下一轮加静态代码前先算体积`)
+}
+if (budgetGzip > budgetMax) {
+  console.log(`FAIL ${budgetName} gzip ${budgetGzip} 超过上限 ${budgetMax}（越过 ${budgetGzip - budgetMax} B）`)
+  process.exit(1)
 }
 console.log('PASS')

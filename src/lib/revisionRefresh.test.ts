@@ -25,6 +25,7 @@ const source = (path: string): string =>
 
 const appSource = source('src/App.tsx')
 const railSource = source('src/components/MarginRail.tsx')
+const reviewSource = source('src/components/RailReviewPanel.tsx')
 
 const count = (haystack: string, needle: string): number => haystack.split(needle).length - 1
 
@@ -58,7 +59,7 @@ test('App.tsx：recordRevision 拿到 id 才递增代际（await writeRevision �
   )
 })
 
-test('App.tsx 与 MarginRail.tsx：revisionEpoch 接线恰好各一处', () => {
+test('App.tsx 与 MarginRail.tsx：revisionEpoch 接线恰好各一处，并转交给面板', () => {
   assert.equal(
     count(appSource, 'revisionEpoch={revisionEpoch}'),
     1,
@@ -68,11 +69,15 @@ test('App.tsx 与 MarginRail.tsx：revisionEpoch 接线恰好各一处', () => {
   assert.ok(rail.includes('revisionEpoch={revisionEpoch}'), 'getRevisionSource 之后就要给代际')
   assert.equal(count(railSource, 'revisionEpoch: number'), 1, 'Props 里 revisionEpoch 只许声明一次')
   assert.equal(count(railSource, '\n  revisionEpoch,\n'), 1, '解构里 revisionEpoch 只许写一次')
+  // 第 139 轮 B-229：快照清单搬进 RailReviewPanel，MarginRail 只做一次转交
+  assert.equal(count(railSource, 'revisionEpoch={revisionEpoch}'), 1, 'MarginRail 要把代际转交给面板一次')
+  assert.equal(count(reviewSource, 'revisionEpoch: number'), 1, '面板 Props 里 revisionEpoch 只许声明一次')
 })
 
-test('MarginRail.tsx：epoch effect 只在面板开着时重读，双 ref 判据，且不推进 reviewRunRef', () => {
-  const block = between(railSource, 'const loadSnapshots', 'const openReview')
-  assert.ok(block.includes('|| !reviewActive) return'), '面板没开着（或让位中）就不许读目录')
+test('RailReviewPanel.tsx：epoch effect 只在面板开着时重读（挂载态），双 ref 判据，且不推进 reviewRunRef', () => {
+  // 第 139 轮 B-229：整块搬进面板；「面板开着」由挂载本身保证（关掉即卸载），effect 不再重复判一次
+  const block = between(reviewSource, 'const loadSnapshots', 'const scan')
+  assert.ok(block.includes('revisionEpoch === loadedEpochRef.current'), '代际没变就不重读')
   assert.ok(block.includes('snapSeqRef.current !== seq'), '发起后的判据要含 snapSeqRef（后发起者胜出）')
   assert.ok(block.includes('snapSeqRef.current === seq'), '写回前的判据也要含 snapSeqRef')
   assert.ok(
@@ -80,4 +85,6 @@ test('MarginRail.tsx：epoch effect 只在面板开着时重读，双 ref 判据
     'epoch 路径按当前 run 重读，不新起一个面板世代',
   )
   assert.ok(!block.includes('reviewRunRef.current += 1'), 'epoch 路径不许推进 reviewRunRef（会让 busy 永真）')
+  // 卸载才推进 run（在途读取作废）
+  assert.ok(reviewSource.includes('return () => {\n      reviewRunRef.current += 1\n    }'), '卸载要作废在途读取')
 })

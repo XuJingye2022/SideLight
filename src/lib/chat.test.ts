@@ -162,8 +162,8 @@ test('dropEmptyAssistantTail：历史形状 [问, 答, 再问, 空答] 只撤末
  * 连续失败两次会把上一轮提问一起吞掉（A3 场景 b 会红）。渲染侧两条也要留住——
  * 删掉 `turn.text ||` 会丢正常回答，删掉 busy 的「…」会让 200 空流的占位变成空白。
  */
-test('MarginRail 的失败收尾（静态门）：撤空占位恰 1 处、在 catch (error) 后、函数式', () => {
-  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+test('RailChat 的失败收尾（静态门）：撤空占位恰 1 处、在 catch (error) 后、函数式', () => {
+  const source = readFileSync('src/components/RailChat.tsx', 'utf8')
   assert.equal(source.match(/dropEmptyAssistantTail\(/g)?.length, 1, 'dropEmptyAssistantTail( 全文件必须恰 1 处')
 
   const at = source.indexOf('catch (error)')
@@ -202,11 +202,11 @@ test('对话提示词短，并指向「生成批注」而要求不编造', () =>
  * `.tmp/e2e-r108-a1-live.mjs` 与 `docs/iteration/round-108/`。
  */
 test('对话记录开标签：流式 aria-live=off，收流回 polite，另带 aria-busy={busy}', () => {
-  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+  const source = readFileSync('src/components/RailChat.tsx', 'utf8')
   assert.equal(source.match(/role="log"/g)?.length, 1, 'role="log" 全文件必须恰 1 处')
   assert.equal(source.match(/className="rail-chat-log"/g)?.length, 1, 'className="rail-chat-log" 全文件必须恰 1 处')
   const tag = /<div\b[^>]*className="rail-chat-log"[^>]*>/.exec(source)?.[0]
-  assert.ok(tag, 'MarginRail.tsx 里找不到 .rail-chat-log 的开标签')
+  assert.ok(tag, 'RailChat.tsx 里找不到 .rail-chat-log 的开标签')
   assert.match(tag, /aria-live=\{busy\s*\?\s*'off'\s*:\s*'polite'\}/, '流式期间必须 off、收流回 polite')
   assert.match(tag, /aria-busy=\{busy\}/, '流式期间要给读屏一个 busy 标记')
   assert.doesNotMatch(tag, /aria-live="polite"/, '静态 polite 会让流式逐字播报（本缺陷原形）')
@@ -228,8 +228,8 @@ test('chatRefocusAfterStream：只有「没中止且焦点还在对话面板」�
   assert.equal(chatRefocusAfterStream(true, false), false, '两样都占：不回焦')
 })
 
-test('MarginRail 的两处回焦：先移焦再置灰，收尾必过 chatRefocusAfterStream（静态门）', () => {
-  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+test('RailChat 的两处回焦：先移焦再置灰，收尾必过 chatRefocusAfterStream（静态门）', () => {
+  const source = readFileSync('src/components/RailChat.tsx', 'utf8')
   const focusLines = source.split('\n').filter((line) => line.includes('inputRef.current?.focus()'))
   assert.equal(focusLines.length, 2, `inputRef.current?.focus() 全文件必须恰 2 处（发送前先移焦 + 收尾回焦；本缺陷原形是无条件回焦）`)
   // 第 134 轮 A1（B-264）：鼠标点亮「发送」会让钮 disabled，Chromium 把焦点还给 body；先移焦必须早于置灰
@@ -301,8 +301,8 @@ test('chatScrollOnUpdate：整轮变化无条件贴底，delta 只在本来就�
   assert.equal(chatScrollOnUpdate(false, false), false, 'delta 且读者上翻了：不拽回（本缺陷原形）')
 })
 
-test('MarginRail 的贴底判据（静态门）：单点写入、现场读、不加 onScroll', () => {
-  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+test('RailChat 的贴底判据（静态门）：单点写入、现场读、不加 onScroll', () => {
+  const source = readFileSync('src/components/RailChat.tsx', 'utf8')
   const writeLines = source.split('\n').filter((line) => line.includes('log.scrollTop = log.scrollHeight'))
   assert.equal(writeLines.length, 1, 'log.scrollTop = log.scrollHeight 全文件必须恰 1 处')
   assert.equal(source.match(/scrollTop\s*=/g)?.length, 1, 'scrollTop = 全文件必须恰 1 处（不留第二份状态）')
@@ -313,16 +313,16 @@ test('MarginRail 的贴底判据（静态门）：单点写入、现场读、不
     assert.ok(around.includes(token), `贴底那一行的 ±400 字符必须含 ${token}（判据要现场读、只认整轮变化）`)
   }
 
-  const compared = around.indexOf('prevTabRef.current !== railTab')
-  const guarded = around.indexOf(`railTab !== 'chat'`)
-  const wroteBack = around.indexOf('prevTabRef.current = railTab')
-  assert.ok(compared >= 0, '必须有 prevTabRef 的页签比较')
+  const compared = around.indexOf('prevTabRef.current !== tabActive')
+  const guarded = around.indexOf('if (!tabActive) return')
+  const wroteBack = around.indexOf('prevTabRef.current = tabActive')
+  assert.ok(compared >= 0, '必须有 prevTabRef 的页签比较（第 139 轮起面板按 tabActive 判）')
   assert.ok(wroteBack >= 0, '必须写回 prevTabRef（否则每次重新渲染都当成切页签、B-232 变假）')
-  assert.ok(guarded > compared, 'prevTabRef 比较必须先于 railTab !== chat 守卫')
+  assert.ok(guarded > compared, 'prevTabRef 比较必须先于 tabActive 守卫')
   assert.ok(guarded > wroteBack, 'prevTabRef 写回也必须先于守卫')
 
   const tag = /<div\b[^>]*className="rail-chat-log"[^>]*>/.exec(source)?.[0]
-  assert.ok(tag, 'MarginRail.tsx 里找不到 .rail-chat-log 的开标签')
+  assert.ok(tag, 'RailChat.tsx 里找不到 .rail-chat-log 的开标签')
   assert.doesNotMatch(tag, /onScroll=/, '滚动位置只现场读，不挂 onScroll（不许缓存第二份状态）')
 })
 
@@ -349,8 +349,8 @@ test('对话发言者署名：用户「我：」、助手「侧灯：」，全�
  * 恰 1 处 `rail-chat-speaker`、条件在 span 前、span 在正文表达式前，正文与 busy 的「…」不动
  * ——删掉 `turn.text ||` 会丢正常回答，把 200 零 delta 的空 assistant 也标上署名会让 B-246 扩大。
  */
-test('MarginRail 的署名渲染（静态门）：每 turn 恰 1 枚、条件是「有字或流式中」、正文表达式不动', () => {
-  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+test('RailChat 的署名渲染（静态门）：每 turn 恰 1 枚、条件是「有字或流式中」、正文表达式不动', () => {
+  const source = readFileSync('src/components/RailChat.tsx', 'utf8')
   const at = source.indexOf('rail-chat-turn is-')
   assert.ok(at >= 0, '找不到 .rail-chat-turn 的渲染')
   const render = source.slice(at, at + 400)
@@ -420,10 +420,10 @@ test('署名的 sr-only 样式（静态门）：恰 1 块、6 条声明、三禁
  * `.tmp/e2e-r118-b244.mjs` 与 `.tmp/r118-b244-{before,after}.json`。
  */
 test('对话记录开标签：显式 tabIndex={0}，且不许给 -1 或按轮数条件化', () => {
-  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+  const source = readFileSync('src/components/RailChat.tsx', 'utf8')
   assert.equal(source.match(/className="rail-chat-log"/g)?.length, 1, 'className="rail-chat-log" 全文件必须恰 1 处')
   const tag = /<div\b[^>]*className="rail-chat-log"[^>]*>/.exec(source)?.[0]
-  assert.ok(tag, 'MarginRail.tsx 里找不到 .rail-chat-log 的开标签')
+  assert.ok(tag, 'RailChat.tsx 里找不到 .rail-chat-log 的开标签')
   assert.match(
     tag,
     /tabIndex=\{0\}/,
@@ -516,7 +516,7 @@ test('chatContextFor：文首/第一块内取开头切片，空文档与全空�
  * 按 prop 段取，不按行：prettier 换行不改结论。HEAD 版 `getChatSource` 0 命中
  * （`git show HEAD:src/App.tsx` 的 `indexOf` 为 −1）。
  */
-test('对话上下文的接线（静态门）：App 传选区+viewMode 守卫，MarginRail 调 chatContextFor 恰 1 处', () => {
+test('对话上下文的接线（静态门）：App 传选区+viewMode 守卫，RailChat 调 chatContextFor 恰 1 处', () => {
   const app = readFileSync('src/App.tsx', 'utf8')
   const prop = between(app, 'getChatSource=', 'getDiff=')
   assert.ok(prop.includes(`viewMode === 'edit'`), '非编辑视图要把 from/to 压成文首')
@@ -524,8 +524,32 @@ test('对话上下文的接线（静态门）：App 传选区+viewMode 守卫，
   assert.ok(prop.includes('readBlocks('), '块要现读，不能缓存')
   assert.equal(prop.match(/chatContextFor\(/g)?.length ?? 0, 0, 'App 不许调 chatContextFor（会把常驻 chunk 的代码拉进主包）')
 
-  const rail = readFileSync('src/components/MarginRail.tsx', 'utf8')
+  const rail = readFileSync('src/components/RailChat.tsx', 'utf8')
   const send = between(rail, 'const send = async', 'const generateNotes')
   assert.equal(send.match(/chatContextFor\(/g)?.length, 1, '发送路径必须恰 1 处拼上下文')
   assert.ok(send.includes('buildChatMessages(docText'), '拼出的节选要原样交给 buildChatMessages')
+})
+
+/**
+ * 第 139 轮 B-229：对话页签拆成按开合加载的 lazy chunk。
+ *
+ * ① `chat.ts` 随组件走：MarginRail 0 命中、RailChat 恰 1 处静态引入（否则常驻 chunk 还不降）；
+ * ② `#rail-panel-chat` 与 B-230 的焦点交接留在 MarginRail（面板拆出去也不能丢这两个接线点）；
+ * ③ 首开挂载、之后 `hidden` 保 turns：`chatMounted` 一旦为真就不再回去。
+ * 负向证据见 `docs/iteration/round-139/impl.md`。
+ */
+test('第 139 轮 B-229 接线（静态门）：chat.ts 随 RailChat 走，#rail-panel-chat 与 B-230 交接留原处', () => {
+  const rail = readFileSync('src/components/MarginRail.tsx', 'utf8')
+  const chat = readFileSync('src/components/RailChat.tsx', 'utf8')
+  assert.equal(rail.match(/lib\/chat\.ts/g)?.length ?? 0, 0, 'MarginRail 不许再引 chat.ts：要随面板搬走')
+  assert.equal(chat.match(/lib\/chat\.ts/g)?.length, 1, 'RailChat 要恰 1 处静态引入 chat.ts')
+  assert.equal(rail.match(/id="rail-panel-chat"/g)?.length, 1, '#rail-panel-chat 仍要留原处（B-230 按 id 找它）')
+  assert.equal(
+    rail.match(/document\.getElementById\('rail-tab-notes'\)\?\.focus\(\)/g)?.length,
+    1,
+    'B-230 的焦点交接（生成批注后 rAF 聚焦批注页签）必须留原处',
+  )
+  assert.ok(rail.includes('const [chatMounted, setChatMounted] = useState(railTab === \'chat\')'), '首开 chat 才挂载')
+  assert.ok(rail.includes('hidden={railTab !== \'chat\'}'), '之后保持挂载、用 hidden 保 turns')
+  assert.ok(rail.includes('<RailChat'), '对话面板要以 <RailChat> 挂载')
 })

@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–138 轮，未发版）
+## Unreleased（第 29–139 轮，未发版）
+
+**第 139 轮（同一未发版区间）**
+
+- 真实首载压到硬线下、`npm run verify` 默认改按真实首载判（**B-229**，慢车道；第 101 轮起连续 14 轮超线）——把常驻 `MarginRail-*.js` 里的三块面板按开合拆成 lazy chunk：新 `src/components/RailDiffPanel.tsx`（对比面板 + `diffView` + focus/Esc/portal）、`RailReviewPanel.tsx`（在审列表 + 修订快照 + `reviewFiles` 行合并 + focus/Esc/portal）、`RailChat.tsx`（对话页签 + `chat.ts` 随组件走），`MarginRail.tsx` 只留入口按钮、开关状态与就地 `<Suspense>`（`diffOpen` / `reviewActive` / 首开「对话」才挂载，之后 `hidden` 保 `turns`、`key={docKey}` 换篇清空），不砍功能与文案。产物体积：常驻 `MarginRail-*.js` gzip9 **7,838 → 4,190**、门 **315,611 → 315,616**（+5 B）、**真实首载 323,449 → 319,806**（≤320,000，余 194）；三个新 chunk gzip9 `RailDiffPanel` 1,344 / `RailReviewPanel` 2,089 / `RailChat` 2,482，只在使用时下载。`scripts/measure-first-screen.mjs` 默认口径翻成真实首载：`realMax = --real-max ?? max`（`--max` 即真实首载硬线，超线 exit 1）、`budgetGzip = noResident ? totalGzip : realGzip`，`--target 310000` 与 headroom 仍只 WARN，`--no-resident` 复旧口径（不扫常驻、无 `real` 行）；头注释写明 `--max 316200` 一类旧调用会红。新 `src/lib/firstScreenBudget.test.ts` **4 条**静态门挂 `npm test` 链尾（**70 → 71 文件**、968 → **975 条**），负向删预算 exit 分支 2 红。tester 独立（未读 `impl.md`）：门 315,616 + 独立 `zlib.gzipSync(level:9)` 复算常驻 4,190 = **319,806**；`--max 319805` exit 1 而 `--no-resident --max 319805` exit 0（证明默认判 real）、`--max 400000 --real-max 400000` exit 0、两次 build 同名同字节；自写 `.tmp/r139-tester-lazy.mjs`（ego CDP 57270、1440×900）**13/13、0 pageerror / 0 console error**——首载 900 ms 内三面板 chunk 请求 0、三个入口首点时各下 1、面板焦点/Esc/右栏节点/对话往返全过；回归 r100 **43/43**、r101 **57/57**、r96 **33/33**（跑后还原 `shots/round-{96,100,101}`）。`npm test` **71 文件 975 条 0 fail**、`npm run verify` exit 0。UNVERIFIED：真 WebView2 宿主、真实中文 IME、CI 三处调用的语义变化（不 push，未跑）、生产 gzip 传输（以脚本口径为准）。见 `docs/iteration/round-139/test.md`。
 
 **第 138 轮（同一未发版区间）**
 
