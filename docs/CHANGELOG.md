@@ -2,7 +2,13 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–110 轮，未发版）
+## Unreleased（第 29–112 轮，未发版）
+
+**第 112 轮（同一未发版区间）**
+
+- 对话记录上翻不再被流式 delta 拽回（A1/A2，B-245，用户 2026-11-20 队列「对话区」）：`src/components/MarginRail.tsx` 的贴底 effect 由「`turns` 每变一次就 `log.scrollTop = log.scrollHeight`」改为「整轮 +1 或切回页签才无条件贴底，delta 只在读者贴着底（距底 < 32 px、现场读三个数）时才跟」，`prevTabRef` 写回先于页签守卫（B-232 前提保持）、不加 `onScroll`；`src/lib/chat.ts` 加纯函数 `CHAT_STICK_SLACK`/`chatNearBottom`/`chatScrollOnUpdate`；`chat.test.ts` 15→**18 条**（边界/真值表/读源码静态门）。
+- 真机与反事实（ego CDP 57270、1440×560、无 Key mock 流放慢 140 ms、MutationObserver 计 delta）：翻顶 baseline **0**、之后 **3** 批 delta 仍 0、收流 0；正向 `scrollHeight` 646→775、距底 0；回到底部后 863→884、收流距底 0；旧无条件贴底同脚本 **6/10** 红（`afterDeltas` **344**、`settledTop` **386**）、还原后 **10/10**，0 pageerror。
+- 门禁与体积：`npm test` **62 文件 882 条 0 fail**、`npm run verify` exit 0、首屏门 gzip **315,213 B**、`MarginRail` chunk gzip9 **6,884**、B-229 口径合计 **322,097**（超硬线 2,097，**B-229 仍 open**、只记）；回归 r104 **25/25**、r111 焦点 **全过**。见 `docs/iteration/round-112/test.md`。
 
 **第 110 轮（同一未发版区间；验证轮，0 产品改动）**
 

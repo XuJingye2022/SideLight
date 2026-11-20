@@ -5,11 +5,14 @@ import test from 'node:test'
 import {
   CHAT_CONTEXT_LIMIT,
   CHAT_HISTORY_LIMIT,
+  CHAT_STICK_SLACK,
   CHAT_SYSTEM_PROMPT,
   appendDelta,
   buildChatMessages,
   chatContextOf,
+  chatNearBottom,
   chatRefocusAfterStream,
+  chatScrollOnUpdate,
   pushTurn,
   type ChatTurn,
 } from './chat.ts'
@@ -156,4 +159,56 @@ test('MarginRail 的收尾回焦唯一且必须过 chatRefocusAfterStream（静�
   assert.equal(focusLines.length, 1, `inputRef.current?.focus() 全文件必须恰 1 处（本缺陷原形是无条件回焦）`)
   assert.match(focusLines[0], /chatRefocusAfterStream\(/, '回焦必须挂在谓词上，删掉条件就红')
   assert.match(focusLines[0], /controller\.signal\.aborted/, '判据要读本轮的 signal，不能读别的状态')
+})
+
+/**
+ * 第 112 轮 A1：流式每来一个 delta 都把记录拽回底部，读者上翻看不了历史。
+ *
+ * 判据是纯函数（现场读三个数），浏览器侧三段（上翻不被拽回 / 正向下跟 / 回到底恢复跟读）
+ * 见 `.tmp/r112-a1-e2e.mjs` 与 `.tmp/r112-a1-{before,after}.json`：改前 `afterDeltas 344`、
+ * `settledTop 386`，改后两者 ≤3。
+ */
+test('chatNearBottom：距底 < slack 才算贴底（0/31 true，32 false，顶端 false）', () => {
+  // 记录区 500 高、可视 200：最大 scrollTop = 300，距底 = 300 − scrollTop
+  const box = (scrollTop: number) => ({ scrollTop, scrollHeight: 500, clientHeight: 200 })
+  assert.equal(CHAT_STICK_SLACK, 32, '余量是公开常量，改它要同时改这条断言')
+  assert.equal(chatNearBottom(box(300)), true, '正好在底部（距底 0）')
+  assert.equal(chatNearBottom(box(269)), true, '距底 31 < 32：仍算贴底')
+  assert.equal(chatNearBottom(box(268)), false, '距底 32：不算贴底（边界是开区间）')
+  assert.equal(chatNearBottom(box(0)), false, '翻到顶端（距底 300）不贴底')
+  assert.equal(chatNearBottom(box(260), 64), true, '自定义 slack 64：距底 40 在范围内')
+  assert.equal(chatNearBottom(box(269), 24), false, '自定义 slack 24：距底 31 超出')
+  assert.equal(chatNearBottom({ scrollTop: 0, scrollHeight: 120, clientHeight: 120 }), true, '内容没溢出（距底 0）')
+})
+
+test('chatScrollOnUpdate：整轮变化无条件贴底，delta 只在本来就贴底时跟', () => {
+  assert.equal(chatScrollOnUpdate(true, true), true, '整轮 +1 且贴底')
+  assert.equal(chatScrollOnUpdate(true, false), true, '整轮 +1（新提问 / 切回页签）必须贴底，否则看不见刚发的那句')
+  assert.equal(chatScrollOnUpdate(false, true), true, 'delta 且读者贴着底部：继续跟')
+  assert.equal(chatScrollOnUpdate(false, false), false, 'delta 且读者上翻了：不拽回（本缺陷原形）')
+})
+
+test('MarginRail 的贴底判据（静态门）：单点写入、现场读、不加 onScroll', () => {
+  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+  const writeLines = source.split('\n').filter((line) => line.includes('log.scrollTop = log.scrollHeight'))
+  assert.equal(writeLines.length, 1, 'log.scrollTop = log.scrollHeight 全文件必须恰 1 处')
+  assert.equal(source.match(/scrollTop\s*=/g)?.length, 1, 'scrollTop = 全文件必须恰 1 处（不留第二份状态）')
+
+  const at = source.indexOf('log.scrollTop = log.scrollHeight')
+  const around = source.slice(Math.max(0, at - 400), at + 400)
+  for (const token of ['chatScrollOnUpdate(', 'chatNearBottom(log)', 'prevTabRef', 'turnCountRef']) {
+    assert.ok(around.includes(token), `贴底那一行的 ±400 字符必须含 ${token}（判据要现场读、只认整轮变化）`)
+  }
+
+  const compared = around.indexOf('prevTabRef.current !== railTab')
+  const guarded = around.indexOf(`railTab !== 'chat'`)
+  const wroteBack = around.indexOf('prevTabRef.current = railTab')
+  assert.ok(compared >= 0, '必须有 prevTabRef 的页签比较')
+  assert.ok(wroteBack >= 0, '必须写回 prevTabRef（否则每次重新渲染都当成切页签、B-232 变假）')
+  assert.ok(guarded > compared, 'prevTabRef 比较必须先于 railTab !== chat 守卫')
+  assert.ok(guarded > wroteBack, 'prevTabRef 写回也必须先于守卫')
+
+  const tag = /<div\b[^>]*className="rail-chat-log"[^>]*>/.exec(source)?.[0]
+  assert.ok(tag, 'MarginRail.tsx 里找不到 .rail-chat-log 的开标签')
+  assert.doesNotMatch(tag, /onScroll=/, '滚动位置只现场读，不挂 onScroll（不许缓存第二份状态）')
 })

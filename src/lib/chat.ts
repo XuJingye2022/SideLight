@@ -82,3 +82,33 @@ export function appendDelta(turns: ChatTurn[], delta: string): ChatTurn[] {
 export function chatRefocusAfterStream(aborted: boolean, focusInPanel: boolean): boolean {
   return !aborted && focusInPanel
 }
+
+/**
+ * 第 112 轮 A1：对话记录「还在看最新一条」的像素余量。
+ *
+ * 距底小于这个数就算贴底。不缓存「读者是不是上翻了」的判断：切页签、换文档、
+ * 程序化滚动之后缓存都会过期，这里每次现场读三个数（`chatNearBottom`）。
+ */
+export const CHAT_STICK_SLACK = 32
+
+/** `chatNearBottom` 只要这三个数，方便单测直接喂对象（不依赖 DOM） */
+export type ChatScrollBox = { scrollTop: number; scrollHeight: number; clientHeight: number }
+
+/**
+ * 读者是否还贴着底部：距底 < slack。
+ * 读更新后的值——delta 刚落进 DOM 时用新的 `scrollHeight` 算，单条分片增高超过
+ * slack 就不再跟（方向是「少跟」而不是「拽回」）。
+ */
+export function chatNearBottom(rect: ChatScrollBox, slack: number = CHAT_STICK_SLACK): boolean {
+  return rect.scrollHeight - rect.clientHeight - rect.scrollTop < slack
+}
+
+/**
+ * 这一次更新要不要把记录滚到底。
+ *
+ * `grew` 是「整轮 +1」（新提问 / 切回对话页签）：无条件贴底，否则读者看不见自己刚发的那句。
+ * 流式 delta 不算整轮，只在读者本来就贴底时才跟——上翻看历史时不能再被拽回（本缺陷）。
+ */
+export function chatScrollOnUpdate(grew: boolean, stick: boolean): boolean {
+  return grew || stick
+}

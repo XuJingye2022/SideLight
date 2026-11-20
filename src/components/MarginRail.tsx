@@ -15,7 +15,7 @@ import {
   type DocNote,
   type ReviewStatus,
 } from '../lib/annotations.ts'
-import { appendDelta, buildChatMessages, chatRefocusAfterStream, pushTurn, type ChatTurn } from '../lib/chat.ts'
+import { appendDelta, buildChatMessages, chatNearBottom, chatRefocusAfterStream, chatScrollOnUpdate, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import { diffView, type DiffViewResult } from '../lib/diffView.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
 import {
@@ -147,6 +147,9 @@ export function MarginRail({
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   /** 卸载后流式回调还会到：先记活着，再决定要不要 setState */
   const aliveRef = useRef(true)
+  /** 第 112 轮 A1：上一次渲染的轮数 / 页签，只认「整轮变化」（delta 只加字，不加条） */
+  const turnCountRef = useRef(0)
+  const prevTabRef = useRef(railTab)
 
   const resetChat = () => {
     ctrlRef.current?.abort()
@@ -170,13 +173,18 @@ export function MarginRail({
     resetChat()
   }, [docName])
 
-  // 新内容贴底（用户可能已经往上翻了，这里不强制——只在整轮变化时滚一次）。
-  // 第 104 轮 B-232：「生成批注」也会往记录里添一句，而那时面板是 hidden（scrollHeight 恒 0，
-  // 当场滚等于白滚）。切回对话页签时再贴底，否则末条在新的高 log 里看不见。
+  // 第 112 轮 A1：上翻看历史时 delta 不拽回。整轮 +1（新提问 / 切回页签）才无条件贴底；
+  // 流式 delta 只在读者本来贴着底部时才跟（判据现场读，不缓存——缓存会被切页签与换文档弄过期）。
+  // 第 104 轮 B-232 的前提仍成立：批注页签下面板 hidden、scrollHeight 恒 0，所以切回时才贴底。
   useEffect(() => {
+    const tabChanged = prevTabRef.current !== railTab
+    prevTabRef.current = railTab
     if (railTab !== 'chat') return
     const log = logRef.current
     if (!log) return
+    const grew = turns.length !== turnCountRef.current || tabChanged
+    turnCountRef.current = turns.length
+    if (!chatScrollOnUpdate(grew, chatNearBottom(log))) return
     log.scrollTop = log.scrollHeight
   }, [turns, railTab])
 
