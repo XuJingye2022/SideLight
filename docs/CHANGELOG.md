@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–123 轮，未发版）
+## Unreleased（第 29–124 轮，未发版）
+
+**第 124 轮（同一未发版区间）**
+
+- 「在审」面板开着时自动保存写下的修订快照立刻出现在清单里（**B-257**，第 123 轮 finder F2：`reviewLater` 的 `snaps:[]` 与磁盘 1 份、toast「已保存 a.md」矛盾，空态还写「保存一次后才会记录。」）——`src/App.tsx:495` 加 `revisionEpoch` 代际（初值 0，只有保存真的写成才 +1）：`recordRevision` 改 `const id = await writeRevision(...)` + `if (id) setRevisionEpoch((value) => value + 1)`（`:3410-3413`），`:6048` 作 prop 传给 `<MarginRail>`；`src/components/MarginRail.tsx:70/141` 加 Props 与解构、`:323` 加 `snapSeqRef`（epoch 重读与面板重开可能同时在途，只认后发起者）、`:325` 加 `loadedEpochRef`、`:377-391` 的 `loadSnapshots` 两处判据改 `reviewRunRef`+`snapSeqRef` 双 ref、`:398-402` 新 effect（代际变了且 `reviewActive` 为真才重读，面板关着不读目录）、`:414` `openReview` 现读后同步 `loadedEpochRef`（开面板不重复读）；**epoch 路径不推进 `reviewRunRef`**（`:335/:344/:365` 仍只在切页签/换文档/关面板推进，否则 `reviewBusy` 永真、列表停在「正在读…」）。新 `src/lib/revisionRefresh.test.ts` **4 条**静态门挂 `npm test` 链尾（64→**65 文件**、913→**917 条**）。tester 独立（未读 `impl.md`）：负向三处（去掉 `!reviewActive` 早退、去掉写回前的 `snapSeqRef` 判据、`if (id)` 改无条件）**各 1 红 exit 1**，还原后 SHA256 `6B8FC124…`/`9A695598…` 同、`revisionRefresh.test.ts` **4/4 绿**；`git grep --untracked revisionEpoch -- src` HEAD **0（exit 1）→ App 2 行 + MarginRail 8 行 + 测试**，`src/styles.css` 0 行、`git diff --stat` 只 4 文件；自写 E2E `.tmp/r124-tester-e2e.mjs`（ego CDP 57270、1440×900、假 FSA 计 `.sidelight/revisions` 的 `entries()`、autoSave 开）**11/11、0 pageerror**（`.tmp/r124-tester-e2e.json`）：打 1 字立刻开面板 snaps **0** + 空态且 disk 0、等自动保存落盘后面板 **1 行 = 磁盘 1 份**、`snapEmpty:null`、toast「已保存 a.md」、`entries()` 恰 **+2**（写侧 1 + epoch 重读 1）、`busy:false`（无「正在读…」）、关面板后改 1 字 `Ctrl+S` 只 **+1** 遍历、重开 **2 行 = 磁盘 2 份**。回归 `.tmp/r114-tester-e2e.mjs` **27/27**、`.tmp/e2e-r101-review.mjs` **57/57**。门禁：`npm test` **65 文件 917 条 0 fail**、`npm run verify` PASS、门 gzip **315,726 B**（在 `ff22b67` 独立 worktree 重建基线 **315,674**，净 **+52**、硬线余 4,274）、常驻 `MarginRail-CsQwh5S0.js` gzip9 **7,495**（基线 7,414，+81）、B-229 口径合计 **323,221**（超硬线 3,221，仍 `open` 只记）；`roundtrip` 不跑（未动编辑器/序列化）。UNVERIFIED：真 WebView2 宿主、真实 FSA、真实中文 IME。见 `docs/iteration/round-124/test.md`。
 
 **第 123 轮（同一未发版区间）**
 

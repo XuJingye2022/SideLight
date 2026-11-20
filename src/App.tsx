@@ -488,6 +488,11 @@ export default function App() {
   const [railSpace, setRailSpace] = useState(0)
   /** 右侧页签：对话 / 批注（第 94 轮 B-221）。默认「批注」——批注是现成能力，先给用户看 */
   const [railTab, setRailTab] = useState<'chat' | 'notes'>('notes')
+  /**
+   * 修订快照的写入代际（第 124 轮 B-257）：保存成功写完快照就 +1，
+   * 「在审」面板开着时据此重读清单——否则自动保存新写的快照要等下次开面板才出现。
+   */
+  const [revisionEpoch, setRevisionEpoch] = useState(0)
   const [bubble, setBubble] = useState<{ top: number; left: number } | null>(null)
   const [tick, setTick] = useState(0)
   const [dirty, setDirty] = useState(false)
@@ -3402,7 +3407,9 @@ export default function App() {
       void (async () => {
         const dir = await cacheDirFor()
         if (!dir) return
-        await writeRevision(dir, key, text, annotations, notes, bytesText)
+        // 第 124 轮 B-257：拿到 id（新写或同 id 已存在都算）才推代际——面板开着时据此重读清单
+        const id = await writeRevision(dir, key, text, annotations, notes, bytesText)
+        if (id) setRevisionEpoch((value) => value + 1)
       })()
     },
     [cacheDirFor],
@@ -6037,6 +6044,8 @@ export default function App() {
                   const dir = await cacheDirFor()
                   return dir ? { dir, key: cacheKey(docNameRef.current) } : null
                 }}
+                // 第 124 轮 B-257：保存写完快照后 +1，面板开着就重读清单
+                revisionEpoch={revisionEpoch}
                 activePath={activeFile?.path ?? null}
                 onOpenReviewFile={(path) => {
                   const node = flattenFiles(workspaceRef.current?.root ?? null).find((file) => file.path === path)

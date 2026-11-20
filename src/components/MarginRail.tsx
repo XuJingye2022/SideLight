@@ -66,6 +66,8 @@ type Props = {
    * 返回 null 表示这篇没有可读的 .sidelight（示例 / 单文件打开 / 没句柄）
    */
   getRevisionSource: () => Promise<{ dir: FileSystemDirectoryHandle; key: string } | null>
+  /** 快照写入代际（第 124 轮 B-257）：保存写完快照就 +1，面板开着时据此重读清单 */
+  revisionEpoch: number
   /** 当前打开的文档路径：面板给这一行标 aria-current */
   activePath: string | null
   /** 点一行：App 找节点并打开；同篇只关面板不重载 */
@@ -136,6 +138,7 @@ export function MarginRail({
   getDiff,
   getReviewWorkspace,
   getRevisionSource,
+  revisionEpoch,
   activePath,
   onOpenReviewFile,
   onGenerateNotes,
@@ -316,6 +319,10 @@ export function MarginRail({
   const reviewSheetRef = useRef<HTMLDivElement | null>(null)
   /** 连点两次只认最后一次的扫描结果 */
   const reviewRunRef = useRef(0)
+  /** 第 124 轮 B-257：快照读取另用一条序号——epoch 重读与面板重开可能同时在途，只认后发起的那次 */
+  const snapSeqRef = useRef(0)
+  /** 上一次重读快照时的代际：openReview 现读一次就同步，effect 不跟着重复读 */
+  const loadedEpochRef = useRef(revisionEpoch)
   const reviewActive = reviewOpen && railTab === 'notes' && !appDialogOpen
   useDialogFocus(reviewActive, reviewSheetRef, '.rail-review-overlay', railTab === 'notes')
 
@@ -368,18 +375,31 @@ export function MarginRail({
    * 源为空 / 动态 import 失败 / 读目录失败都只让这一段不显示，不影响在审列表，永不抛。
    */
   const loadSnapshots = (run: number) => {
+    const seq = snapSeqRef.current + 1
+    snapSeqRef.current = seq
     void (async () => {
       try {
         const source = await getRevisionSource()
-        if (!source || reviewRunRef.current !== run) return
+        if (!source || reviewRunRef.current !== run || snapSeqRef.current !== seq) return
         const { listRevisions } = await import('../lib/revisionList.ts')
         const rows = await listRevisions(source.dir, source.key)
-        if (reviewRunRef.current === run) setSnapData(rows)
+        if (reviewRunRef.current === run && snapSeqRef.current === seq) setSnapData(rows)
       } catch {
         // 读不到快照不影响在审列表
       }
     })()
   }
+
+  /**
+   * 第 124 轮 B-257：保存成功写完快照（`revisionEpoch` +1）时，面板开着就重读清单。
+   * 面板关着不读、也不更新 `loadedEpochRef`——下次开面板由 `openReview` 现读。
+   * epoch 路径不推进 `reviewRunRef`：那个序号管面板有效期，推进会让 `openReview` 的 finally 判不了 busy。
+   */
+  useEffect(() => {
+    if (revisionEpoch === loadedEpochRef.current || !reviewActive) return
+    loadedEpochRef.current = revisionEpoch
+    loadSnapshots(reviewRunRef.current)
+  }, [revisionEpoch, reviewActive])
 
   /** 点入口才现读：批注档在磁盘上，面板里的 open 数永远是这一刻的 */
   const openReview = async () => {
@@ -390,6 +410,8 @@ export function MarginRail({
     setSnapData(null)
     const run = reviewRunRef.current + 1
     reviewRunRef.current = run
+    // 这次现读就是最新的一份，effect 不用再读一遍
+    loadedEpochRef.current = revisionEpoch
     try {
       const workspace = getReviewWorkspace()
       if (!workspace) {
