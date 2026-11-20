@@ -3397,7 +3397,9 @@ button:disabled {
   margin: -4px 0 12px;
 }
 
+/* 第 127 轮 B-260：两条文字链钮 69×19 / 46×19 → 24（只加可点高度，宽度与字号不动） */
 .dialog-inline button {
+  min-height: 24px;
   padding: 2px 0;
   font-size: 11.5px;
   color: var(--accent);

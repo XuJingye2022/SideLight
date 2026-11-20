@@ -23,6 +23,8 @@ const HEAD = '.rail-head'
 /** 第 121 轮 B-251：对比 / 在审共用的关闭钮与「判错了，重来」原先只有 24×19 / 72×18.6 */
 const DIFF_CLOSE = '.rail-diff-close'
 const GOAL_RETRY = '.rail-goal-retry'
+/** 第 127 轮 B-260：设置面板两条文字链钮「全部恢复默认」「恢复默认」原先只有 69×19 / 46×19 */
+const DIALOG_INLINE = '.dialog-inline button'
 /** 24×24 可点口径；两个入口宽 35，`新对话` 宽 52.5，宽度本轮不动 */
 const MIN_TARGET = 24
 
@@ -138,4 +140,8 @@ test('对比 / 在审共用的关闭钮「×」可点高度 ≥24，宽度不动
 
 test('「判错了，重来」可点高度 ≥24（24×19 → 24×24），宽度不动（B-251）', () => {
   assertTapTarget(GOAL_RETRY)
+})
+
+test('设置面板两条文字链钮可点高度 ≥24，宽度不动（第 127 轮）', () => {
+  assertTapTarget(DIALOG_INLINE)
 })

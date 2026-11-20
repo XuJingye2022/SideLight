@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–126 轮，未发版）
+## Unreleased（第 29–127 轮，未发版）
+
+**第 127 轮（同一未发版区间）**
+
+- 设置面板两条文字链钮补到 24 px 可点高度（**B-260**，第 123 轮 UI 侦察全应用扫描里仅剩的 2 条 <24×24）：「全部恢复默认」**69×19 → 69×24**、「恢复默认」**46×19 → 46×24**——`src/styles.css:3400-3402` 的 `.dialog-inline button` 加 1 行注释 + `min-height: 24px`（`padding: 2px 0` / `font-size: 11.5px` / 颜色与下划线逐字不动，全局 `box-sizing: border-box` 下 24 即总高）；新 `src/lib/touchTargets.test.ts` 常量 `DIALOG_INLINE` + 1 条 `assertTapTarget` 机械门（按块切 CSS，块内 `min-height|height` ≥24、禁写 `width`/`min-width`），负向改 `20px` **恰 1 红 exit 1**。tester 独立（未读 `impl.md`）：`touchTargets.test.ts` **6/6 exit 0**；自写 `.tmp/e2e-r127-tester.mjs` 同脚本 before/after（ego CDP 57270、1440×900、先 `reset.mjs 57270`）：before（`git stash -- src/styles.css`）**69×19 / 46×19** 且设置面板态扫描**恰 2 条** <24×24，after **69×24 / 46×24**、computed `min-height: 24px`、扫描 **0**；`.dialog` 横溢 0、收起态竖溢 **0 ≤ 改前 0+2**；展开「快捷键」点「全部恢复默认」→ `.keybinding-status`「已全部恢复默认」；Esc 关、0 写盘、0 pageerror。门禁：`npm test` **66 文件 930 条 0 fail**、`npm run verify -- --max 316000` **exit 0**、门 gzip **315,796 B**（净 +4、余硬线 204）、`MarginRail-*.js` gzip9 **7,847** 不变；回归 `keyboard-acceptance` **52/52**（跑后还原 `shots/round-05/`）。截图 `shots/round-127/dialog-inline-buttons.png`。见 `docs/iteration/round-127/test.md`。
 
 **第 126 轮（同一未发版区间）**
 
