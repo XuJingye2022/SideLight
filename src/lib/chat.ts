@@ -69,3 +69,16 @@ export function appendDelta(turns: ChatTurn[], delta: string): ChatTurn[] {
   if (!last || last.role !== 'assistant') return turns
   return [...turns.slice(0, -1), { ...last, text: last.text + delta }]
 }
+
+/**
+ * 第 111 轮 B-240：流式收尾要不要把焦点送回输入框。
+ *
+ * 只有「读者还在对话面板里」才送。两条出口都不送：
+ * - 流式中止（换文档 / 点子元素卸载）：上下文已经换了，这一轮的字不该再把焦点抢回来；
+ * - 焦点已经不在 `#rail-panel-chat` 里（点正文、点文件树、快速打开）：那是读者自己走开的。
+ *
+ * 普通收流且焦点仍在输入框 → 回焦，保留「Enter 发完接着写下一句」的既有手感。
+ */
+export function chatRefocusAfterStream(aborted: boolean, focusInPanel: boolean): boolean {
+  return !aborted && focusInPanel
+}

@@ -15,7 +15,7 @@ import {
   type DocNote,
   type ReviewStatus,
 } from '../lib/annotations.ts'
-import { appendDelta, buildChatMessages, pushTurn, type ChatTurn } from '../lib/chat.ts'
+import { appendDelta, buildChatMessages, chatRefocusAfterStream, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import { diffView, type DiffViewResult } from '../lib/diffView.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
 import {
@@ -209,7 +209,10 @@ export function MarginRail({
       if (ctrlRef.current === controller) ctrlRef.current = null
       if (aliveRef.current) {
         setBusy(false)
-        inputRef.current?.focus()
+        // 第 111 轮 B-240：中止（换文档 / 卸载）或读者已把焦点移出对话面板时，收尾别再抢焦点
+        const panel = document.getElementById('rail-panel-chat')
+        const focusInPanel = !!panel?.contains(document.activeElement)
+        if (chatRefocusAfterStream(controller.signal.aborted, focusInPanel)) inputRef.current?.focus()
       }
     }
   }

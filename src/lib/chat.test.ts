@@ -9,6 +9,7 @@ import {
   appendDelta,
   buildChatMessages,
   chatContextOf,
+  chatRefocusAfterStream,
   pushTurn,
   type ChatTurn,
 } from './chat.ts'
@@ -133,4 +134,26 @@ test('对话记录开标签：流式 aria-live=off，收流回 polite，另带 a
   assert.doesNotMatch(tag, /aria-live="polite"/, '静态 polite 会让流式逐字播报（本缺陷原形）')
   assert.match(tag, /role="log"/)
   assert.match(tag, /aria-label="对话记录"/, '可访问名不能顺手丢掉')
+})
+
+/**
+ * 第 111 轮 B-240：流式中止抢焦点。
+ *
+ * 浏览器侧四条场景（A 普通收流回焦 / B 点文件树换文档 / B2 快速打开换文档 / C 焦点进正文）
+ * 见 `.tmp/e2e-r111-a1-focus.mjs` 与 `.tmp/r111-a1-{before,after}.json`。
+ * 这里只覆盖二维真值表与本修法在源码里的唯一落点。
+ */
+test('chatRefocusAfterStream：只有「没中止且焦点还在对话面板」才回焦', () => {
+  assert.equal(chatRefocusAfterStream(false, true), true, '普通收流且读者还在输入框：回焦')
+  assert.equal(chatRefocusAfterStream(true, true), false, '中止（换文档 / 卸载）不回焦')
+  assert.equal(chatRefocusAfterStream(false, false), false, '焦点已被读者移出面板：不回焦')
+  assert.equal(chatRefocusAfterStream(true, false), false, '两样都占：不回焦')
+})
+
+test('MarginRail 的收尾回焦唯一且必须过 chatRefocusAfterStream（静态门）', () => {
+  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+  const focusLines = source.split('\n').filter((line) => line.includes('inputRef.current?.focus()'))
+  assert.equal(focusLines.length, 1, `inputRef.current?.focus() 全文件必须恰 1 处（本缺陷原形是无条件回焦）`)
+  assert.match(focusLines[0], /chatRefocusAfterStream\(/, '回焦必须挂在谓词上，删掉条件就红')
+  assert.match(focusLines[0], /controller\.signal\.aborted/, '判据要读本轮的 signal，不能读别的状态')
 })
