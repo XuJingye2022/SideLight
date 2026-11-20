@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import { getSchema } from '@tiptap/core'
@@ -419,12 +420,12 @@ test('五档档位与归一函数逐档一致', () => {
   assert.equal('priority' in parsed.items[1], false)
 })
 
-test('下拉文案五档齐全，none 显示为减号', () => {
+test('下拉文案五档齐全，none 显示为「无」', () => {
   assert.deepEqual(
     ANNOTATION_PRIORITIES.map((priority) => ANNOTATION_PRIORITY_LABELS[priority]),
-    ['-', 'Low', 'Medium', 'High', 'Urgent'],
+    ['无', '低', '中', '高', '急'],
   )
-  assert.equal(ANNOTATION_PRIORITY_LABELS.none, '-')
+  assert.equal(ANNOTATION_PRIORITY_LABELS.none, '无')
   for (const priority of ANNOTATION_PRIORITIES) {
     assert.ok(ANNOTATION_PRIORITY_LABELS[priority].length > 0)
   }
@@ -622,7 +623,7 @@ test('四态写盘再读回逐档保持，下拉文案四档齐全', () => {
   )
   assert.deepEqual(
     REVIEW_STATUSES.map((status) => REVIEW_STATUS_LABELS[status]),
-    ['Open', 'In progress', 'Resolved', "Won't fix"],
+    ['待处理', '处理中', '已解决', '不修复'],
   )
 })
 
@@ -772,4 +773,22 @@ test('带 [AGENT] 线程与 in-progress 的 store 往返逐项不变', () => {
   const store = parseAnnotationStore(serializeAnnotationStore({ v: 2, annotations, notes: [] }))
   assert.equal(store.v, 2)
   assert.deepEqual(store.annotations, annotations)
+})
+
+/* ---------- 常驻字段标签（第 128 轮 A1） ---------- */
+
+/** 先摘注释：注释里写类名不算接线（railDiffA11y.test.ts / railModalGate.test.ts 同一口径） */
+const withoutComments = (text: string): string =>
+  text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ')
+
+const countOf = (haystack: string, needle: string): number => haystack.split(needle).length - 1
+
+test('MarginRail.tsx 恰两枚 note-field-label（紧急度/状态），styles.css 恰一条规则', () => {
+  const rail = withoutComments(readFileSync('src/components/MarginRail.tsx', 'utf8'))
+  const labels = [...rail.matchAll(/className="note-field-label"[^>]*>([^<]+)</g)].map((match) =>
+    (match[1] ?? '').trim(),
+  )
+  assert.deepEqual(labels, ['紧急度', '状态'])
+  const css = withoutComments(readFileSync('src/styles.css', 'utf8'))
+  assert.equal(countOf(css, '.note-field-label {'), 1)
 })

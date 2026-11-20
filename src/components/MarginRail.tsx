@@ -623,6 +623,7 @@ export function MarginRail({
             {simulated && <span className="note-kind note-kind-mock">模拟</span>}
             {/* 五档紧急度：原生 select 自带键盘与读屏支持，底色由 class 给。
                 click 必须 stopPropagation——冒泡到卡片会调 onFocusNote 改正文选区 */}
+            <span className="note-field-label" aria-hidden="true">紧急度</span>
             <select
               className={`note-priority note-priority-${annotation.priority}`}
               value={annotation.priority}
@@ -640,6 +641,7 @@ export function MarginRail({
             </select>
             {/* 四态复核状态（第 97 轮 B-224）：和紧急度同盒。
                 click 同理要 stopPropagation，不然冒泡到卡片会改正文选区。结项的卡片画虚线，正文不再高亮 */}
+            <span className="note-field-label" aria-hidden="true">状态</span>
             <select
               className={`note-status note-status-${reviewStatusOf(annotation)}`}
               value={reviewStatusOf(annotation)}

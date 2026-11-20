@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–127 轮，未发版）
+## Unreleased（第 29–128 轮，未发版）
+
+**第 128 轮（同一未发版区间）**
+
+- 批注卡头两枚下拉补常驻可见字段名「紧急度 / 状态」，9 条下拉文案中文化（用户 2026-11-20 队列里五档紧急度与四态复核的可用性残留）——`src/lib/annotations.ts` 两张 LABELS 表 `-`/`Low`/`Medium`/`High`/`Urgent` → **无/低/中/高/急**、`Open`/`In progress`/`Resolved`/`Won't fix` → **待处理/处理中/已解决/不修复**（内部 value、`.note-priority-*`/`.note-status-*` 类名、存盘字段一律不动）；`src/components/MarginRail.tsx:626/:643` 两处 `select` 前各插一枚 `<span className="note-field-label" aria-hidden="true">`（字面量，读屏字段名仍走 select 的 `aria-label`）；`src/styles.css` 的 `.note-head` `gap: 6px → 3px` + 新 `.note-field-label{font-size:10px;letter-spacing:0;white-space:nowrap}`（继承 `--ink-faint`，三主题对卡底 5.23/6.26/5.53 过 AA）；`src/lib/annotations.test.ts` 期望改中文 + 新静态门 1 条（先摘注释再数，读 `MarginRail.tsx` 恰 `['紧急度','状态']`、`styles.css` 恰 1 条规则），`npm test` 66 文件 930→**931 条**。tester 独立（未读 `impl.md`）：静态 `note-field-label` 在 MarginRail **2** / styles.css **1** 规则、`git diff --stat` 恰 4 个 src 文件 + BACKLOG 1 行、0 新增文件、value/类名/存盘字段零 diff 行；自写 `.tmp/r128-tester-note-fields.mjs`（ego CDP 57270、1440×900 + 1024×700、假 FSA、无 Key 造 3 张模拟卡）**41/41、0 pageerror**：先量 M=`.note-head` clientWidth **294**（±1）并全程用实测值，每卡 2 标签、文本 `['紧急度','状态']`、DOM 紧邻对应 select、可见性 8 项全过（**30×14 / 20×14**、`font-size:10px`、单 rect、右缘在 head 内、中心命中）、两表文案逐项对、模拟合计 **276.84** / 正式 **280.8**（≤M−3=291）、head 高 **24**、head 横溢 0、栏宽 **320**、3 卡 [128,279.5]/[292,462.25]/[474,625.5] 不重叠、末卡底 625.5 ≤ 整体评价 638.19；1024×700 抽屉无横溢（卡头折两行只记录）。回归 `.tmp/e2e-r95-a2-priority.mjs` **29/29**、`.tmp/e2e-r97-a1-status.mjs` **44/44**（单行门未删/未放宽）。门禁：`npm test` **66 文件 931 条 0 fail**、`npm run verify -- --max 316500` **exit 0**、门 gzip **315,824 B**（净 **+28**、余硬线 676）、常驻 `MarginRail-CamDycNv.js` gzip9 **7,866**（净 **+19**）、B-229 口径合计 **323,690**（超硬线 3,690，仍 `open` 只记）；`roundtrip` 不跑（未动编辑器/序列化）。截图 `shots/round-128/note-field-labels-tester.png`。见 `docs/iteration/round-128/test.md`。
 
 **第 127 轮（同一未发版区间）**
 

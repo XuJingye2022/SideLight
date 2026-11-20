@@ -9,13 +9,14 @@ export type AnnotationStatus = 'pending' | 'accepted' | 'dismissed'
 export const ANNOTATION_PRIORITIES = ['none', 'low', 'medium', 'high', 'urgent'] as const
 export type AnnotationPriority = (typeof ANNOTATION_PRIORITIES)[number]
 
-/** 下拉里的文案：none 显示成 `-`，其余用英文档名（与用户队列的写法一致） */
+/** 下拉里的文案：none 显示成「无」，其余用中文档名，10 px 才放得进 294 px 的卡头（第 128 轮 A1）。
+    内部 value / 存盘字段仍是队列的英文枚举（none/low/medium/high/urgent），这里只改显示 */
 export const ANNOTATION_PRIORITY_LABELS: Record<AnnotationPriority, string> = {
-  none: '-',
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  urgent: 'Urgent',
+  none: '无',
+  low: '低',
+  medium: '中',
+  high: '高',
+  urgent: '急',
 }
 
 /** 任何来源的档位都过这里：缺字段、`p0`、数字、别的字符串一律回 none */
@@ -31,12 +32,12 @@ export function normalizePriority(value: unknown): AnnotationPriority {
 export const REVIEW_STATUSES = ['open', 'in-progress', 'resolved', 'wont-fix'] as const
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
 
-/** 下拉里的文案：英文档名（与用户队列的写法一致） */
+/** 下拉里的文案：中文四态（第 128 轮 A1）；内部 value / 存盘字段仍是队列的英文枚举 */
 export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
-  open: 'Open',
-  'in-progress': 'In progress',
-  resolved: 'Resolved',
-  'wont-fix': "Won't fix",
+  open: '待处理',
+  'in-progress': '处理中',
+  resolved: '已解决',
+  'wont-fix': '不修复',
 }
 
 /** 任何来源的四态都过这里：缺字段、别的字符串一律回 open */

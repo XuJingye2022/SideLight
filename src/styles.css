@@ -1671,13 +1671,23 @@ button:disabled {
 .note-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 3px;
   font-size: 12px;
   letter-spacing: 0.08em;
   color: var(--ink-faint);
-  /* 溢出兜底：两个下拉 + 类型 + 序号在 320 px 栏里正常是单行，换行只会在更窄的抽屉里出现 */
+  /* 第 128 轮 A1：两枚字段名标签 + 两下拉 + 类型 + 序号。1440×900 下栏宽 320、内容宽 294，
+     实测合计正式 280.8 / 模拟 276.84，余量 13.2 / 17.16 px，大字号 CJK 也只单行（head 高 24）。
+     溢出兜底：更窄的抽屉里才换行 */
   flex-wrap: wrap;
   row-gap: 4px;
+}
+
+/* 第 128 轮 A1：两枚下拉的常驻可见字段名。select 的 aria-label 已含字段名，这里对读屏隐藏；
+   10 px + --ink-faint 继承，三主题对卡底 --paper-raised 都过 AA（5.23/6.26/5.53） */
+.note-field-label {
+  font-size: 10px;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .note-kind {
