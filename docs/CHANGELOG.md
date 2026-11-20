@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–134 轮，未发版）
+## Unreleased（第 29–135 轮，未发版）
+
+**第 135 轮（同一未发版区间）**
+
+- 在审文件与修订快照的三处英文 `open` 显示改取 `REVIEW_STATUS_LABELS.open`（单源「待处理」；用户 2026-11-20 队列第 9 条术语一致性，BACKLOG 无此行）——`src/components/MarginRail.tsx:1016` 表头改「按待处理数排序」、`:1054` 行文改「待处理 N · 共 M 条」；`src/lib/revisionList.ts:1` 增 `REVIEW_STATUS_LABELS` import、`:30` 注释改「待处理数」、`:32` 快照行改「…（待处理 N）」；枚举 / 存盘 / 排序键不动（改回英文会推翻第 128 轮）。新 `src/lib/reviewLabelWording.test.ts` **3 条**静态门挂 `npm test` 链尾（68→**69 文件**、952→**955 条**），负向把 `:1054` 换回 `open ${row.open}` → **1 红 exit 1**、SHA256 `0A0F8048…` 还原后 3/3。tester 独立（未读 `impl.md`）：`git grep -cF` 改前 MarginRail `open ${row.open}` **1** / `按 open 数排序` **1**、revisionList `（open ` **2** / 单源 **0**，改后 **0 / 0 / 0 / 1**、两文件合数 `REVIEW_STATUS_LABELS.open` **0→2**；真机自写 `.tmp/r135-tester-labels.mjs`（ego CDP 57270、1440×900 + 1024×700、假 FSA）**23/23、0 pageerror**（`.tmp/r135-tester-labels.json`、截图 `shots/round-135/review-labels.png`）：表头「按待处理数排序」、行「待处理 2 · 共 3 条」「待处理 1 · 共 2 条」、`sheet.innerText` 的 `/\bopen\b/` **0**、快照行「11-20 21:40:41 · 6 B · 批注 2 条（待处理 1）」逐字命中正则，两档 `.rail-diff-sheet`/`.rail-snap-row` 横溢 **0**、三钮高 **24**，改一卡到 in-progress 后 1,600 ms 盘上 `"reviewStatus":"in-progress"`、不含「处理中」、`status` 仍 `pending`；回归 r101 **57/57**、r114 **27/27**；门禁 `npm run verify` PASS（门 gzip **316,131 B**、raw 1,025,609、余硬线 3,869）、`node scripts/measure-first-screen.mjs --max 316200` exit 0（余 69）、两懒 chunk gzip9 **7,999 / 585 B**、B-229 口径合计 **324,130**（超硬线 4,130，仍 `open` 只记）、`npm test` **69 文件 955 条 0 fail**。UNVERIFIED：真 WebView2 宿主、真实中文 IME。见 `docs/iteration/round-135/test.md`。
 
 **第 134 轮（同一未发版区间）**
 

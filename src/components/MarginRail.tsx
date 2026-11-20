@@ -1013,7 +1013,7 @@ export function MarginRail({
                 <span className="rail-diff-title" id="rail-review-title">
                   在审文件
                 </span>
-                <span>按 open 数排序</span>
+                <span>按待处理数排序</span>
                 <button
                   type="button"
                   className="rail-diff-close"
@@ -1051,7 +1051,7 @@ export function MarginRail({
                           }}
                         >
                           <span>{relativePath(row.path)}</span>
-                          <span className="rail-diff-count">{`open ${row.open} · 共 ${row.total} 条`}</span>
+                          <span className="rail-diff-count">{`${REVIEW_STATUS_LABELS.open} ${row.open} · 共 ${row.total} 条`}</span>
                         </button>
                       </li>
                     ))}

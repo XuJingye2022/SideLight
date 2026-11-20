@@ -507,7 +507,7 @@ test('清单：坏档跳过、不补位', async () => {
   assert.equal(dir.reads.length, MAX_REVISIONS)
 })
 
-test('清单：时刻取文件名（JSON savedAt 不采纳），open 按四态数', async () => {
+test('清单：时刻取文件名（JSON savedAt 不采纳），待处理数按四态数', async () => {
   const root = fakeDir('工作区')
   const dir = await ensureRevisionsDir(root)
   const closed: Annotation = { ...item, id: 'a2', status: 'accepted', reviewStatus: 'resolved' }
@@ -518,7 +518,7 @@ test('清单：时刻取文件名（JSON savedAt 不采纳），open 按四态�
   assert.equal(rows[0].bytes, 6)
   assert.equal(rows[0].total, 2)
   assert.equal(rows[0].open, 1)
-  assert.match(rows[0].label, /^\d\d-\d\d \d\d:\d\d:\d\d · 6 B · 批注 2 条（open 1）$/)
+  assert.match(rows[0].label, /^\d\d-\d\d \d\d:\d\d:\d\d · 6 B · 批注 2 条（待处理 1）$/)
 })
 
 test('时刻格式：本地时区 MM-DD HH:MM:SS 逐段补零', () => {

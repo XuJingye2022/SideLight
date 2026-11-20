@@ -1,4 +1,4 @@
-import { reviewStatusOf } from './annotations.ts'
+import { REVIEW_STATUS_LABELS, reviewStatusOf } from './annotations.ts'
 import {
   MAX_REVISIONS,
   findSnapshotsDir,
@@ -27,9 +27,9 @@ export function formatSavedAt(savedAt: number): string {
   return `${pad2(at.getMonth() + 1)}-${pad2(at.getDate())} ${pad2(at.getHours())}:${pad2(at.getMinutes())}:${pad2(at.getSeconds())}`
 }
 
-/** 面板一行的文案：时刻 · 字节数 · 批注数（open 数） */
+/** 面板一行的文案：时刻 · 字节数 · 批注数（待处理数） */
 export function revisionLabel(savedAt: number, bytes: number, total: number, open: number): string {
-  return `${formatSavedAt(savedAt)} · ${bytes} B · 批注 ${total} 条（open ${open}）`
+  return `${formatSavedAt(savedAt)} · ${bytes} B · 批注 ${total} 条（${REVIEW_STATUS_LABELS.open} ${open}）`
 }
 
 /**
