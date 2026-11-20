@@ -1353,6 +1353,45 @@ button:disabled {
   margin-left: 0;
 }
 
+/* 第 114 轮 B-247：在审面板里的「修订快照」清单（只读，纯文本行，无控件） */
+.rail-snap {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.rail-snap-title {
+  margin: 0;
+  font-family: var(--font-read);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.rail-snap-rows {
+  flex: none;
+  max-height: 30vh;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.rail-snap-row {
+  color: var(--ink-soft);
+}
+
+.rail-snap-empty {
+  margin: 8px 0 0;
+  color: var(--ink-faint);
+}
+
+.rail-snap-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
 .rail-diff-overlay {
   position: fixed;
   inset: 0;

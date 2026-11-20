@@ -199,8 +199,11 @@ async function revisionsDir(parent: FileSystemDirectoryHandle): Promise<FileSyst
   return cache.getDirectoryHandle(REVISIONS_DIR, { create: true })
 }
 
-/** 文件名里键的短哈希：把同键快照聚在一起；8 位与 id 同宽，清理前按前缀筛 */
-function revisionKeyHash(key: string): string {
+/**
+ * 文件名里键的短哈希：把同键快照聚在一起；8 位与 id 同宽，清理前按前缀筛。
+ * 第 114 轮起导出给只读清单 `revisionList.ts` 复用同一口径。
+ */
+export function revisionKeyHash(key: string): string {
   return revisionDigest(key, '')
 }
 
@@ -215,8 +218,9 @@ function revisionFileName(key: string, savedAt: number, id: string): string {
 /**
  * 从文件名反解保存时刻。只认本键的三段名：键哈希、正整数 base36 时刻、8 位十六进制 id。
  * 旧格式 `<id>.json` 与坏名一律返回 null：不进清理集合（不排序、不读、不删）。
+ * 第 114 轮起导出给只读清单 `revisionList.ts`，清单与清理按同一份文件名规则。
  */
-function parseRevisionName(name: string, keyHash: string): number | null {
+export function parseRevisionName(name: string, keyHash: string): number | null {
   if (!name.endsWith('.json')) return null
   const parts = name.slice(0, -'.json'.length).split('-')
   if (parts.length !== 3 || parts[0] !== keyHash) return null

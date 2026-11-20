@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import type { Annotation, DocNote, TextIndex } from './annotations.ts'
+import { formatSavedAt, listRevisions } from './revisionList.ts'
 import {
   MAX_REVISIONS,
   REVISIONS_DIR,
@@ -11,6 +12,7 @@ import {
   parseRevision,
   pruneRevisions,
   revisionDigest,
+  revisionKeyHash,
   serializeRevision,
   writeRevision,
 } from './revisions.ts'
@@ -400,4 +402,108 @@ test('父句柄取目录失败时返回 null，不抛', async () => {
     },
   } as unknown as FileSystemDirectoryHandle
   assert.equal(await writeRevision(denied, 'a', '正文', [], []), null)
+})
+
+// ---------- listRevisions（第 114 轮 B-247，只读清单） ----------
+
+/** 往假目录里放一份合法文件名的快照；`stamp` 落文件名，`jsonSavedAt` 落 JSON */
+function seedRevision(
+  dir: FakeDir,
+  key: string,
+  stamp: number,
+  text: string,
+  annotations: Annotation[] = [],
+  notes: DocNote[] = [],
+  jsonSavedAt = stamp,
+): string {
+  const revision = buildRevision(key, text, annotations, notes, jsonSavedAt)
+  const name = `${revisionKeyHash(key)}-${stamp.toString(36)}-${revision.id}.json`
+  dir.files.set(name, { text: serializeRevision(revision) })
+  return name
+}
+
+test('清单：没有 .sidelight 时返回空，且不新建目录', async () => {
+  const root = fakeDir('工作区')
+  assert.deepEqual(await listRevisions(root.handle, 'a'), [])
+  assert.equal(root.dirs.size, 0)
+  assert.equal(root.reads.length, 0)
+})
+
+test('清单：有 .sidelight 但没有 revisions 也返回空，不建子目录', async () => {
+  const root = fakeDir('工作区')
+  await root.handle.getDirectoryHandle('.sidelight', { create: true })
+  assert.deepEqual(await listRevisions(root.handle, 'a'), [])
+  assert.equal(root.dirs.get('.sidelight')?.dirs.size, 0)
+  assert.equal(root.reads.length, 0)
+})
+
+test('清单：他键、坏名、旧格式不入列，也不读正文', async () => {
+  const root = fakeDir('工作区')
+  const dir = await ensureRevisionsDir(root)
+  seedRevision(dir, 'b', 2_000, '别人的正文')
+  dir.files.set(`${revisionKeyHash('a')}-${(2_500).toString(36)}-zzzzzzzz.json`, { text: '{}' })
+  dir.files.set('deadbeef.json', { text: '{"v":1,"id":"deadbeef","key":"a","savedAt":1}' })
+  assert.deepEqual(await listRevisions(root.handle, 'a'), [])
+  assert.deepEqual(dir.reads, [])
+})
+
+test('清单按 savedAt 降序（同值按文件名）', async () => {
+  const root = fakeDir('工作区')
+  const dir = await ensureRevisionsDir(root)
+  seedRevision(dir, 'a', 3_000, '正文三')
+  seedRevision(dir, 'a', 1_000, '正文一')
+  seedRevision(dir, 'a', 2_000, '正文二')
+  const rows = await listRevisions(root.handle, 'a')
+  assert.deepEqual(
+    rows.map((row) => row.savedAt),
+    [3_000, 2_000, 1_000],
+  )
+})
+
+test('清单最多 8 份：10 份只读前 8 份', async () => {
+  const root = fakeDir('工作区')
+  const dir = await ensureRevisionsDir(root)
+  for (let at = 1; at <= 10; at += 1) seedRevision(dir, 'a', at * 1_000, `正文${at}`)
+  const rows = await listRevisions(root.handle, 'a')
+  assert.equal(rows.length, MAX_REVISIONS)
+  assert.deepEqual(
+    rows.map((row) => row.savedAt),
+    [10_000, 9_000, 8_000, 7_000, 6_000, 5_000, 4_000, 3_000],
+  )
+  assert.equal(dir.reads.length, MAX_REVISIONS)
+})
+
+test('清单：坏档跳过、不补位', async () => {
+  const root = fakeDir('工作区')
+  const dir = await ensureRevisionsDir(root)
+  for (let at = 1; at <= 8; at += 1) seedRevision(dir, 'a', at * 1_000, `正文${at}`)
+  dir.files.set(`${revisionKeyHash('a')}-${(9_000).toString(36)}-deadbeef.json`, { text: '{' })
+  const rows = await listRevisions(root.handle, 'a')
+  assert.equal(rows.length, 7)
+  assert.equal(rows[0].savedAt, 8_000)
+  assert.equal(
+    rows.some((row) => row.savedAt === 9_000),
+    false,
+  )
+  assert.equal(dir.reads.length, MAX_REVISIONS)
+})
+
+test('清单：时刻取文件名（JSON savedAt 不采纳），open 按四态数', async () => {
+  const root = fakeDir('工作区')
+  const dir = await ensureRevisionsDir(root)
+  const closed: Annotation = { ...item, id: 'a2', status: 'accepted', reviewStatus: 'resolved' }
+  seedRevision(dir, 'a', 1_700_000_000_000, '正文', [item, closed], [note], 0)
+  const rows = await listRevisions(root.handle, 'a')
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].savedAt, 1_700_000_000_000)
+  assert.equal(rows[0].bytes, 6)
+  assert.equal(rows[0].total, 2)
+  assert.equal(rows[0].open, 1)
+  assert.match(rows[0].label, /^\d\d-\d\d \d\d:\d\d:\d\d · 6 B · 批注 2 条（open 1）$/)
+})
+
+test('时刻格式：本地时区 MM-DD HH:MM:SS 逐段补零', () => {
+  assert.equal(formatSavedAt(new Date(2021, 0, 2, 3, 4, 5).getTime()), '01-02 03:04:05')
+  assert.equal(formatSavedAt(new Date(2021, 11, 31, 23, 59, 59).getTime()), '12-31 23:59:59')
+  assert.equal(formatSavedAt(1_700_000_000_000).length, 14)
 })

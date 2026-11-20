@@ -6014,6 +6014,11 @@ export default function App() {
                 }}
                 // 第 101 轮 B-228：在审文件列表按当前工作区现读批注档；null = 没打开文件夹
                 getReviewWorkspace={() => workspaceRef.current}
+                // 第 114 轮 B-247：修订快照清单的目录与键（文档同级 .sidelight）；null = 没有句柄
+                getRevisionSource={async () => {
+                  const dir = await cacheDirFor()
+                  return dir ? { dir, key: cacheKey(docNameRef.current) } : null
+                }}
                 activePath={activeFile?.path ?? null}
                 onOpenReviewFile={(path) => {
                   const node = flattenFiles(workspaceRef.current?.root ?? null).find((file) => file.path === path)

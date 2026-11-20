@@ -18,6 +18,7 @@ import {
 import { appendDelta, buildChatMessages, chatNearBottom, chatRefocusAfterStream, chatScrollOnUpdate, dropEmptyAssistantTail, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import { diffView, type DiffViewResult } from '../lib/diffView.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
+import type { RevisionSummary } from '../lib/revisionList.ts'
 import {
   applyLiveReviewRow,
   collectReviewFiles,
@@ -58,6 +59,11 @@ type Props = {
   getDiff: () => { before: string; after: string } | null
   /** 「在审文件」面板取当前工作区（null = 没打开文件夹，第 101 轮 B-228） */
   getReviewWorkspace: () => Workspace | null
+  /**
+   * 修订快照清单的目录与键（第 114 轮 B-247）。只在面板点开时调；
+   * 返回 null 表示这篇没有可读的 .sidelight（示例 / 单文件打开 / 没句柄）
+   */
+  getRevisionSource: () => Promise<{ dir: FileSystemDirectoryHandle; key: string } | null>
   /** 当前打开的文档路径：面板给这一行标 aria-current */
   activePath: string | null
   /** 点一行：App 找节点并打开；同篇只关面板不重载 */
@@ -126,6 +132,7 @@ export function MarginRail({
   getChatContext,
   getDiff,
   getReviewWorkspace,
+  getRevisionSource,
   activePath,
   onOpenReviewFile,
   onGenerateNotes,
@@ -309,10 +316,26 @@ export function MarginRail({
   const reviewActive = reviewOpen && railTab === 'notes'
   useDialogFocus(reviewActive, reviewSheetRef, '.rail-review-overlay', railTab === 'notes')
 
-  // 面板只挂在「批注」页签上：切到对话页签就收掉
+  /** 修订快照清单（第 114 轮 B-247）：null = 还没读到（不渲染这一段），[] = 读到但没有快照 */
+  const [snapData, setSnapData] = useState<RevisionSummary[] | null>(null)
+
+  // 面板只挂在「批注」页签上：切到对话页签就收掉（同一次 run 递增也让在途的快照读取作废）
   useEffect(() => {
-    if (railTab !== 'notes') setReviewOpen(false)
+    if (railTab !== 'notes') {
+      reviewRunRef.current += 1
+      setReviewOpen(false)
+      setSnapData(null)
+    }
   }, [railTab])
+
+  // 面板开着换文档：面板收掉，上一份的快照行与在审行一个都不留（CR-4③，推进 run 让在途读取作废）
+  useEffect(() => {
+    reviewRunRef.current += 1
+    setReviewOpen(false)
+    setReviewBusy(false)
+    setReviewData(null)
+    setSnapData(null)
+  }, [docName])
 
   // App 的 Esc 链挂在 window 上：在 document 就停掉冒泡，一次按键只关面板
   useEffect(() => {
@@ -328,10 +351,29 @@ export function MarginRail({
 
   const closeReview = () => {
     reviewRunRef.current += 1
+    setSnapData(null)
     setReviewOpen(false)
     setReviewBusy(false)
     setReviewData(null)
     setReviewNoWorkspace(false)
+  }
+
+  /**
+   * 快照清单走惰性 import（第 114 轮体积口径）：数据层只在点开面板时加载，不进常驻 chunk。
+   * 源为空 / 动态 import 失败 / 读目录失败都只让这一段不显示，不影响在审列表，永不抛。
+   */
+  const loadSnapshots = (run: number) => {
+    void (async () => {
+      try {
+        const source = await getRevisionSource()
+        if (!source || reviewRunRef.current !== run) return
+        const { listRevisions } = await import('../lib/revisionList.ts')
+        const rows = await listRevisions(source.dir, source.key)
+        if (reviewRunRef.current === run) setSnapData(rows)
+      } catch {
+        // 读不到快照不影响在审列表
+      }
+    })()
   }
 
   /** 点入口才现读：批注档在磁盘上，面板里的 open 数永远是这一刻的 */
@@ -340,6 +382,7 @@ export function MarginRail({
     setReviewData(null)
     setReviewNoWorkspace(false)
     setReviewBusy(true)
+    setSnapData(null)
     const run = reviewRunRef.current + 1
     reviewRunRef.current = run
     try {
@@ -348,6 +391,8 @@ export function MarginRail({
         if (reviewRunRef.current === run) setReviewNoWorkspace(true)
         return
       }
+      // 两份清单并行读：在审列表与快照互不等待
+      loadSnapshots(run)
       const result = await collectReviewFiles(workspace, flattenFiles(workspace.root))
       if (reviewRunRef.current === run) setReviewData(result)
     } finally {
@@ -900,6 +945,25 @@ export function MarginRail({
                     ))}
                   </ul>
                 </>
+              )}
+              {/* 第 114 轮 B-247：修订快照清单（只读、只列时刻/字节/批注数，不存正文）。
+                  与在审列表同一张 sheet，放在列表下面；读取中或没有工作区都不渲染 */}
+              {!reviewBusy && !reviewNoWorkspace && snapData !== null && (
+                <section className="rail-snap" aria-label="修订快照">
+                  <h3 className="rail-snap-title">修订快照</h3>
+                  {snapData.length === 0 ? (
+                    <p className="rail-snap-empty">保存一次后才会记录。</p>
+                  ) : (
+                    <ul className="rail-snap-rows">
+                      {snapData.map((row) => (
+                        <li key={row.name} className="rail-snap-row rail-diff-row">
+                          {row.label}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="rail-snap-note">快照只记批注与字节数，不存正文，不能回到旧版正文。</p>
+                </section>
               )}
             </div>
           </div>,
