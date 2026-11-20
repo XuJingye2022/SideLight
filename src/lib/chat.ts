@@ -125,3 +125,14 @@ export function chatNearBottom(rect: ChatScrollBox, slack: number = CHAT_STICK_S
 export function chatScrollOnUpdate(grew: boolean, stick: boolean): boolean {
   return grew || stick
 }
+
+/**
+ * 第 116 轮 B-242：对话记录里的发言者署名。
+ *
+ * 只给显示层用（渲染成 `<span class="rail-chat-speaker">`，视觉上 sr-only，读屏与复制能读到）：
+ * 只显示层，不进 `turn.text`——模型历史、流式拼接与 401 收尾都不该看见这两个字。
+ * `我：` 对应用户那一句，`侧灯：` 对应助手那一句。
+ */
+export function chatSpeaker(role: ChatTurn['role']): string {
+  return role === 'user' ? '我：' : '侧灯：'
+}

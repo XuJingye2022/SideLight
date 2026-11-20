@@ -1549,6 +1549,18 @@ button:disabled {
   margin-top: 0;
 }
 
+/* 第 116 轮 B-242：发言者署名只给读屏与复制，视觉仍靠气泡底色区分（sr-only 六声明）。
+   禁 display:none / visibility:hidden / user-select:none：前两者会把文本从 innerText 与
+   AX 树里摘掉（读屏就白加了），后者会让复制丢前缀（`chat.test.ts` 有按块的机械门）。 */
+.rail-chat-speaker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .rail-chat-turn {
   margin: 0 0 8px;
   padding: 7px 9px;

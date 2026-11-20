@@ -15,7 +15,7 @@ import {
   type DocNote,
   type ReviewStatus,
 } from '../lib/annotations.ts'
-import { appendDelta, buildChatMessages, chatNearBottom, chatRefocusAfterStream, chatScrollOnUpdate, dropEmptyAssistantTail, pushTurn, type ChatTurn } from '../lib/chat.ts'
+import { appendDelta, buildChatMessages, chatNearBottom, chatRefocusAfterStream, chatScrollOnUpdate, chatSpeaker, dropEmptyAssistantTail, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import { diffView, type DiffViewResult } from '../lib/diffView.ts'
 import { noteAriaLabel, noteJumpKey } from '../lib/noteA11y.ts'
 import type { RevisionSummary } from '../lib/revisionList.ts'
@@ -770,6 +770,7 @@ export function MarginRail({
           )}
           {turns.map((turn, index) => (
             <p key={index} className={`rail-chat-turn is-${turn.role}`}>
+              {(turn.text || busy) && <span className="rail-chat-speaker">{chatSpeaker(turn.role)}</span>}
               {turn.text || (busy && turn.role === 'assistant' ? '…' : '')}
             </p>
           ))}

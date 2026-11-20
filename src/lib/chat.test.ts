@@ -13,6 +13,7 @@ import {
   chatNearBottom,
   chatRefocusAfterStream,
   chatScrollOnUpdate,
+  chatSpeaker,
   dropEmptyAssistantTail,
   pushTurn,
   type ChatTurn,
@@ -263,4 +264,87 @@ test('MarginRail 的贴底判据（静态门）：单点写入、现场读、不
   const tag = /<div\b[^>]*className="rail-chat-log"[^>]*>/.exec(source)?.[0]
   assert.ok(tag, 'MarginRail.tsx 里找不到 .rail-chat-log 的开标签')
   assert.doesNotMatch(tag, /onScroll=/, '滚动位置只现场读，不挂 onScroll（不许缓存第二份状态）')
+})
+
+/**
+ * 第 116 轮 B-242：对话记录里用户与侧灯两条消息没有可读的发言者标识（WCAG 1.3.1 / 1.4.1）。
+ *
+ * 修法只在显示层加一枚 sr-only 署名，`turn.text` 不动（进模型历史、流式拼接与 401 收尾的
+ * 都是原文）。浏览器侧 before/after 对照见 `.tmp/e2e-r116-speaker.mjs` 与
+ * `.tmp/r116-speaker-{before,after}.json`；这里断纯函数与两条读源码的机械门
+ * （按块切 `styles.css`，照 `touchTargets.test.ts` 的做法）。
+ */
+test('对话发言者署名：用户「我：」、助手「侧灯：」，全角冒号且互不相同', () => {
+  assert.equal(chatSpeaker('user'), '我：')
+  assert.equal(chatSpeaker('assistant'), '侧灯：')
+  assert.notEqual(chatSpeaker('user'), chatSpeaker('assistant'), '两枚署名必须分得清，否则读屏还是听不出谁在说')
+  for (const label of [chatSpeaker('user'), chatSpeaker('assistant')]) {
+    assert.match(label, /：$/, `署名要以全角冒号收尾，实际「${label}」`)
+  }
+})
+
+/**
+ * 静态门 ②：署名只能挂在 `.rail-chat-turn` 那一行的渲染里，且条件限定「有字或流式中」。
+ * 从 `rail-chat-turn is-` 切 400 字（`:605` 的批注线程 `turn.text ?` 在切片外）：
+ * 恰 1 处 `rail-chat-speaker`、条件在 span 前、span 在正文表达式前，正文与 busy 的「…」不动
+ * ——删掉 `turn.text ||` 会丢正常回答，把 200 零 delta 的空 assistant 也标上署名会让 B-246 扩大。
+ */
+test('MarginRail 的署名渲染（静态门）：每 turn 恰 1 枚、条件是「有字或流式中」、正文表达式不动', () => {
+  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+  const at = source.indexOf('rail-chat-turn is-')
+  assert.ok(at >= 0, '找不到 .rail-chat-turn 的渲染')
+  const render = source.slice(at, at + 400)
+
+  const spanAt = render.indexOf('rail-chat-speaker')
+  assert.ok(spanAt >= 0, '400 字切片里找不到 .rail-chat-speaker：署名没落到 turn 的渲染上')
+  assert.equal(render.match(/rail-chat-speaker/g)?.length, 1, '每 turn 恰 1 枚署名（400 字切片里必须恰 1 处）')
+
+  const condAt = render.indexOf('(turn.text || busy)')
+  assert.ok(condAt >= 0, '署名条件必须是「有字或流式中」：200 零 delta 的空 assistant 不该标发言者（B-246 范围不变）')
+  assert.ok(condAt < spanAt, '条件必须包住 span，不能无条件渲染')
+
+  const textAt = render.indexOf('{turn.text ||')
+  assert.ok(textAt > spanAt, 'span 必须在正文表达式之前：先署名后正文，复制出来的前缀顺序才对')
+  assert.match(render, /chatSpeaker\(turn\.role\)/, 'span 里要调 chatSpeaker(turn.role)，不能写死一枚')
+  assert.match(render, /busy && turn\.role === 'assistant' \? '…'/, 'busy 期间的「…」占位不能被顺手删掉')
+})
+
+/** 静态门 ③：sr-only 块恰 1 块、6 条声明逐项、三禁写只在该块里断 0（全文件有同名字段，照块断） */
+test('署名的 sr-only 样式（静态门）：恰 1 块、6 条声明、三禁写在块内 0', () => {
+  const css = readFileSync('src/styles.css', 'utf8')
+  const blocks: { selector: string; body: string }[] = []
+  for (const match of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+    const selector = match[1]
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (selector.length === 0) continue
+    blocks.push({ selector, body: match[2].replace(/\s+/g, ' ') })
+  }
+  const own = blocks.filter((block) => block.selector === '.rail-chat-speaker')
+  assert.equal(own.length, 1, `styles.css 里 .rail-chat-speaker 规则块必须恰 1 条，实际 ${own.length}`)
+
+  const declarations = new Map<string, string>()
+  for (const part of own[0].body.split(';')) {
+    const at = part.indexOf(':')
+    if (at < 0) continue
+    declarations.set(part.slice(0, at).trim(), part.slice(at + 1).trim())
+  }
+  assert.deepEqual(
+    [...declarations.entries()],
+    [
+      ['position', 'absolute'],
+      ['width', '1px'],
+      ['height', '1px'],
+      ['overflow', 'hidden'],
+      ['clip-path', 'inset(50%)'],
+      ['white-space', 'nowrap'],
+    ],
+    'sr-only 必须恰这 6 条声明：显隐/裁切/不换行，多一条少一条都算走样',
+  )
+
+  // 三禁写只查这一块：全文件在 styles.css:332/:348/:909 有同名字段（plan-review P2-4）
+  for (const forbidden of [/display\s*:\s*none/, /visibility\s*:\s*hidden/, /user-select\s*:\s*none/]) {
+    assert.doesNotMatch(own[0].body, forbidden, `署名块里不许写 ${forbidden}：前两者会把文本从 innerText 与 AX 树摘掉，后者让复制丢前缀`)
+  }
 })

@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–115 轮，未发版）
+## Unreleased（第 29–116 轮，未发版）
+
+**第 116 轮（同一未发版区间）**
+
+- 对话记录的用户与侧灯两条消息有可读的发言者标识（**B-242**，用户 2026-11-20 队列「对话区」；WCAG 1.3.1 / 1.4.1）：`src/lib/chat.ts:136` 新纯函数 `chatSpeaker`（`我：` / `侧灯：`，只给显示层，不进 `turn.text`——模型历史、流式拼接与 401 收尾看到的都是原文）；`src/components/MarginRail.tsx:773` 在 `.rail-chat-turn` 内插 `{(turn.text || busy) && <span className="rail-chat-speaker">{chatSpeaker(turn.role)}</span>}`，原正文表达式 `{turn.text || (busy && turn.role === 'assistant' ? '…' : '')}` 一字未改（200 零 delta 的空 assistant 不标署，B-246 范围不变）；`src/styles.css:1555` 六条 sr-only 声明（`position:absolute` / `width|height:1px` / `overflow:hidden` / `clip-path:inset(50%)` / `white-space:nowrap`），禁 `display:none` / `visibility:hidden` / `user-select:none`（前两者会把文本从 `innerText` 与 AX 树摘掉，后者让复制丢前缀）。`chat.test.ts` 20 → **23/23**（纯函数一条 + 两条读源码机械门，其中样式那条按块切 `styles.css`）；负向 `git stash` 掉 `MarginRail.tsx`+`styles.css` → ②③ **2 红**。tester 独立（未读 `impl.md`）：静态 `rail-chat-speaker` 在 `MarginRail.tsx`+`styles.css` **0→2**、`chatSpeaker` 在 `chat.ts`+`MarginRail.tsx` **0→3**（`-- src` 口径 17 行，只记录）、样式恰 1 块且 6 条声明逐项相等、块内三禁写 0（全文件各 1 条作正向对照）、正文表达式与 HEAD 逐字相同；自写 `.tmp/r116-tester-speaker.mjs`（ego CDP 57270、1440×900、无 Key mock）**10/10 断言、0 pageerror**（`.tmp/r116-tester-speaker.json`）：2 turn 各恰 1 枚署名、剥前缀后 user 逐字等于发出那句、assistant 与交付 before JSON 逐字相等（48 字）、`innerText` 与 Range 都含两枚、CDP `Accessibility.getFullAXTree` 两枚 `ignored:false`、sr-only 计算值 absolute / inset(50%) / hidden + rect **1×1** + 三禁值 0、同会话反事实删 span 后 turn 高 `[35,58]` 与 `log.scrollHeight` 108 差 **0**（与交付 before 基线也差 0）、栏宽 320。旧脚本 10 文件 12 点加 `stripSpeaker`（`node --check` 10/10），复跑 `r96-tester` 与 `e2e-r113` 绿。门禁：`npm run verify -- --max 315800` **exit 0 PASS**、门 gzip **315,509 B**（净 **+17**、headroom 291、`target=310000 gap=-5,509` 只 WARN）、常驻 `MarginRail-*.js` gzip9 **7,392**（+55）、B-229 口径合计 **322,901**（超首屏硬线 **2,901**，B-229 仍 `open`、只记）；`npm test` **62 文件 895 条 0 fail**；`roundtrip` 不跑（未动编辑器/序列化）。见 `docs/iteration/round-116/test.md`。
 
 **第 115 轮（同一未发版区间）**
 
