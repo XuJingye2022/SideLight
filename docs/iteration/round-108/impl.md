@@ -40,3 +40,13 @@
 1. 本机 `Get-Content` 读 LF 文件少算行（`MarginRail.tsx` 895 个 `\n` 只给 872 行，行号偏 20+）：核行号用 `Select-String`/node/`read`；`Tee-Object` 仍写 UTF-16LE，`npm test` 日志要 `toString('utf16le')`。
 2. `.tmp/r96-tester-a1a2.mjs` 与 `.tmp/r104-tester-indep.mjs` 会覆盖已跟踪历史截图 `shots/round-96/rail-chat.png`、`shots/round-104/instruction-kept.png`，跑完必须 `git checkout --` 还原（同 `keyboard-acceptance` 的既有坑）。
 3. 机械门切片起点只能是 `className="rail-chat-log"`：`role="log"` 在其后，从 role 起切不含 className（H-1）。
+
+## 返修记录（executor-fix，第 108 轮）
+
+- `test.md` **无 FAIL 项**（判定 PASS），失败清单为空 → **未改任何产品代码**；返修前工作树即与 `8bd39b5` 一致（`git status --porcelain` 0 行），`git show --stat HEAD` 只含本轮 11 个文件。
+- 按角色复跑门禁（零改动基线复核，本机）：
+  - `npx tsc --noEmit` exit 0（无输出，`.tmp/r108fix-tsc.log`）。
+  - `npm test` **62 文件 873 条 0 fail**（`.tmp/r108fix-test.log`；`ℹ fail 0` 62 行、`ℹ tests` 求和 873），与 `test.md` 一致。
+  - `npm run verify` **PASS**：门 gzip **315,171 B**、raw 1,022,573、headroom 4,829、max 320,000（`.tmp/r108fix-verify.log`）；超内部预算 5,171 B 只 WARN。
+  - `npm run roundtrip` **未跑**：本轮零改动，未动编辑器/序列化（与 `test.md` 同口径）。
+- 范围外未处理（不属失败清单）：**B-238**（`aria-live="off"` 期间累积文本不重播整条回复，P2 已登记）、**B-229**（门 315,171 + 常驻 `MarginRail` chunk 6,778 = 321,949，超硬线 **1,949 B**，仍 `open`）——留给根代理/后续轮，本轮不改体积口径。
