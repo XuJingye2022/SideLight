@@ -36,7 +36,7 @@ Sidelight：面向中文写作者的桌面 Markdown 编辑器。左边写，右�
 ```bash
 npm run build      # 类型检查 + 打包
 npm run verify     # build + 真实首载 gzip 字节门（首屏门 + 常驻 chunk，硬线 325,000）；build 只保证能构建，改过 src/ 就要跑这条
-npm test           # 测试文件与条数以 npm test 输出为准（第 139 轮记 71 个文件、975 条）：上下文、批注、大纲、字数、frontmatter、行差分、图片命名、图片解析缓存、表格单元格 `<br>`、表格范围、保存基线、查找、脚注、HTML、callout、导出（含行内语法三条样式与 `styles.css` 漂移门）、公式、缓存、搜索、错误文案、删除撤销、设置、提示词、KaTeX 惰性、智能标点、Mermaid 惰性、单波浪号、空段落合并、替换区间、行内语法（解析 + 手打 + 粘贴 + `\=` 保真）、主题清单、工作区拖入、宿主 `__asset` 路径、TOC 渲染与预览、全局搜索、工作区删除候选回退、公式与高亮露出（mathReveal）、主题单选键盘、只读查找条、字数面板焦点、删除确认文案、撤销入口、手打链接、CHANGELOG 区间、批注卡键盘（noteA11y）、图片缩放、emoji 短码、自定义快捷键（keybindings）、公式就地编辑（mathNodeView）、粘贴 Markdown 解析（markdownPaste）、已存定界符对后填（delimiterPair）、联网核对接线（autoVerify）、首屏预算门（firstScreenBudget）
+npm test           # 测试文件与条数以 npm test 输出为准（第 140 轮记 71 个文件、979 条）：上下文、批注、大纲、字数、frontmatter、行差分、图片命名、图片解析缓存、表格单元格 `<br>`、表格范围、保存基线、查找、脚注、HTML、callout、导出（含行内语法三条样式与 `styles.css` 漂移门）、公式、缓存、搜索、错误文案、删除撤销、设置、提示词、KaTeX 惰性、智能标点、Mermaid 惰性、单波浪号、空段落合并、替换区间、行内语法（解析 + 手打 + 粘贴 + `\=` 保真）、主题清单、工作区拖入、宿主 `__asset` 路径、TOC 渲染与预览、全局搜索、工作区删除候选回退、公式与高亮露出（mathReveal）、主题单选键盘、只读查找条、字数面板焦点、删除确认文案、撤销入口、手打链接、CHANGELOG 区间、批注卡键盘（noteA11y）、图片缩放、emoji 短码、自定义快捷键（keybindings）、公式就地编辑（mathNodeView）、粘贴 Markdown 解析（markdownPaste）、已存定界符对后填（delimiterPair）、联网核对接线（autoVerify）、首屏预算门（firstScreenBudget）
 npm run roundtrip  # 只在改动编辑器或 markdown 序列化时跑
 ```
 
