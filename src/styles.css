@@ -1887,10 +1887,12 @@ button:disabled {
 
 /* ---------- 设置 ---------- */
 
+/* 第 137 轮 B-253：窄窗（≤1119px）的抽屉遮罩 .rail-backdrop(44) 与抽屉 .margin-rail(45) 会盖住确认框，
+   对话框必须高过抽屉一层；仍低于 60 的快速打开与右侧只读面板（后者在对话框开着时不挂载）。 */
 .overlay {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 46;
   display: flex;
   align-items: center;
   justify-content: center;

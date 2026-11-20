@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–136 轮，未发版）
+## Unreleased（第 29–137 轮，未发版）
+
+**第 137 轮（同一未发版区间）**
+
+- 窄窗（≤1119px）抽屉打开时，App 级确认框不再被抽屉与背板盖住（**B-253**，快车道；第 119 轮只记不修）——`src/styles.css:1890-1893` 的 `.overlay` z 序 **40 → 46**（高于 `.rail-backdrop` 44 与抽屉 `.margin-rail` 45，仍低于 60 的快速打开与右侧只读面板——后者在 `appDialogOpen` 时不挂载）+ 2 行注释，`App.tsx`/`MarginRail.tsx` 未动。tester 独立（未读 `impl.md`，未复用执行方脚本）：`npx tsc --noEmit` exit 0；目标测试 railModalGate **11/11**、railDrawerGate **6/6**、mathStyle **4/4**、touchTargets **6/6**、themes **12/12**、export **30/30**、railDiffA11y **4/4**；自写 `.tmp/r137-tester-b253.mjs`（ego CDP 57270、1024×700、脏稿 + 抽屉 + `Ctrl+Alt+N`）**12/12、0 pageerror / 0 console error**——computed `{overlay:"46", rail:"45", backdrop:"44"}`、确认框三钮齐全、主钮「保存并切换」622..706 与抽屉左缘 684 重叠 **22 px**，反事实（注入 `.overlay{z-index:40}`）下重叠条 37×109 **恒 253.0 / stddev 0**（纯抽屉纸色＝对话框被盖住），改后同区 **meanL 233.98 / stddev 51.76 / minL 88**（按钮文字可见），对话框左内边距 12×117 由 **178.0 → 253.0**（背板不再压暗本体）；点「取消」**188 ms** 关框且抽屉仍开、`#root` 内 `[inert]` 清 0、再 Esc 关抽屉、1440 宽窗同 z 且无抽屉态；回归 `.tmp/e2e-r126-drawer-focus.mjs` **20/20**。侧效应（不判 FAIL）：`.toast`/`.link-editor` 同为 45，现在低于对话框，对话框开着时 toast 会被背板压暗（未找到该用户路径，只记 z 序）。见 `docs/iteration/round-137/test.md`。
 
 **第 136 轮（同一未发版区间）**
 
