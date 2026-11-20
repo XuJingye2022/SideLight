@@ -20,6 +20,9 @@ const DIFF = '.rail-diff-open'
 const REVIEW = '.rail-review-open'
 const RESET = '.rail-chat-reset'
 const HEAD = '.rail-head'
+/** 第 121 轮 B-251：对比 / 在审共用的关闭钮与「判错了，重来」原先只有 24×19 / 72×18.6 */
+const DIFF_CLOSE = '.rail-diff-close'
+const GOAL_RETRY = '.rail-goal-retry'
 /** 24×24 可点口径；两个入口宽 35，`新对话` 宽 52.5，宽度本轮不动 */
 const MIN_TARGET = 24
 
@@ -73,6 +76,29 @@ const targetSizes = (rule: CssRule): { declared: string[]; small: string[] } => 
   return { declared, small }
 }
 
+/** 恰 1 块：同名选择器写两块就会「各写各的高度，迟早漂」，也说明改错了地方 */
+const singleRule = (selector: string): CssRule => {
+  const found = rules().filter((rule) => rule.selectors.includes(selector))
+  assert.equal(found.length, 1, `${selector} 必须恰有 1 条规则块，现在 ${found.length} 块`)
+  return found[0]
+}
+
+/** 高度 ≥24 且宽度不动（B-251 的 fix_hint：只加 min-height，不动 width / min-width） */
+const assertTapTarget = (selector: string): void => {
+  const rule = singleRule(selector)
+  const { declared, small } = targetSizes(rule)
+  assert.ok(declared.length > 0, `${selector} 要写 min-height（24×24 口径）`)
+  assert.deepEqual(small, [], `${selector} 的可点高度必须 ≥${MIN_TARGET}px，现在：${small.join('、')}`)
+  const decl = declarations(rule)
+  for (const property of ['width', 'min-width']) {
+    assert.equal(
+      decl.get(property),
+      undefined,
+      `${selector} 本轮不动宽度，块内不许写 ${property}（高度不够就加 min-height: ${MIN_TARGET}px）`,
+    )
+  }
+}
+
 test('「对比」「在审」在同一规则块，min-height ≥24（写了 height 也须 ≥24）', () => {
   const shared = rules().find(
     (rule) => rule.selectors.length === 2 && rule.selectors.includes(DIFF) && rule.selectors.includes(REVIEW),
@@ -104,4 +130,12 @@ test('.rail-head 不写 height：钮高改不动行高，偏差只许来自子�
     undefined,
     `${HEAD} 不许定高：定高会把 24px 的钮裁掉，或让「空态 15 / 带卡 16」这类写法回潮`,
   )
+})
+
+test('对比 / 在审共用的关闭钮「×」可点高度 ≥24，宽度不动（B-251）', () => {
+  assertTapTarget(DIFF_CLOSE)
+})
+
+test('「判错了，重来」可点高度 ≥24（24×19 → 24×24），宽度不动（B-251）', () => {
+  assertTapTarget(GOAL_RETRY)
 })

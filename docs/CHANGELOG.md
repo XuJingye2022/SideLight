@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–120 轮，未发版）
+## Unreleased（第 29–121 轮，未发版）
+
+**第 121 轮（同一未发版区间）**
+
+- 侧栏「对比 / 在审」关闭钮与「判错了，重来」补到 24×24 可点高度（**B-251**，第 119 轮 finder 真机：两面板 × 钮 24×19、`.rail-goal-retry` 72×18.6，B-236 漏了这两处）：`src/styles.css` 的 `.rail-diff-close`（现 :1443，HEAD :1442）与 `.rail-goal-retry`（现 :3434，HEAD :3431）各加 1 行注释 + `min-height: 24px`，宽 / padding / 字号一律不动（`git diff -U0` **+4/−0**、全文件 `min-height: 24px` **10→12**、HEAD 两块内 0 处）；`src/lib/touchTargets.test.ts` 追加 2 条（`singleRule` 恰 1 块 + `assertTapTarget`：`min-height|height` ≥24、块内禁 `width`/`min-width`），挂 `npm test` 链尾（64 文件 907→**909 条**），HEAD 树 **3 pass / 2 fail**、改后 **5/5**。tester 独立（未读 `impl.md`）：头树复现用 `.tmp/r121-tester-headtree` 拷 HEAD 版 CSS，不碰工作树；自写 `.tmp/r121-tester-e2e.mjs`（ego CDP 57270、1440×900、先 `reset.mjs 57270`）**24/24、0 pageerror / 0 console error**（`.tmp/r121-tester-e2e.json`）：① diff 关闭钮 **23.58×24**（宽是取整差、高度才是 19→24）+ sheet **109 ≤ 721** + Esc 关、`[inert]` 0、焦点回 `.rail-diff-open`；② 在审关闭钮同值；③ retry **72×24**、`.rail-goal` **320×34**（改前 28.6）、retry.top **214 ≤** label.bottom **235.30**、1 张卡 [296,447.5] 不重叠、末卡底 **447.5 ≤** 整体评价 **460.19**、goal/rail `scrollWidth−clientWidth` **0/0**；④ 注入 `min-height:0` 回 **18.8 / 18.6 / 28.6**、撤掉回 **24 / 24 / 34**；⑤ 第 120 轮 B-250 夹具 **119 行**（scrollH/clientH 2380/540）关闭钮 Tab→`ul.rail-diff-rows`、ArrowDown `scrollTop 40`。门禁：`npm test` **64 文件 909 条 0 fail**、`npm run verify` PASS、门 gzip **315,553 B**（+7、headroom 4,447）、`measure --max 315600` PASS（余 47）；常驻 `MarginRail-C8Yy3L3b.js` gzip9 **7,414**（B-229 口径合计 **322,967**，仍 `open` 只记）；回归 `.tmp/e2e-r100-diff.mjs` **43/43**；`roundtrip` 不跑（未动编辑器/序列化）。偏移：关闭钮宽 23.58 px ≈ 24（改前同值，fix_hint 要求宽度不动）。UNVERIFIED：真实屏幕阅读器、真 WebView2 宿主、真实中文 IME、原生打印。见 `docs/iteration/round-121/test.md`。
 
 **第 120 轮（同一未发版区间）**
 
