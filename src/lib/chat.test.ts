@@ -134,6 +134,26 @@ test('dropEmptyAssistantTail：末条空 assistant 撤成原前缀，其余情�
 })
 
 /**
+ * 第 117 轮 B-243 回归夹具：按 r112 证据的**真实形状**固化被撤的那一条。
+ *
+ * `.tmp/r112-finder-ui2.json` 的 `error401.turns` 是 4 条：user「把结论提前」／assistant 14 行有字的
+ * 回答／user「这一问会 401」／assistant `text:""`（h 16）。只测 `[user,[assistant,""]]` 两元素
+ * 覆盖不到「记录里已经有成功回答」这一路——撤错位置会把成功那句一起丢掉。
+ */
+test('dropEmptyAssistantTail：历史形状 [问, 答, 再问, 空答] 只撤末条，前三条逐项相等', () => {
+  const history = turns(
+    { role: 'user', text: '把结论提前' },
+    { role: 'assistant', text: '第 1 行：回答内容' },
+    { role: 'user', text: '这一问会 401' },
+    { role: 'assistant', text: '' },
+  )
+  const cleaned = dropEmptyAssistantTail(history)
+  assert.equal(cleaned.length, 3, '4 条要撤成 3 条')
+  assert.equal(cleaned[cleaned.length - 1].role, 'user', '撤完末条必须是 user（错误文案另走 .rail-chat-error）')
+  assert.deepEqual(cleaned, history.slice(0, 3), '前三条（含成功回答）必须逐项相等，不能被连带撤掉')
+})
+
+/**
  * 第 113 轮 B-243 静态门：撤空占位只能挂在失败收尾上，且必须函数式调用。
  *
  * 闭包写 `setTurns(dropEmptyAssistantTail(turns))` 用的是这次渲染的 `turns` 快照：
