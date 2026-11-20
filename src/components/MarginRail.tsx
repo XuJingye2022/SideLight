@@ -15,6 +15,7 @@ import {
   type DocNote,
   type ReviewStatus,
 } from '../lib/annotations.ts'
+import type { VerifyState } from '../lib/autoVerify.ts'
 import { appendDelta, buildChatMessages, chatContextFor, chatNearBottom, chatRefocusAfterStream, chatScrollOnUpdate, chatSpeaker, dropEmptyAssistantTail, pushTurn, type ChatTurn } from '../lib/chat.ts'
 import type { Block } from '../lib/context.ts'
 import { diffView, type DiffViewResult } from '../lib/diffView.ts'
@@ -91,7 +92,8 @@ type Props = {
   onClose?: () => void
   goal: string
   discussingId: string | null
-  verifyingId: string | null
+  /** 每条批注的核对状态（第 138 轮）：只在「核对中 / 失败」时有；成功不留，出处就列在卡上 */
+  verifyStates: Record<string, VerifyState>
   searchReady: boolean
   onHover: (id: string | null) => void
   onFocusNote: (annotation: Annotation) => void
@@ -125,7 +127,7 @@ export function MarginRail({
   onClose,
   goal,
   discussingId,
-  verifyingId,
+  verifyStates,
   searchReady,
   onHover,
   onFocusNote,
@@ -746,17 +748,25 @@ export function MarginRail({
             >
               追问
             </button>
-            <button
-              type="button"
-              disabled={!searchReady || verifyingId === annotation.id}
-              title={searchReady ? '用搜索服务找可引用的出处' : '先在设置里选搜索服务并填 Key'}
-              onClick={() => {
-                onVerify(annotation)
-                onRequestLayout()
-              }}
-            >
-              {verifyingId === annotation.id ? '核对中…' : '联网核对'}
-            </button>
+            {/* 联网核对（第 138 轮起默认自动）：有出处时不再留按钮，出处已经列在卡上；
+                核对中显示「核对中…」，搜失败或没搜到才留「重新核对」 */}
+            {(annotation.sources?.length ?? 0) === 0 && (
+              <button
+                type="button"
+                disabled={!searchReady || verifyStates[annotation.id] === 'verifying'}
+                title={searchReady ? '用搜索服务找可引用的出处' : '先在设置里选搜索服务并填 Key'}
+                onClick={() => {
+                  onVerify(annotation)
+                  onRequestLayout()
+                }}
+              >
+                {verifyStates[annotation.id] === 'verifying'
+                  ? '核对中…'
+                  : verifyStates[annotation.id] === 'failed'
+                    ? '重新核对'
+                    : '联网核对'}
+              </button>
+            )}
           </footer>
 
           {annotation.sources && annotation.sources.length > 0 && (

@@ -48,6 +48,13 @@ import { StatusBar } from './components/StatusBar.tsx'
 import { useDialogFocus } from './components/useDialogFocus.ts'
 import { errorCopy, messageOf, streamAnnotations, streamChat, type ChatMessage } from './lib/ai.ts'
 import {
+  autoVerifyTargets,
+  runVerifyPool,
+  verifyQuery,
+  VERIFY_CONCURRENCY,
+  type VerifyState,
+} from './lib/autoVerify.ts'
+import {
   agentReply,
   buildTextIndex,
   collectDocNotes,
@@ -468,7 +475,11 @@ export default function App() {
   docNotesRef.current = docNotes
   const [analyzing, setAnalyzing] = useState(false)
   const [discussingId, setDiscussingId] = useState<string | null>(null)
-  const [verifyingId, setVerifyingId] = useState<string | null>(null)
+  /**
+   * 联网核对状态（第 138 轮）：按批注 id 记「核对中 / 失败」。
+   * 分析结束会自动核对（并发 2），卡片显示核对中→出处；成功不留记录，失败才留「重新核对」。
+   */
+  const [verifyStates, setVerifyStates] = useState<Record<string, VerifyState>>({})
   const [analysisGoal, setAnalysisGoal] = useState('')
   const [unresolved, setUnresolved] = useState(0)
   const [notice, setNotice] = useState<Notice | null>(null)
@@ -1781,6 +1792,66 @@ export default function App() {
 
   /* ---------- 批注 ---------- */
 
+  /**
+   * 联网核对一条批注（第 138 轮）：手动按钮与「分析结束自动核对」共用。
+   * 返回是否拿到出处；状态写进 verifyStates，卡片据此显示「核对中…」或「重新核对」。
+   * `silent` 为自动核对的调用：成功不弹提示（一次分析可能出好几条，逐条弹会互相覆盖）。
+   */
+  const verifyOne = useCallback(
+    async (annotation: Annotation, silent: boolean): Promise<boolean> => {
+      const provider = settings.searchProvider
+      const apiKey = settings.searchApiKey.trim()
+      if (provider === 'off' || apiKey.length === 0) return false
+
+      setVerifyStates((previous) => ({ ...previous, [annotation.id]: 'verifying' }))
+      try {
+        // 按需加载（第 136 轮体积）：三种搜索服务只在真的核对了才进来，不进首屏
+        const { searchWeb } = await import('./lib/search.ts')
+        const sources = await searchWeb({ provider, apiKey }, verifyQuery(annotation))
+        setAnnotations((previous) =>
+          previous.map((item) => (item.id === annotation.id ? { ...item, sources } : item)),
+        )
+        const found = sources.length > 0
+        setVerifyStates((previous) => {
+          const next = { ...previous }
+          // 拿到出处的卡不再留按钮；没搜到按失败算，保留「重新核对」
+          if (found) delete next[annotation.id]
+          else next[annotation.id] = 'failed'
+          return next
+        })
+        if (!silent) show(found ? `找到 ${sources.length} 条出处` : '没有找到可用的出处')
+        return found
+      } catch (error) {
+        setVerifyStates((previous) => ({ ...previous, [annotation.id]: 'failed' }))
+        setNotice({ text: messageOf(error), kind: 'error' })
+        return false
+      }
+    },
+    [settings.searchProvider, settings.searchApiKey, show],
+  )
+
+  /**
+   * 分析结束自动核对（第 138 轮）：有搜索 Key 才跑，最多 VERIFY_CONCURRENCY 条并发。
+   * 不 await：批注先落地，出处回一条挂一条，正文与提示都不等搜索。
+   */
+  const autoVerify = useCallback(
+    (fresh: readonly Annotation[]) => {
+      if (settings.searchProvider === 'off' || settings.searchApiKey.trim().length === 0) return
+      const targets = autoVerifyTargets(fresh)
+      if (targets.length === 0) return
+      // 排队中的卡也先显示「核对中…」：并发只有 2，轮不到的那几条别还写着「联网核对」被点第二次
+      setVerifyStates((previous) => {
+        const next = { ...previous }
+        for (const target of targets) next[target.id] = 'verifying'
+        return next
+      })
+      void runVerifyPool(targets, VERIFY_CONCURRENCY, async (annotation) => {
+        await verifyOne(annotation, true)
+      })
+    },
+    [settings.searchProvider, settings.searchApiKey, verifyOne],
+  )
+
   const runAnalysis = useCallback(async (instruction?: string) => {
     if (!editor || analyzing || viewMode !== 'edit') return
     const { from, to } = editor.state.selection
@@ -1806,6 +1877,8 @@ export default function App() {
     let goalSeen = false
     let completed = 0
     let addedCount = 0
+    /** 这一次分析新落下的批注：跑完按它自动核对出处（第 138 轮） */
+    const freshTargets: Annotation[] = []
     const runNotes: DocNote[] = []
     const pushNotes = (notes: DocNote[]) => {
       if (notes.length === 0) return
@@ -1862,6 +1935,7 @@ export default function App() {
           // 只把先到的那条塞进 replaceInWindow、其余追加，会让第 2/3 条每次重跑都换 id。
           if (reusePool === null) reusePool = annotationsRef.current
           windowFresh.push(annotation)
+          freshTargets.push(annotation)
           const freshNow = [...windowFresh]
           const reuse = reusePool
           setAnnotations((previous) =>
@@ -1940,6 +2014,7 @@ export default function App() {
                   })
                   if (hit.length > 0) {
                     setAnnotations((previous) => [...previous, hit[0]])
+                    freshTargets.push(hit[0])
                     addedCount += 1
                   } else {
                     setUnresolved((count) => count + 1)
@@ -1969,6 +2044,8 @@ export default function App() {
         show(`长文分成 ${chunks.length} 段分析，已处理 ${completed} 段。`)
       }
       if (addedCount > 0 && window.matchMedia('(max-width: 1119px)').matches) openRail()
+      // 第 138 轮：分析结束自动核对出处。中止的那次不搜（用户已经喊停，别再花搜索配额）
+      if (!controller.signal.aborted) autoVerify(freshTargets)
     } catch (error) {
       const aborted = error instanceof DOMException && error.name === 'AbortError'
       if (!aborted) fail(error, () => analyzeRef.current())
@@ -1976,40 +2053,26 @@ export default function App() {
       if (abortRef.current === controller) abortRef.current = null
       setAnalyzing(false)
     }
-  }, [editor, settings, analyzing, openRail, viewMode])
+  }, [editor, settings, analyzing, openRail, viewMode, autoVerify])
 
   useEffect(() => {
     analyzeRef.current = runAnalysis
   }, [runAnalysis])
 
-  /** 联网核对：用搜索服务找可引用的出处，挂在批注上 */
+  /**
+   * 卡片上的核对入口：手动点「联网核对 / 重新核对」。
+   * 真正搜出处在 `verifyOne`（第 138 轮起与自动核对共用）；没配搜索服务时给一句提示。
+   */
   const verifySources = useCallback(
-    async (annotation: Annotation) => {
-      if (verifyingId) return
+    (annotation: Annotation) => {
       const provider = settings.searchProvider
-      const apiKey = settings.searchApiKey.trim()
-      if (provider === 'off' || apiKey.length === 0) {
+      if (provider === 'off' || settings.searchApiKey.trim().length === 0) {
         show('先在设置里选一个搜索服务并填 Key。')
         return
       }
-
-      setVerifyingId(annotation.id)
-      try {
-        const query = `${annotation.quote} ${annotation.note}`.replace(/\s+/g, ' ').trim().slice(0, 200)
-        // 按需加载（第 136 轮体积）：三种搜索服务只在真的点「联网核对」时才进来，不进首屏
-        const { searchWeb } = await import('./lib/search.ts')
-        const sources = await searchWeb({ provider, apiKey }, query)
-        setAnnotations((previous) =>
-          previous.map((item) => (item.id === annotation.id ? { ...item, sources } : item)),
-        )
-        show(sources.length > 0 ? `找到 ${sources.length} 条出处` : '没有找到可用的出处')
-      } catch (error) {
-        setNotice({ text: messageOf(error), kind: 'error' })
-      } finally {
-        setVerifyingId(null)
-      }
+      void verifyOne(annotation, false)
     },
-    [settings.searchProvider, settings.searchApiKey, verifyingId],
+    [settings.searchProvider, settings.searchApiKey, show, verifyOne],
   )
 
   /** 就一条批注追问：把原文、批注与已有对话一起发给模型 */
@@ -6169,7 +6232,7 @@ export default function App() {
                   void runAnalysis()
                 }}
                 discussingId={discussingId}
-                verifyingId={verifyingId}
+                verifyStates={verifyStates}
                 searchReady={settings.searchProvider !== 'off' && settings.searchApiKey.trim().length > 0}
                 onVerify={verifySources}
                 onRefine={(annotation) => {

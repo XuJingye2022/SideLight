@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–137 轮，未发版）
+## Unreleased（第 29–138 轮，未发版）
+
+**第 138 轮（同一未发版区间）**
+
+- 联网核对默认自动：配了搜索服务时，分析结束就自动核对出处，不用再手点卡片按钮（**B-266**，新条，ID 待 lead 确认；快车道）——新 `src/lib/autoVerify.ts`（`VERIFY_CONCURRENCY = 2`、`verifyQuery` 抽成手动/自动共用一条查询「原文 + 批注」压空白截 200 字、`autoVerifyTargets` 按 id 去重、`runVerifyPool` 限并发且单条抛错不打断）+ `autoVerify.test.ts` **13 条**挂 `npm test` 链尾（69→**70 文件**、955→**968 条**）；`src/App.tsx` 的 `verifyingId` 单值改 `verifyStates: Record<id, 'verifying' \| 'failed'>`，`verifyOne` 收口手动/自动两条路径（成功删记录、没搜到/抛错记 `failed`），`runAnalysis` 收集 `freshTargets`，结束时 `if (!controller.signal.aborted)` 调 `autoVerify`（`void runVerifyPool(…, VERIFY_CONCURRENCY)`，不 await、不阻塞正文），搜索仍走 `await import('./lib/search.ts')` 惰性 chunk；`MarginRail.tsx` 卡底按钮有出处就不渲染，核对中「核对中…」、失败「重新核对」。tester 独立（未读 `impl.md`、未复用执行方脚本）：自写 `.tmp/r138-tester-auto-verify.mjs`（ego CDP 57270、1440×900、无 AI Key 走 mock 分析流、页面内假 fetch 只拦 tavily 并记 query/并发）**21/21、0 pageerror / 0 console error**（`.tmp/r138-tester-auto-verify.json`）——A：3 卡 → **3 次请求、0 次手点**、`peak=2`、「核对中…」出现后消失、每卡 1 条出处且按钮消失、query 与卡片逐字相等、搜索未回来时分析按钮已可用、search chunk 分析前 0 → 核对后 1；B：500/空结果 3/3 卡「重新核对」+ toast「搜索服务暂时不可用（500）」；C：无 Key 时分析完 + 1.6 s 仍 **0 请求**、3/3 卡「联网核对」`disabled`；静态 `autoVerify(freshTargets)` 1 / `await runVerifyPool(` 0 / 静态 `search.ts` import 0、动态 1、`verifyingId` 全 src 0；`dist` 主包无 tavily/bocha 端点而 `search-*.js` 有；负向 `VERIFY_CONCURRENCY 2→3` **1 红 exit 1**、SHA256 `34F37A29…` 还原后 13/13。回归 r97 **44/44**（跑后还 `shots/round-97/`）、r79 卡底三钮 **7/7**（`SIDELIGHT_CDP=57270`）。门禁：`npm run verify` exit 0 **PASS**、门 gzip **315,611 B**（headroom 4,389）、常驻 `MarginRail-DANUDNjd.js` gzip9 **7,838**、真实首载 **323,449**（超硬线 3,449，归 B-229 仍 `open` 只记）；`npm test` **70 文件 968 条 0 fail**；`roundtrip` 不跑（未动编辑器/序列化）。观察（不判 FAIL）：同一批内容重跑分析时 `replaceInWindow` 保留旧 `sources`，自动核对仍重搜，失败态被旧出处挡住只弹 toast。UNVERIFIED：真实搜索服务与真实模型、中止分析不自动核对分支（只静态核对）、真 WebView2 宿主、真实中文 IME。见 `docs/iteration/round-138/test.md`。
 
 **第 137 轮（同一未发版区间）**
 
