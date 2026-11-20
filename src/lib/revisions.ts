@@ -199,9 +199,39 @@ async function revisionsDir(parent: FileSystemDirectoryHandle): Promise<FileSyst
   return cache.getDirectoryHandle(REVISIONS_DIR, { create: true })
 }
 
+/** 文件名里键的短哈希：把同键快照聚在一起；8 位与 id 同宽，清理前按前缀筛 */
+function revisionKeyHash(key: string): string {
+  return revisionDigest(key, '')
+}
+
+/**
+ * 快照文件名：`<键哈希>-<保存时刻 base36>-<正文 id>.json`。
+ * 同键判定、保存时刻与正文 id 都在文件名里，清理不必为每份快照读正文。
+ */
+function revisionFileName(key: string, savedAt: number, id: string): string {
+  return `${revisionKeyHash(key)}-${savedAt.toString(36)}-${id}.json`
+}
+
+/**
+ * 从文件名反解保存时刻。只认本键的三段名：键哈希、正整数 base36 时刻、8 位十六进制 id。
+ * 旧格式 `<id>.json` 与坏名一律返回 null：不进清理集合（不排序、不读、不删）。
+ */
+function parseRevisionName(name: string, keyHash: string): number | null {
+  if (!name.endsWith('.json')) return null
+  const parts = name.slice(0, -'.json'.length).split('-')
+  if (parts.length !== 3 || parts[0] !== keyHash) return null
+  if (!/^[0-9a-z]+$/.test(parts[1])) return null
+  const savedAt = Number.parseInt(parts[1], 36)
+  if (!Number.isSafeInteger(savedAt) || savedAt <= 0) return null
+  if (savedAt.toString(36) !== parts[1]) return null
+  if (!/^[0-9a-f]{8}$/.test(parts[2])) return null
+  return savedAt
+}
+
 /**
  * 写一份快照并清旧：目录或写入失败全吞，返回 null（保存本身不受影响）。
- * 同一份正文（同 id）已存在就直接返回，不重复写；写完才按同键份额清理。
+ * 同一份正文（同 id，看文件名后缀）已存在就直接返回，不重复写；写完才按同键份额清理。
+ * 列目录失败只跳过这两步，本次快照照常写：宁多一份，不丢快照。
  */
 export async function writeRevision(
   parent: FileSystemDirectoryHandle,
@@ -214,29 +244,30 @@ export async function writeRevision(
   try {
     const revision = buildRevision(key, text, annotations, notes, Date.now(), bytesText)
     const dir = await revisionsDir(parent)
-    const name = `${revision.id}.json`
-    try {
-      await dir.getFileHandle(name)
-      return revision.id
-    } catch {
-      // 没存过才往下写
+    const keyHash = revisionKeyHash(key)
+    const entry: RevisionEntry = {
+      name: revisionFileName(key, revision.savedAt, revision.id),
+      key,
+      savedAt: revision.savedAt,
     }
-    const file = await dir.getFileHandle(name, { create: true })
+    const entries: RevisionEntry[] = []
+    try {
+      for await (const [fileName, handle] of dir.entries()) {
+        if (handle.kind !== 'file') continue
+        const savedAt = parseRevisionName(fileName, keyHash)
+        if (savedAt === null) continue
+        entries.push({ name: fileName, key, savedAt })
+      }
+    } catch {
+      entries.length = 0
+    }
+    if (entries.some((old) => old.name.endsWith(`-${revision.id}.json`))) return revision.id
+    const file = await dir.getFileHandle(entry.name, { create: true })
     const writer = await file.createWritable()
     await writer.write(serializeRevision(revision))
     await writer.close()
-    const entries: RevisionEntry[] = []
-    for await (const [fileName, handle] of dir.entries()) {
-      if (handle.kind !== 'file' || !fileName.endsWith('.json')) continue
-      try {
-        const raw = await (await (handle as FileSystemFileHandle).getFile()).text()
-        const parsed = parseRevision(raw)
-        if (parsed) entries.push({ name: fileName, key: parsed.key, savedAt: parsed.savedAt })
-      } catch {
-        // 读不到的快照不参与清理
-      }
-    }
-    for (const old of pruneRevisions(entries, key, MAX_REVISIONS, name)) {
+    entries.push(entry)
+    for (const old of pruneRevisions(entries, key, MAX_REVISIONS, entry.name)) {
       try {
         await dir.removeEntry(old)
       } catch {

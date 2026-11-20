@@ -22,6 +22,9 @@ type FakeDir = {
   name: string
   dirs: Map<string, FakeDir>
   files: Map<string, FakeFile>
+  /** getFile() 的调用记录：清理路径若读正文，这里会多出名字 */
+  reads: string[]
+  failEntries: { on: boolean }
   handle: FileSystemDirectoryHandle
 }
 
@@ -29,12 +32,13 @@ function notFound(name: string): DOMException {
   return new DOMException(`找不到 ${name}`, 'NotFoundError')
 }
 
-function fakeFileHandle(name: string, file: FakeFile): FileSystemFileHandle {
+function fakeFileHandle(name: string, file: FakeFile, reads: string[]): FileSystemFileHandle {
   let buffer = file.text
   return {
     name,
     kind: 'file',
     async getFile(): Promise<File> {
+      reads.push(name)
       return { name, text: async () => file.text, size: file.text.length } as unknown as File
     },
     async createWritable(): Promise<FileSystemWritableFileStream> {
@@ -57,6 +61,8 @@ function fakeFileHandle(name: string, file: FakeFile): FileSystemFileHandle {
 function fakeDir(name = ''): FakeDir {
   const dirs = new Map<string, FakeDir>()
   const files = new Map<string, FakeFile>()
+  const reads: string[] = []
+  const failEntries = { on: false }
 
   const handle = {
     name,
@@ -76,7 +82,7 @@ function fakeDir(name = ''): FakeDir {
         existing = { text: '' }
         files.set(child, existing)
       }
-      return fakeFileHandle(child, existing)
+      return fakeFileHandle(child, existing, reads)
     },
     async removeEntry(child: string): Promise<void> {
       if (files.delete(child)) return
@@ -84,16 +90,28 @@ function fakeDir(name = ''): FakeDir {
       throw notFound(child)
     },
     async *entries(): AsyncGenerator<[string, FileSystemHandle]> {
+      if (failEntries.on) throw new DOMException('读目录失败', 'NotAllowedError')
       for (const [child, dir] of dirs) yield [child, dir.handle]
-      for (const [child, file] of files) yield [child, fakeFileHandle(child, file)]
+      for (const [child, file] of files) yield [child, fakeFileHandle(child, file, reads)]
     },
   }
 
-  return { name, dirs, files, handle: handle as unknown as FileSystemDirectoryHandle }
+  return { name, dirs, files, reads, failEntries, handle: handle as unknown as FileSystemDirectoryHandle }
 }
 
 function revisionsOf(root: FakeDir): FakeDir | undefined {
   return root.dirs.get('.sidelight')?.dirs.get(REVISIONS_DIR)
+}
+
+/** 预先造出 `.sidelight/revisions`，好往里放旧文件或改成读目录失败 */
+async function ensureRevisionsDir(root: FakeDir): Promise<FakeDir> {
+  await root.handle.getDirectoryHandle('.sidelight', { create: true })
+  const cache = root.dirs.get('.sidelight')
+  assert.ok(cache)
+  await cache.handle.getDirectoryHandle(REVISIONS_DIR, { create: true })
+  const dir = revisionsOf(root)
+  assert.ok(dir)
+  return dir
 }
 
 function indexOf(text: string, start = 1): TextIndex {
@@ -273,6 +291,11 @@ test('move 为 null 时全部丢', () => {
 
 // ---------- writeRevision ----------
 
+/** 按文件名后缀找同键快照：`<键哈希>-<保存时刻 base36>-<正文 id>.json` */
+function hasId(dir: FakeDir, id: string): boolean {
+  return [...dir.files.keys()].some((name) => name.endsWith(`-${id}.json`))
+}
+
 test('同正文只写一份，目录落在 .sidelight/revisions', async () => {
   const root = fakeDir('工作区')
   const first = await writeRevision(root.handle, 'a', '正文', [item], [note])
@@ -281,23 +304,91 @@ test('同正文只写一份，目录落在 .sidelight/revisions', async () => {
   const dir = revisionsOf(root)
   assert.ok(dir)
   assert.equal(dir.files.size, 1)
-  assert.equal(dir.files.has(`${revisionDigest('a', '正文')}.json`), true)
+  assert.equal(hasId(dir, revisionDigest('a', '正文')), true)
+  assert.deepEqual(dir.reads, [])
 })
 
 test('写第 9 份删最旧，同键只留 8 份、他键不动', async () => {
   const root = fakeDir('工作区')
-  for (let at = 0; at < 9; at += 1) {
-    await writeRevision(root.handle, 'a', `正文${at}`, [], [])
-    await new Promise((resolve) => setTimeout(resolve, 2))
+  const realNow = Date.now
+  let clock = 0
+  Date.now = () => (clock += 1000)
+  try {
+    for (let at = 0; at < 9; at += 1) await writeRevision(root.handle, 'a', `正文${at}`, [], [])
+    await writeRevision(root.handle, 'b', '正文0', [], [])
+  } finally {
+    Date.now = realNow
   }
-  await writeRevision(root.handle, 'b', '正文0', [], [])
   const dir = revisionsOf(root)
   assert.ok(dir)
   const names = [...dir.files.keys()]
-  assert.equal(names.filter((name) => name !== `${revisionDigest('b', '正文0')}.json`).length, MAX_REVISIONS)
   assert.equal(names.length, MAX_REVISIONS + 1)
-  assert.equal(dir.files.has(`${revisionDigest('a', '正文0')}.json`), false)
-  assert.equal(names.includes(`${revisionDigest('b', '正文0')}.json`), true)
+  assert.equal(
+    names.filter((name) => !name.endsWith(`-${revisionDigest('b', '正文0')}.json`)).length,
+    MAX_REVISIONS,
+  )
+  assert.equal(hasId(dir, revisionDigest('a', '正文0')), false)
+  assert.equal(hasId(dir, revisionDigest('b', '正文0')), true)
+  const stamps = names.map((name) => name.split('-')[1])
+  for (const savedAt of [2_000, 3_000, 4_000, 5_000, 6_000, 7_000, 8_000, 9_000]) {
+    assert.equal(stamps.includes(savedAt.toString(36)), true)
+  }
+  assert.equal(stamps.includes((1_000).toString(36)), false)
+  assert.deepEqual(dir.reads, [])
+})
+
+test('写新快照不读任何旧快照正文（同键与他键都不读）', async () => {
+  const root = fakeDir('工作区')
+  await writeRevision(root.handle, 'a', '甲', [], [])
+  await writeRevision(root.handle, 'b', '乙', [], [])
+  await writeRevision(root.handle, 'a', '丙', [], [])
+  const dir = revisionsOf(root)
+  assert.ok(dir)
+  assert.equal(dir.files.size, 3)
+  assert.deepEqual(dir.reads, [])
+})
+
+test('旧格式 <id>.json 不读不删，也不占同键份额', async () => {
+  const root = fakeDir('工作区')
+  const dir = await ensureRevisionsDir(root)
+  dir.files.set('deadbeef.json', { text: '{"v":1,"id":"deadbeef","key":"a","savedAt":1}' })
+  const id = await writeRevision(root.handle, 'a', '正文', [], [])
+  assert.equal(id, revisionDigest('a', '正文'))
+  assert.equal(dir.files.has('deadbeef.json'), true)
+  assert.equal(hasId(dir, revisionDigest('a', '正文')), true)
+  assert.equal(dir.files.size, 2)
+  assert.deepEqual(dir.reads, [])
+})
+
+test('列目录失败仍写快照（只跳过同内容去重与清理）', async () => {
+  const root = fakeDir('工作区')
+  const dir = await ensureRevisionsDir(root)
+  dir.failEntries.on = true
+  const id = await writeRevision(root.handle, 'a', '正文', [], [])
+  assert.equal(id, revisionDigest('a', '正文'))
+  assert.equal(dir.files.size, 1)
+  assert.equal(hasId(dir, revisionDigest('a', '正文')), true)
+  assert.deepEqual(dir.reads, [])
+})
+
+test('坏名不参与清理：超过 8 份仍留着、有效份只有 8', async () => {
+  const root = fakeDir('工作区')
+  const dir = await ensureRevisionsDir(root)
+  const bad = `${revisionDigest('a', '')}-abc.json`
+  dir.files.set(bad, { text: '{}' })
+  const realNow = Date.now
+  let clock = 0
+  Date.now = () => (clock += 1000)
+  try {
+    for (let at = 0; at < 9; at += 1) await writeRevision(root.handle, 'a', `正文${at}`, [], [])
+  } finally {
+    Date.now = realNow
+  }
+  assert.equal(dir.files.has(bad), true)
+  assert.equal([...dir.files.keys()].filter((name) => name !== bad).length, MAX_REVISIONS)
+  assert.equal(hasId(dir, revisionDigest('a', '正文0')), false)
+  assert.equal(hasId(dir, revisionDigest('a', '正文8')), true)
+  assert.deepEqual(dir.reads, [])
 })
 
 test('父句柄取目录失败时返回 null，不抛', async () => {

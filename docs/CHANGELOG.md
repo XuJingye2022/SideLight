@@ -2,7 +2,12 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–108 轮，未发版）
+## Unreleased（第 29–109 轮，未发版）
+
+**第 109 轮（同一未发版区间）**
+
+- 修订快照清理不再读正文（A1/A2，B-239，用户 2026-11-20 队列「修订快照」的每保存一次读全部快照）：`src/lib/revisions.ts` 快照文件名改 `<键哈希>-<保存时刻 base36>-<正文 id>.json`（新增私有 `revisionKeyHash`/`revisionFileName`/`parseRevisionName`），`writeRevision` 的「同正文已在 + 清理」由逐份 `getFile().text()` + `parseRevision` 改为只按文件名筛同键；列目录失败只跳过这两步、本次快照照常写（宁多一份不丢）；`parseRevision` 保留导出。`src/lib/revisions.test.ts` 24→**28 条**（他键零内容读、旧格式在场、`entries()` 抛错仍写、坏名不参与清理）。
+- 门禁与实测：`node --experimental-strip-types src/lib/revisions.test.ts` **28/28**；静态 `.getFile()` 1（HEAD `:232`）→0、`= parseRevision\(` 1（`:233`）→0、`export function parseRevision\(` `:71` 仍 1；探针 80 份后保存 `{getFile:0,text:0,wrote:1,listed:1}`、第 10 篇首存 `{getFile:0,text:0}`、同键 8 份、旧格式保留；`npm run verify -- --max 315421` PASS、首屏 gzip **315,220 B**（余硬线 4,780）、`npm test` **62 文件 877 条 0 fail**；回归 r99 快照 E2E **32/32**。B-229 合计 **321,999** 仍超硬线 1,999（open，只记）。见 `docs/iteration/round-109/test.md`。
 
 **第 108 轮（同一未发版区间）**
 
