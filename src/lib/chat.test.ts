@@ -368,3 +368,27 @@ test('署名的 sr-only 样式（静态门）：恰 1 块、6 条声明、三禁
     assert.doesNotMatch(own[0].body, forbidden, `署名块里不许写 ${forbidden}：前两者会把文本从 innerText 与 AX 树摘掉，后者让复制丢前缀`)
   }
 })
+
+/**
+ * 第 118 轮 B-244：对话记录不能聚焦，键盘 / 读屏用户看完新消息后回看不了历史。
+ *
+ * `overflow-y:auto` 只给滚，不给 Tab 落点：本机 Edge 对**正在溢出**的滚动容器有原生
+ * Tab 落点，但空态 / 未溢出时 `Shift+Tab` 落到页签（`.tmp/r118-b244-before.json` 的 S0：
+ * `activeDesc=BUTTON#rail-tab-chat.is-active`），换浏览器或旧 WebView2 就没了。
+ * 显式 `tabIndex={0}` 让 Tab 站数与内容多少无关。不写 `tabIndex={turns.length ? 0 : -1}`：
+ * 流式中条数会变，Tab 站数跟着跳，读者按 Tab 会踩空。浏览器侧前后对照见
+ * `.tmp/e2e-r118-b244.mjs` 与 `.tmp/r118-b244-{before,after}.json`。
+ */
+test('对话记录开标签：显式 tabIndex={0}，且不许给 -1 或按轮数条件化', () => {
+  const source = readFileSync('src/components/MarginRail.tsx', 'utf8')
+  assert.equal(source.match(/className="rail-chat-log"/g)?.length, 1, 'className="rail-chat-log" 全文件必须恰 1 处')
+  const tag = /<div\b[^>]*className="rail-chat-log"[^>]*>/.exec(source)?.[0]
+  assert.ok(tag, 'MarginRail.tsx 里找不到 .rail-chat-log 的开标签')
+  assert.match(
+    tag,
+    /tabIndex=\{0\}/,
+    '记录区要显式进 Tab 序：删掉这个属性，记录没溢出时键盘就落不进来（B-244 原形）',
+  )
+  assert.doesNotMatch(tag, /tabIndex=\{-1\}/, '不能给 -1：那等于把这个落点移出 Tab 序')
+  assert.doesNotMatch(tag, /turns\.length/, 'Tab 落点不能随轮数变：流式中条数会变，Tab 站数跟着跳')
+})

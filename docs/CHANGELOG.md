@@ -2,7 +2,11 @@
 
 版本号在 `package.json`。每发一版加一节，最近的在上面。
 
-## Unreleased（第 29–116 轮，未发版）
+## Unreleased（第 29–118 轮，未发版）
+
+**第 118 轮（同一未发版区间）**
+
+- 对话记录区（`.rail-chat-log`）现在可键盘聚焦（**B-244**，用户 2026-11-20 队列「对话区」，WCAG 2.1.1）：`src/components/MarginRail.tsx:764` 开标签加 `tabIndex={0}`（单行 1+/1−、+12 字符；`role` / `aria-live` / `aria-busy` / `aria-label` / `ref` 与渲染结构一字未动，`styles.css` 不改），Tab / Shift+Tab 在输入框与记录区之间往返，聚焦后 PageUp / PageDown / Home / End / ↑ / ↓ 能回看历史（长回答实测 PageUp −525、ArrowUp −40、Home 0、End 1027=max）；`src/lib/chat.test.ts` 24 → **25 条**读源码机械门（同一开标签断 `tabIndex={0}`、禁 `{-1}`、禁按 `turns.length` 条件化、`className` 恰 1 处；负向删属性恰 1 红、拷回 SHA256 同）。tester 独立（未读 `impl.md`）：先 `git checkout --` 回 HEAD 版自跑 `--phase before` **7/8**（`.tmp/r118-b244-before.json`：`attr:null`、`tabIndex:-1`、空记录 Shift+Tab 落 `#rail-tab-chat`、`focus()` 后 PageUp 减 525；1 红为 plan R1 已记录的本机 Edge 157 原生可滚容器可聚焦）→ 写回后 `--phase after` **13/13、0 pageerror**（`.tmp/r118-b244-after.json`：真实 Shift+Tab 落 log、真实 Tab 回输入框、outline **2px solid rgb(43,109,100)**、置底后 PageUp **−525** / ArrowUp **−40** / Home→**0** / PageDown **+525** / End→**1027=max**、载入与收流后焦点都不是 log、`role`/`aria-label`/`aria-live` 逐字不变、栏宽 **320**、横溢 **0**）；截图 `shots/round-118/chat-log-focus.png`。回归 r96 **42/42**、r112 **10/10**、r111 **14/14**、r108 **17/17**（tester 版 **22/22**）、`keyboard-acceptance` **52/52**，跑完还原 `shots/round-05|96|108|111|112`。门禁：`npm test` **62 文件 897 条 0 fail**、`npm run verify -- --max 315800` **exit 0 PASS**、门 gzip **315,509 B**（Δ **0**、headroom 291）、常驻 `MarginRail-eN3hT9po.js` gzip9 **7,391**（raw +11 / gzip −1 vs 7,392）、B-229 口径合计 **322,900**（−1，B-229 仍 `open` 只记）；`roundtrip` 不跑（未动编辑器/序列化）。见 `docs/iteration/round-118/test.md`。
 
 **第 116 轮（同一未发版区间）**
 
