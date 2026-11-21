@@ -16,7 +16,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
       ['Ctrl+Alt+Shift+O', '打开文件夹'],
       ['Ctrl+S', '保存'],
       ['Ctrl+Alt+S', '另存为'],
-      ['Ctrl+Alt+E', '导出菜单'],
+      ['Ctrl+Alt+E', '打开「文件 → 导出」'],
     ],
   },
   {
@@ -44,6 +44,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string]> }> = [
     title: '视图与字号',
     items: [
       ['Ctrl+Shift+P', '预览'],
+      ['F8', '专注模式（只显示光标所在块）'],
       ['F11', '全屏（再按一次退出）'],
       ['Ctrl+Shift+= / Ctrl+Shift+-', '整页放大 / 缩小'],
       ['Ctrl+Shift+0', '整页缩放复位 100%'],

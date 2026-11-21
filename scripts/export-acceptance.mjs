@@ -30,12 +30,17 @@ await page.waitForTimeout(400)
 const docName = (await page.locator('.doc-name').innerText()).trim()
 console.log('doc name:', docName)
 
-const exportOne = async (label, index) => {
-  await page.getByRole('button', { name: '导出 ▾', exact: true }).click()
+// 第 143 轮 B1：导出项在「文件」菜单的导出组（顶栏「导出 ▾」已删）
+const openFileMenu = async () => {
+  await page.locator('.file-menu-trigger').click()
   await page.waitForTimeout(200)
+}
+
+const exportOne = async (label, index) => {
+  await openFileMenu()
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 5000 }),
-    // 菜单项是 role="menuitem"（.export-menu 里 role="menu"），不是 button
+    // 菜单项是 role="menuitem"（.file-menu 里 role="menu"），不是 button
     page.getByRole('menuitem', { name: label, exact: true }).click(),
   ])
   const target = `${OUT}/${index}-${download.suggestedFilename()}`
@@ -49,7 +54,8 @@ await page.locator('.editor').click()
 await page.keyboard.press('Control+End')
 await page.keyboard.type('正文里先写一句。')
 await page.waitForTimeout(400)
-await page.getByRole('button', { name: '源码', exact: true }).click()
+await openFileMenu()
+await page.locator('.file-menu [role="menuitemradio"]', { hasText: '源码' }).click()
 await page.waitForTimeout(400)
 const source = await page.locator('.source-editor').inputValue()
 await page.locator('.source-editor').fill(`${source}\n\nSRC-ONLY-MARK 源码里新加的。\n`)

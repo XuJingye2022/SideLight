@@ -2,13 +2,6 @@ import { formatStats, type TextStats } from '../lib/wordcount.ts'
 
 type Props = {
   stats: TextStats
-  mode: 'edit' | 'source' | 'preview'
-  focusMode: boolean
-  typewriterMode: boolean
-  draftLabel?: string
-  hasFrontmatter?: boolean
-  /** 宿主文档：状态栏显示「保存到 <文件名>」 */
-  hostFileName?: string
   /** 宿主草稿恢复后显示「草稿已恢复」 */
   draftRestored?: boolean
   autoSaveLabel?: string
@@ -16,7 +9,7 @@ type Props = {
   /** 字数明细面板是否打开（触发按钮的 aria-expanded） */
   statsOpen?: boolean
   onStatsClick?: () => void
-  /** 选区的字数（中日韩字 + 拉丁词）；0 或非编辑视图时不显示 */
+  /** 选区的字数（中日韩字 + 拉丁词）；0 或非编辑视图时不显示。第 143 轮起并入字数入口 */
   selectionWords?: number
   /** 整页缩放百分比；100 时不显示 */
   pageZoom?: number
@@ -30,14 +23,12 @@ type Props = {
   onDismissRestore?: () => void
 }
 
+/**
+ * 状态栏只报写作事实（第 143 轮 B2）：字数、保存、错误与撤销。
+ * 视图模式 4 个 chip、元数据、保存到 X、草稿时间都撤掉了——等价入口在「文件 → 视图」。
+ */
 export function StatusBar({
   stats,
-  mode,
-  focusMode,
-  typewriterMode,
-  draftLabel,
-  hasFrontmatter,
-  hostFileName,
   draftRestored,
   autoSaveLabel,
   autoSaveTone = 'ok',
@@ -64,18 +55,8 @@ export function StatusBar({
           onClick={onStatsClick}
         >
           {formatStats(stats)}
+          {selectionWords > 0 && ` · 选区 ${selectionWords.toLocaleString('en-US')} 字`}
         </button>
-        {selectionWords > 0 && (
-          <span className="status-chip status-chip-quiet status-selection" title="选中文字的字数：中日韩字 + 拉丁词，与字数明细的选区行同口径">
-            选区 {selectionWords.toLocaleString('en-US')} 字
-          </span>
-        )}
-        {hasFrontmatter && <span className="status-chip status-chip-quiet">元数据</span>}
-        {hostFileName && (
-          <span className="status-chip status-chip-quiet" title="Ctrl+S 保存到这个文件">
-            保存到 {hostFileName}
-          </span>
-        )}
         {draftRestored && (
           <span className="status-chip" title="正文来自宿主草稿；原文件没有变化">
             草稿已恢复
@@ -105,11 +86,6 @@ export function StatusBar({
         )}
       </span>
       <span className="status-right">
-        {draftLabel && <span className="status-chip status-chip-quiet">{draftLabel}</span>}
-        {mode === 'source' && <span className="status-chip">源码</span>}
-        {mode === 'preview' && <span className="status-chip">预览</span>}
-        {focusMode && <span className="status-chip">专注</span>}
-        {typewriterMode && <span className="status-chip">打字机</span>}
         {pageZoom !== 100 && (
           <button
             type="button"

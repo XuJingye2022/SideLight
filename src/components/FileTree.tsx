@@ -583,7 +583,6 @@ export function FileTree({
           onNewFile={onNewFile}
           onNewFolder={onNewFolder}
           onOpenFolder={onOpenFolder}
-          onRefresh={onRefresh}
           onCloseHeaderMenu={() => {
             setNewMenuOpen(false)
             setMoreMenuOpen(false)

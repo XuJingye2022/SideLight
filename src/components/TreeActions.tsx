@@ -43,7 +43,6 @@ type Props = {
   onNewFile: () => void
   onNewFolder: () => void
   onOpenFolder: () => void
-  onRefresh: () => void
   onCloseHeaderMenu: () => void
   onRename: (file: WorkspaceFileNode) => void
 }
@@ -176,7 +175,6 @@ export default function TreeActions({
   onNewFile,
   onNewFolder,
   onOpenFolder,
-  onRefresh,
   onCloseHeaderMenu,
   onRename,
 }: Props) {
@@ -231,17 +229,6 @@ export default function TreeActions({
             }}
           >
             打开其他文件夹…
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            style={ITEM_STYLE}
-            onClick={() => {
-              onCloseHeaderMenu()
-              onRefresh()
-            }}
-          >
-            刷新
           </button>
         </div>
       )}

@@ -235,17 +235,18 @@ await page.keyboard.press('Control+Alt+Shift+O')
 await page.waitForTimeout(900)
 check('Ctrl+Alt+Shift+O 调用打开文件夹 picker', (await page.evaluate(() => window.__stub.dirCalls)) === dirBefore + 1)
 
-// 6) Ctrl+Alt+E 打开导出菜单，焦点在第一项；ArrowDown+Enter 下载
+// 6) Ctrl+Alt+E 打开文件菜单的导出组，焦点在第一项；ArrowDown+Enter 下载
 await settle()
 await page.keyboard.press('Escape')
 await page.waitForTimeout(200)
 await page.keyboard.press('Control+Alt+E')
 await page.waitForTimeout(400)
 const exportFocus = await page.evaluate(() => ({
-  menu: document.querySelectorAll('.export-menu').length,
+  menu: document.querySelectorAll('.file-menu').length,
+  group: document.querySelectorAll('.file-menu [data-group="export"]').length,
   text: (document.activeElement?.textContent ?? '').trim(),
 }))
-check('Ctrl+Alt+E 打开导出菜单且焦点在第一项', exportFocus.menu === 1 && exportFocus.text === 'HTML', JSON.stringify(exportFocus))
+check('Ctrl+Alt+E 打开文件菜单导出组且焦点在第一项', exportFocus.menu === 1 && exportFocus.group === 4 && exportFocus.text === 'HTML', JSON.stringify(exportFocus))
 const downloadsBefore = downloads.length
 await page.keyboard.press('ArrowDown')
 await page.keyboard.press('Enter')
@@ -265,7 +266,7 @@ await page.screenshot({ path: 'shots/round-05/t1-filemenu.png' })
 await page.keyboard.press('ArrowDown')
 await page.waitForTimeout(150)
 const second = await page.evaluate(() => (document.activeElement?.textContent ?? '').trim())
-check('方向键在菜单项之间移动', (second ?? '').startsWith('关闭文档'), second)
+check('方向键在菜单项之间移动', (second ?? '').startsWith('另存为'), second)
 await page.keyboard.press('Escape')
 await page.waitForTimeout(250)
 const escFocus = await page.evaluate(() => ({
@@ -276,7 +277,6 @@ check('Esc 关闭菜单且焦点回「文件」按钮', escFocus.menu === 0 && e
 await page.keyboard.press('Enter')
 await page.waitForTimeout(250)
 await page.keyboard.press('ArrowDown')
-await page.keyboard.press('ArrowDown')
 await page.keyboard.press('Enter')
 await page.waitForTimeout(800)
 const afterAction = await page.evaluate(() => ({
@@ -285,8 +285,10 @@ const afterAction = await page.evaluate(() => ({
 }))
 check('选「另存为」后回触发器', afterAction.menu === 0 && afterAction.focused === true, JSON.stringify(afterAction))
 
-// 8) opener 随对话框卸载时，Esc 后焦点不落 body
-await page.getByRole('button', { name: '设置', exact: true }).click()
+// 8) opener 随对话框卸载时，Esc 后焦点不落 body（第 143 轮 B1：设置入口在文件菜单「帮助」组）
+await page.locator('.file-menu-trigger').click()
+await page.waitForTimeout(200)
+await page.locator('.file-menu [role="menuitem"]', { hasText: '设置' }).click()
 await page.waitForTimeout(400)
 await page.locator('[role="dialog"]').getByRole('button', { name: '快捷键', exact: true }).click()
 await page.waitForTimeout(400)
@@ -358,7 +360,7 @@ await page.keyboard.type('XYZ')
 const tabText = await page.locator('.ProseMirror').innerText()
 check('Tab 后输入 XYZ 正文含 XYZ', tabText.includes('XYZ'), tabText.slice(-20))
 await page.getByRole('button', { name: /插入/ }).click()
-await page.getByRole('button', { name: '表格', exact: true }).click()
+await page.locator('.menu-wrap .menu [role="menuitem"]', { hasText: '表格' }).click()
 await page.waitForTimeout(300)
 const firstCell = page.locator('.ProseMirror td, .ProseMirror th').first()
 await firstCell.click()
@@ -427,7 +429,7 @@ await page.keyboard.press('Escape')
 await page.waitForTimeout(200)
 check('Esc 退出源码回编辑', (await page.locator('.source-editor').count()) === 0 && (await page.locator('.ProseMirror').count()) === 1)
 await page.getByRole('button', { name: /插入/ }).click()
-await page.getByRole('button', { name: '表格', exact: true }).click()
+await page.locator('.menu-wrap .menu [role="menuitem"]', { hasText: '表格' }).click()
 await page.waitForTimeout(300)
 await page.locator('.ProseMirror td, .ProseMirror th').first().click()
 const cellIndex = () =>
@@ -446,10 +448,9 @@ await page.waitForTimeout(900)
 check('Ctrl+Shift+1 切大纲', (await page.locator('.outline').count()) === 1, String(await page.locator('.outline').count()))
 await page.keyboard.press('Control+Shift+3')
 
-// 预览快捷键 Ctrl+Shift+P：状态栏出「预览」、正文不可编辑、不被 Ctrl+P 抢走
+// 预览快捷键 Ctrl+Shift+P：进预览、正文不可编辑、不被 Ctrl+P 抢走（第 143 轮 B2：状态栏不再有模式 chip）
 const previewState = () =>
   page.evaluate(() => ({
-    right: (document.querySelector('.status-right')?.textContent ?? '').trim(),
     editables: Array.from(document.querySelectorAll('.ProseMirror')).map((n) => n.getAttribute('contenteditable')),
     previewPanes: document.querySelectorAll('.preview-pane').length,
     quickOpen: document.querySelectorAll('.quick-open').length,
@@ -458,8 +459,8 @@ await page.keyboard.press('Control+Shift+P')
 await page.waitForTimeout(400)
 const previewOn = await previewState()
 check(
-  'Ctrl+Shift+P 进预览：状态栏有「预览」且正文不可编辑',
-  previewOn.right.includes('预览') && previewOn.previewPanes === 1 && previewOn.editables.length > 0 && previewOn.editables.every((value) => value === 'false'),
+  'Ctrl+Shift+P 进预览：预览 pane 在且正文不可编辑',
+  previewOn.previewPanes === 1 && previewOn.editables.length > 0 && previewOn.editables.every((value) => value === 'false'),
   JSON.stringify(previewOn),
 )
 check('Ctrl+Shift+P 没被 Ctrl+P 快速打开抢走', previewOn.quickOpen === 0, String(previewOn.quickOpen))
@@ -467,8 +468,8 @@ await page.keyboard.press('Escape')
 await page.waitForTimeout(400)
 const previewOff = await previewState()
 check(
-  'Esc 回编辑：正文可编辑且状态栏不再有「预览」',
-  previewOff.previewPanes === 0 && previewOff.editables.length > 0 && previewOff.editables.every((value) => value === 'true') && !previewOff.right.includes('预览'),
+  'Esc 回编辑：预览 pane 收起且正文可编辑',
+  previewOff.previewPanes === 0 && previewOff.editables.length > 0 && previewOff.editables.every((value) => value === 'true'),
   JSON.stringify(previewOff),
 )
 

@@ -9,6 +9,8 @@ type Props = {
   selection: string
   /** 正文段落数（见 wordcount.countParagraphs）；undefined 表示回退到「空行分段」的旧口径 */
   paragraphs?: number
+  /** 文首有 YAML frontmatter：状态栏不再单列「元数据」chip，明细里报一行（第 143 轮 B2） */
+  frontmatter?: boolean
   onClose: () => void
 }
 
@@ -55,7 +57,7 @@ const dividerStyle: CSSProperties = {
 }
 
 /** 状态栏字数明细面板：点状态栏字数打开，点面板外面或按 Esc 关闭 */
-export function StatsDetail({ text, selection, paragraphs, onClose }: Props) {
+export function StatsDetail({ text, selection, paragraphs, frontmatter, onClose }: Props) {
   const stats = countText(text)
   const panelRef = useRef<HTMLDivElement | null>(null)
 
@@ -97,6 +99,7 @@ export function StatsDetail({ text, selection, paragraphs, onClose }: Props) {
     ['段', number(paragraphs ?? stats.paragraphs), paragraphs === undefined ? '空行分段的段数' : '正文段落数：段落与列表项各算 1；标题、表格不计，代码块整块算 1'],
     ['阅读', `${number(stats.minutes)} 分钟`, '按 300 字/分钟估算'],
   ]
+  if (frontmatter) rows.push(['元数据', 'frontmatter', '文首有 YAML frontmatter：不计入正文统计，保存时原样写回'])
 
   return (
     <div

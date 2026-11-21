@@ -34,23 +34,35 @@ await page.reload({ waitUntil: 'networkidle' })
 await page.waitForSelector('.doc-column .ProseMirror')
 await page.waitForTimeout(400)
 
+// 第 143 轮 B1：视图切换与导出都在「文件」菜单里（顶栏工具条已删）
+const toggleSource = async () => {
+  await page.locator('.file-menu-trigger').click()
+  await page.waitForTimeout(200)
+  await page.locator('.file-menu [role="menuitemradio"]', { hasText: '源码' }).click()
+  await page.waitForTimeout(400)
+}
+
+const openFileMenu = async () => {
+  await page.locator('.file-menu-trigger').click()
+  await page.waitForTimeout(200)
+}
+
 // 源码模式写入行内 + 块级公式，再切回编辑，拿到真实公式节点
-await page.getByRole('button', { name: '源码', exact: true }).click()
+await toggleSource()
 await page.waitForTimeout(300)
 await page.locator('.source-editor').fill('正文 $E=mc^2$ 结束。\n\n$$\n\\frac{a}{b}\n$$\n')
 await page.waitForTimeout(300)
-await page.getByRole('button', { name: '源码', exact: true }).click()
+await toggleSource()
 await page.waitForTimeout(500)
 const docName = (await page.locator('.doc-name').innerText()).trim()
 const mathNodes = await page.evaluate(() => document.querySelectorAll('.editor [data-type$="-math"]').length)
 check('文档里有行内与块级公式节点', mathNodes >= 2, String(mathNodes))
 
 const exportOne = async (label, index) => {
-  await page.getByRole('button', { name: '导出 ▾', exact: true }).click()
-  await page.waitForTimeout(200)
+  await openFileMenu()
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 5000 }),
-    page.locator('.export-menu button', { hasText: label }).click(),
+    page.locator('.file-menu [role="menuitem"]', { hasText: label }).click(),
   ])
   const target = resolve(TMP, `${index}-${download.suggestedFilename()}`)
   await download.saveAs(target)
@@ -85,6 +97,6 @@ try {
 await viewer.close()
 
 console.log(`\n${results.filter((item) => item.ok).length}/${results.length} PASS`)
+// 不调 browser.close()：CDP 连的是共享 ego 浏览器，关掉会让同端口后续脚本连不上（第 30 轮口径）
 await context.close()
-await browser.close()
-if (results.some((item) => !item.ok)) process.exit(1)
+process.exit(results.some((item) => !item.ok) ? 1 : 0)

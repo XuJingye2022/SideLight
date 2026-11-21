@@ -49,7 +49,7 @@ test('MarginRail.tsx：aside 带条件 role/aria-modal、tabIndex −1 与 onKey
   const aside = sliceFrom(railSource, '<aside', 700)
   assert.ok(aside.includes("role={drawerOpen ? 'dialog' : undefined}"), 'role 只在抽屉态声明 dialog')
   assert.ok(aside.includes('aria-modal={drawerOpen'), 'aria-modal 必须跟 drawerOpen 走（宽窗要消失）')
-  assert.ok(aside.includes('tabIndex={-1}'), '点 .rail-title 要能把焦点落到 aside 根')
+  assert.ok(aside.includes('tabIndex={-1}'), '点页签行要能把焦点落到 aside 根')
   assert.ok(aside.includes('onKeyDown={onRailKeyDown}'), 'aside 必须挂 Tab 环回的 onKeyDown')
 })
 

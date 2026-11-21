@@ -20,7 +20,8 @@ const REVIEW = '.rail-review-open'
 /** 第 140 轮 A1：右栏折叠钮，与「在审」同一规则块（对比入口已搬去顶栏） */
 const COLLAPSE = '.rail-collapse'
 const RESET = '.rail-chat-reset'
-const HEAD = '.rail-head'
+/** 第 143 轮 B2：栏头并进页签行，按页签行断「不许定高」 */
+const TABS = '.rail-tabs'
 /** 第 121 轮 B-251：对比 / 在审共用的关闭钮与「判错了，重来」原先只有 24×19 / 72×18.6 */
 const DIFF_CLOSE = '.rail-diff-close'
 const GOAL_RETRY = '.rail-goal-retry'
@@ -124,14 +125,14 @@ test('「新对话」同口径 ≥24，且 margin-left:auto 撑着右对齐', ()
   assert.equal(declarations(rule).get('margin-left'), 'auto', '「新对话」靠 margin-left:auto 贴右侧，不能被顺手删掉')
 })
 
-test('.rail-head 不写 height：钮高改不动行高，偏差只许来自子元素', () => {
-  const rule = rules().find((candidate) => candidate.selectors.length === 1 && candidate.selectors[0] === HEAD)
-  assert.ok(rule, `styles.css 里找不到 ${HEAD} 规则块`)
+test('.rail-tabs 不写 height：钮高改不动行高，偏差只许来自子元素', () => {
+  const rule = rules().find((candidate) => candidate.selectors.length === 1 && candidate.selectors[0] === TABS)
+  assert.ok(rule, `styles.css 里找不到 ${TABS} 规则块`)
   const decl = declarations(rule)
   assert.equal(
     decl.get('height'),
     undefined,
-    `${HEAD} 不许定高：定高会把 24px 的钮裁掉，或让「空态 15 / 带卡 16」这类写法回潮`,
+    `${TABS} 不许定高：定高会把 24px 的钮裁掉，或让「空态 15 / 带卡 16」这类写法回潮`,
   )
 })
 

@@ -281,12 +281,6 @@ button:disabled {
   background: var(--accent);
 }
 
-/* 第 140 轮 A2：顶栏「对比」开着时的按下态（与工具栏 .is-on 同一对 token） */
-.diff-toggle.is-on {
-  color: var(--accent-ink);
-  background: var(--accent-wash);
-}
-
 /* ---------- 工作台 ---------- */
 
 .workbench {
@@ -442,6 +436,12 @@ button:disabled {
   flex: none;
   width: 22px;
   padding: 4px 0;
+}
+
+/* 第 143 轮 B1：顶栏「插入」菜单的定位容器（原「导出」下拉的容器改名复用） */
+.menu-wrap {
+  position: relative;
+  flex: none;
 }
 
 /* 「文件 ▾」菜单 */
@@ -1275,33 +1275,14 @@ button:disabled {
   margin: 3px 0 0;
 }
 
-.rail-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11.5px;
-  letter-spacing: 0.08em;
-  color: var(--ink-faint);
-}
-
-.rail-light {
-  width: 5px;
-  height: 14px;
-  border-radius: 3px;
-  background: linear-gradient(180deg, var(--accent), transparent);
-}
-
-.rail-title {
-  font-weight: 600;
-  color: var(--ink-soft);
-}
-
+/* 第 143 轮 B2：栏头压进页签行，只留「正在读 / N 条」与页签同一行 */
 .rail-busy {
   color: var(--accent);
 }
 
-.rail-count {
-  margin-left: auto;
+.rail-status {
+  font-size: 11.5px;
+  color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1348,15 +1329,23 @@ button:disabled {
   color: var(--ink-faint);
 }
 
-/* 第 94 轮 B-221：右侧双页签（对话 / 批注）。结构与侧栏 .sidebar-tabs 一致，栏宽 320px 后两钮更宽 */
+/* 第 94 轮 B-221：右侧双页签；第 143 轮 B2 起这一行兼栏头（状态 + 在审 + 折叠/关闭） */
 .rail-tabs {
   display: flex;
-  gap: 2px;
-  margin: 10px 0 2px;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 2px;
   border-bottom: 1px solid var(--line);
 }
 
-.rail-tabs button {
+.rail-tablist {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.rail-tablist button {
   flex: 1;
   padding: 5px 8px;
   border-radius: 7px 7px 0 0;
@@ -1364,7 +1353,7 @@ button:disabled {
   color: var(--ink-faint);
 }
 
-.rail-tabs button.is-active {
+.rail-tablist button.is-active {
   background: var(--paper-raised);
   color: var(--ink);
   box-shadow: inset 0 -2px 0 var(--accent);
@@ -1383,12 +1372,6 @@ button:disabled {
   font-size: 10.5px;
   line-height: 1;
   color: var(--ink-soft);
-}
-
-/* .rail-count / 「在审」在左边已经 margin-left:auto 顶开：两个 auto 会各分一半空位，这里退掉 */
-.rail-count ~ .rail-review-open,
-.rail-review-open ~ .rail-collapse {
-  margin-left: 0;
 }
 
 /* 第 114 轮 B-247：在审面板里的「修订快照」清单（只读，纯文本行，无控件） */
@@ -2135,75 +2118,6 @@ button:disabled {
   font-weight: 600;
 }
 
-/* ---------- 工具栏 ---------- */
-
-.toolbar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 38px;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--paper) 55%, var(--paper-raised));
-}
-
-.toolbar-group {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.toolbar-group + .toolbar-group:not(.spacer) {
-  padding-left: 8px;
-  border-left: 1px solid var(--line);
-}
-
-.toolbar .spacer {
-  flex: 1;
-}
-
-.toolbar button {
-  padding: 3px 8px;
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-
-/*
- * 第 50 轮：工具栏同一排原来三种高度（插入 25 / 格式与视图 24 / </> 21）。
- * 只收紧 `.toolbar-group` 的直接子按钮——`插入 ▾` 下拉的 `.menu button` 是孙子节点，
- * 加 height/display 会把它从 30 px 压到 24 px、标签从左对齐变居中（第 50 轮复审 R50-12）。
- */
-.toolbar-group > button {
-  height: 24px;
-  /* 第 82 轮 B-110：最窄的钮（斜体 I）实测 21.2×24，达不到 24×24；只补最小宽度，
-     宽度靠 padding 自然撑开的钮不受影响，`.menu button` 仍按原样 */
-  min-width: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.toolbar button.is-on,
-.toolbar button.is-open {
-  background: var(--accent-wash);
-  color: var(--accent-ink);
-}
-
-.toolbar button.italic {
-  font-style: italic;
-}
-
-.toolbar button.strike {
-  text-decoration: line-through;
-}
-
-.toolbar button.mono {
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
 .menu {
   position: absolute;
   top: 30px;
@@ -2224,9 +2138,8 @@ button:disabled {
   padding: 6px 9px;
 }
 
-/* 文件 / 导出菜单：左边文字、右边键位提示 */
-.file-menu button,
-.export-menu button {
+/* 文件菜单：左边文字、右边键位提示 */
+.file-menu button {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3146,16 +3059,6 @@ button:disabled {
 
 /* ---------- 导出菜单 ---------- */
 
-.export-wrap {
-  position: relative;
-}
-
-.export-menu {
-  top: 30px;
-  left: auto;
-  right: 0;
-}
-
 /* ---------- 表格工具条 ---------- */
 
 .table-bar {
@@ -3207,7 +3110,6 @@ button:disabled {
 
 @media print {
   .topbar,
-  .toolbar,
   .table-bar,
   .find-bar,
   .sidebar,
@@ -3751,13 +3653,6 @@ button:disabled {
   .topbar {
     height: auto;
     min-height: 46px;
-    flex-wrap: wrap;
-    padding: 6px 12px;
-  }
-
-  .toolbar {
-    height: auto;
-    min-height: 38px;
     flex-wrap: wrap;
     padding: 6px 12px;
   }

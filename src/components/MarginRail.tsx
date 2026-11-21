@@ -333,22 +333,48 @@ export function MarginRail({
           onResize(clampRailWidth(railWidth + step))
         }}
       />
-      <div className="rail-head">
-        <span className="rail-light" aria-hidden="true" />
-        <span className="rail-title">侧灯</span>
-        {analyzing && <span className="rail-busy">正在读</span>}
-        {!analyzing && pending.length > 0 && <span className="rail-count">{pending.length} 条</span>}
-        {onClose && (
-          <button
-            type="button"
-            className="rail-close"
-            onClick={onClose}
-            aria-label={railTab === 'chat' ? '关闭对话' : '关闭批注'}
-          >
-            ×
-          </button>
-        )}
-        {/* 第 101 轮 B-228：「在审文件」。右缘贴着 head 右缘；间距 7px 走 .rail-head 的 gap */}
+      {/* 第 143 轮 B2：栏头压进页签行——「正在读 / N 条」、在审、折叠（宽窗）/关闭（窄窗）同一行，
+          卡区上移；tablist 仍是独立子元素，roving 与 aria-controls 不动 */}
+      <div className="rail-tabs">
+        <div className="rail-tablist" role="tablist" aria-label="侧灯页签">
+          {(['chat', 'notes'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              id={`rail-tab-${tab}`}
+              aria-selected={railTab === tab}
+              aria-controls={`rail-panel-${tab}`}
+              tabIndex={railTab === tab ? 0 : -1}
+              className={railTab === tab ? 'is-active' : ''}
+              onClick={() => onTabChange(tab)}
+              onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                event.preventDefault()
+                const next =
+                  event.key === 'Home'
+                    ? 'chat'
+                    : event.key === 'End'
+                      ? 'notes'
+                      : tab === 'chat'
+                        ? 'notes'
+                        : 'chat'
+                onTabChange(next)
+                requestAnimationFrame(() => document.getElementById(`rail-tab-${next}`)?.focus())
+              }}
+            >
+              {tab === 'chat' ? '对话' : '批注'}
+            </button>
+          ))}
+        </div>
+        {analyzing ? (
+          <span className="rail-busy">正在读</span>
+        ) : pending.length > 0 ? (
+          <span className="rail-status" title="待处理批注条数">
+            {pending.length} 条
+          </span>
+        ) : null}
+        {/* 第 101 轮 B-228：「在审文件」。窄窗由 CSS 隐藏折叠钮，宽窗隐藏关闭钮 */}
         {railTab === 'notes' && (
           <button
             type="button"
@@ -360,7 +386,16 @@ export function MarginRail({
             在审
           </button>
         )}
-        {/* 第 140 轮 A1：折叠右栏（宽窗）。窄窗由 CSS 隐藏，出口是顶栏「批注」抽屉 */}
+        {onClose && (
+          <button
+            type="button"
+            className="rail-close"
+            onClick={onClose}
+            aria-label={railTab === 'chat' ? '关闭对话' : '关闭批注'}
+          >
+            ×
+          </button>
+        )}
         <button
           type="button"
           className="rail-collapse"
@@ -371,39 +406,6 @@ export function MarginRail({
         >
           ▸
         </button>
-      </div>
-
-      {/* 第 94 轮 B-221：右侧双页签。只做页签与占位，对话内容下一批接入 */}
-      <div className="rail-tabs" role="tablist" aria-label="侧灯页签">
-        {(['chat', 'notes'] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            role="tab"
-            id={`rail-tab-${tab}`}
-            aria-selected={railTab === tab}
-            aria-controls={`rail-panel-${tab}`}
-            tabIndex={railTab === tab ? 0 : -1}
-            className={railTab === tab ? 'is-active' : ''}
-            onClick={() => onTabChange(tab)}
-            onKeyDown={(event) => {
-              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-              event.preventDefault()
-              const next =
-                event.key === 'Home'
-                  ? 'chat'
-                  : event.key === 'End'
-                    ? 'notes'
-                    : tab === 'chat'
-                      ? 'notes'
-                      : 'chat'
-              onTabChange(next)
-              requestAnimationFrame(() => document.getElementById(`rail-tab-${next}`)?.focus())
-            }}
-          >
-            {tab === 'chat' ? '对话' : '批注'}
-          </button>
-        ))}
       </div>
 
       {/* 包一层只做页签显隐：不加 position / overflow，卡片的绝对定位仍参照 .margin-rail，

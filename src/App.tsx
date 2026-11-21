@@ -455,7 +455,8 @@ export default function App() {
   const simulated = !hasKey(settings)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
-  const exportTriggerRef = useRef<HTMLButtonElement | null>(null)
+  /** 第 143 轮 B1：Ctrl+Alt+E 请求文件菜单打开并聚焦导出组（token 变一次动作一次） */
+  const [fileMenuRequest, setFileMenuRequest] = useState(0)
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   /** 回收站不可用原因（.sidelight 是文件/没权限）；null 表示可用 */
   const [trashReason, setTrashReason] = useState<string | null>(null)
@@ -550,7 +551,6 @@ export default function App() {
   const [focusMode, setFocusMode] = useState(false)
   const [typewriterMode, setTypewriterMode] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [exportOpen, setExportOpen] = useState(false)
   const [risks, setRisks] = useState<string[]>([])
   const [findOpen, setFindOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -648,13 +648,12 @@ export default function App() {
   const [footnotes, setFootnotes] = useState(initial.footnotes)
   const [originalText, setOriginalText] = useState<string | null>(null)
   const [saveWarned, setSaveWarned] = useState(false)
-  const [draftShown, setDraftShown] = useState(initial.savedAt > 0)
   const [stats, setStats] = useState<TextStats>(() => countText(initial.text))
   /** 源码态字数（第 81 轮 B-139）：逐键不再在渲染里扫全篇，停笔 300 ms 只算一次；null = 还没算过 */
   const [sourceStats, setSourceStats] = useState<TextStats | null>(null)
   // 字数明细面板：null = 关闭；打开时冻结当时的正文与选区文本
   // paragraphs 可选：源码模式解析失败时为 undefined，面板回退到「空行分段」的旧口径
-  const [statsDetail, setStatsDetail] = useState<{ text: string; selection: string; paragraphs?: number } | null>(null)
+  const [statsDetail, setStatsDetail] = useState<{ text: string; selection: string; paragraphs?: number; frontmatter?: boolean } | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
   const chatAbortRef = useRef<AbortController | null>(null)
@@ -666,8 +665,7 @@ export default function App() {
   /** 折叠/展开后的焦点去向（在 effect 里消费，避免裸 rAF 抢焦点） */
   const pendingRailFocusRef = useRef<'reopen' | 'collapse' | null>(null)
   const railReopenRef = useRef<HTMLButtonElement | null>(null)
-  /** 第 140 轮 A2：顶栏「对比」钮（Esc/关闭后焦点回它）与进出面板时的阅读位置 */
-  const diffToggleRef = useRef<HTMLButtonElement | null>(null)
+  /** 第 143 轮 B1：Esc/关闭对比后焦点回「文件 ▾」（对比已搬进文件菜单，原「对比」钮不再常驻） */
   const diffScrollRef = useRef(0)
   const analyzeRef = useRef<() => void>(() => {})
   /** 目录条目的跳转入口（第 58 轮 B-106）：jumpTo 声明在 useEditor 之后，用 ref 转一手 */
@@ -1095,7 +1093,7 @@ export default function App() {
     setDiffOpen(false)
     requestAnimationFrame(() => {
       if (scrollRef.current) scrollRef.current.scrollTop = diffScrollRef.current
-      diffToggleRef.current?.focus()
+      document.querySelector<HTMLElement>('.file-menu-trigger')?.focus()
     })
   }, [])
 
@@ -1103,6 +1101,35 @@ export default function App() {
   useEffect(() => {
     setDiffOpen(false)
   }, [docInstance])
+
+  /** 文件 → 视图五项（第 143 轮 B1）：与原工具栏四钮同一条实现，源码/预览仍走 switchView */
+  const toggleViewFromMenu = useCallback(
+    (id: 'diff' | 'focus' | 'typewriter' | 'source' | 'preview') => {
+      if (id === 'diff') {
+        if (diffOpen) closeDiff()
+        else openDiff()
+        return
+      }
+      if (id === 'focus') {
+        setFocusMode((value) => !value)
+        return
+      }
+      if (id === 'typewriter') {
+        setTypewriterMode((value) => !value)
+        requestAnimationFrame(() => typewriterRef.current())
+        return
+      }
+      if (id === 'source') {
+        const entering = !sourceMode
+        toggleSourceRef.current()
+        // 菜单项点完就卸载：键盘用户直接落进源码框，不然焦点回 body 打不了字
+        if (entering) requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('textarea.source-editor')?.focus())
+        return
+      }
+      togglePreviewRef.current()
+    },
+    [closeDiff, diffOpen, openDiff, sourceMode],
+  )
 
   // 智能标点开关走 ref：把 settings 放进 useEditor 依赖会重建编辑器、丢撤销栈
   const smartPunctRef = useRef(true)
@@ -1573,7 +1600,6 @@ export default function App() {
       setHostDoc({ writable, fileName: data.fileName ?? '未命名.md', mtime: Number(data.mtime ?? 0), ready: true })
       setReadOnly(!writable)
       setSaveWarned(false)
-      setDraftShown(false)
       cancelAutoSaveRef.current()
       setAutoSaveState('idle')
       setAutoSavedAt(null)
@@ -2649,8 +2675,9 @@ export default function App() {
       // 提示不参与 tops 计算，第一张卡会直接压在提示上（第 46 轮 T2）。从这里起算，并给面板让出高度。
       let flowBottom = 0
       // 先把 chrome 底算进来：批注为空时面板里没有任何提示，只有这部分兜底（第 94 轮 P1-1）
-      for (const chrome of [rail.querySelector('.rail-head'), rail.querySelector('.rail-tabs')]) {
-        if (!chrome) continue
+      // 第 143 轮 B2：栏头并进页签行，chrome 只剩 .rail-tabs 一块
+      const chrome = rail.querySelector('.rail-tabs')
+      if (chrome) {
         const bottom = chrome.getBoundingClientRect().bottom - railRect.top
         if (bottom > flowBottom) flowBottom = bottom
       }
@@ -2792,7 +2819,6 @@ export default function App() {
       // 第 130 轮 B-261：换了一篇文档（打开 / 新建 / 草稿恢复都走这里），文档身份 +1
       setDocInstance((value) => value + 1)
       setSaveWarned(false)
-      setDraftShown(false)
       setAnalysisGoal('')
       // 切换文档时掐断正在跑的批注请求，结果不再落到新文档上
       abortRef.current?.abort()
@@ -3563,7 +3589,6 @@ export default function App() {
         setRisks([])
       }
       setDraftRestored(false)
-      setDraftShown(false)
       setDirty(false)
       // 另存为之后有了新落点，只读横幅可以撤掉
       setReadOnly(false)
@@ -3637,7 +3662,6 @@ export default function App() {
 
   const performCommit = useCallback(
     async (normalized: string, withEol: string, keepLosses = false) => {
-      setDraftShown(false)
       const generation = autoSaveGenerationRef.current
       const currentHandle = activeFile?.handle ?? null
       const target =
@@ -4751,10 +4775,8 @@ export default function App() {
           cancelSwitch()
           return
         }
-        if (menuOpen || exportOpen) {
+        if (menuOpen) {
           setMenuOpen(false)
-          setExportOpen(false)
-          if (exportOpen) exportTriggerRef.current?.focus()
           return
         }
         // 停在源码或预览里时，Esc 回到编辑；源码里改过的内容按「切回」规则落回正文
@@ -4797,6 +4819,13 @@ export default function App() {
         event.preventDefault()
         if (document.fullscreenElement !== null) void document.exitFullscreen().catch(() => undefined)
         else void document.documentElement.requestFullscreen().catch(() => undefined)
+        return
+      }
+
+      // 专注模式：F8（第 143 轮 B1，格式栏删掉后它是唯一键位；菜单里也有同一项）
+      if (event.key === 'F8' && !mod && !event.altKey && !event.shiftKey) {
+        event.preventDefault()
+        if (viewMode === 'edit') setFocusMode((value) => !value)
         return
       }
 
@@ -4846,9 +4875,8 @@ export default function App() {
         } else if (customId === 'newDocument') {
           newDocument()
         } else {
-          setExportOpen(true)
-          // 等菜单挂上 DOM 再把焦点送进第一项，键盘可以直接 Enter
-          requestAnimationFrame(() => document.querySelector<HTMLElement>('.export-menu button')?.focus())
+          // 第 143 轮 B1：Ctrl+Alt+E 改成「开文件菜单并聚焦导出组首项」，导出项在菜单里
+          setFileMenuRequest((value) => value + 1)
         }
         return
       }
@@ -4968,7 +4996,6 @@ export default function App() {
     pendingConfirm,
     pendingSwitch,
     menuOpen,
-    exportOpen,
     cancelSwitch,
     settings.fontSize,
     setFontSize,
@@ -5013,27 +5040,17 @@ export default function App() {
     }
   }, [openDropped])
 
-  // 导出菜单打开后焦点进第一项（键盘可以直接走）
+  // 点菜单外面关掉「插入」菜单
   useEffect(() => {
-    if (!exportOpen) return
-    const frame = requestAnimationFrame(() =>
-      document.querySelector<HTMLElement>('.export-menu button')?.focus(),
-    )
-    return () => cancelAnimationFrame(frame)
-  }, [exportOpen])
-
-  // 点菜单外面关掉菜单
-  useEffect(() => {
-    if (!menuOpen && !exportOpen) return
+    if (!menuOpen) return
     const onDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null
-      if (target?.closest('.menu') || target?.closest('.menu-trigger') || target?.closest('.export-wrap')) return
+      if (target?.closest('.menu') || target?.closest('.menu-trigger') || target?.closest('.menu-wrap')) return
       setMenuOpen(false)
-      setExportOpen(false)
     }
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
-  }, [menuOpen, exportOpen])
+  }, [menuOpen])
 
   const commitSettings = useCallback((next: Settings) => {
     const safe = { ...next, fontSize: clampFontSize(next.fontSize), keybindings: resolveKeybindings(next.keybindings) }
@@ -5053,14 +5070,6 @@ export default function App() {
     },
     [editor, viewMode],
   )
-
-  // 工具栏按下态（第 42 轮）：重渲染由 selectionUpdate 的 tick 带，不需要新订阅
-  const heading1On = Boolean(editor?.isActive('heading', { level: 1 }))
-  const heading2On = Boolean(editor?.isActive('heading', { level: 2 }))
-  const boldOn = Boolean(editor?.isActive('bold'))
-  const italicOn = Boolean(editor?.isActive('italic'))
-  const strikeOn = Boolean(editor?.isActive('strike'))
-  const codeOn = Boolean(editor?.isActive('code'))
 
   /**
    * 把源码框里的内容写回编辑器：退出源码、切到预览、按 Esc 都走这一条路。
@@ -5389,14 +5398,14 @@ export default function App() {
         }
       }
       const paragraphs = body === null ? countParagraphs(editor.state.doc) : countInSource()
-      return { text, selection, paragraphs }
+      // 第 143 轮 B2：状态栏不再单列「元数据」chip，改在明细面板报一行
+      return { text, selection, paragraphs, frontmatter: frontmatter.length > 0 }
     })
-  }, [editor, sourceMode, sourceText, railOpen])
+  }, [editor, sourceMode, sourceText, frontmatter, railOpen])
 
   const exportAs = useCallback(
     async (kind: 'html' | 'markdown' | 'text') => {
       if (!editor) return
-      setExportOpen(false)
       try {
         // 导出只在用到时加载：首屏不背 fmt/导出模板的字节
         const { applyExportTocHtml, buildExportToc, buildHtmlDocument, buildPlainText, exportName } = await import(
@@ -5692,17 +5701,23 @@ export default function App() {
         </div>
         <FileMenu
           onNew={newDocument}
-          onCloseDocument={newDocument}
           onSaveAs={() => saveAsCopyRef.current()}
           onOpenFile={() => void openSingleFile()}
           onOpenFolder={() => void openFolder()}
           onFind={() => setFindOpen(true)}
+          onExport={(kind) => (kind === 'print' ? window.print() : exportAs(kind))}
+          view={{ diff: diffActive, focus: focusMode, typewriter: typewriterMode, source: sourceMode, preview: previewMode }}
+          editView={viewMode === 'edit'}
+          onToggleView={toggleViewFromMenu}
+          onShortcuts={() => setShortcutsOpen(true)}
+          onSettings={() => setSettingsOpen(true)}
           keybindings={settings.keybindings}
           recent={recent.kind === 'no-host' ? null : recent}
           recentDisabledId={recentStaleId}
           onRefreshRecent={() => void loadRecent()}
           onOpenRecent={openRecentItem}
           onClearRecent={clearRecent}
+          openGroup={fileMenuRequest > 0 ? { token: fileMenuRequest, group: 'export' } : null}
         />
         <div className="doc-name" title={hostDoc?.ready ? '保存会写回这个文件' : undefined}>
           {docName}
@@ -5734,136 +5749,17 @@ export default function App() {
                 ? '分析本段（模拟）'
                 : '分析本段'}
         </button>
-        <div className="export-wrap">
-          <button
-            ref={exportTriggerRef}
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={exportOpen}
-            onClick={() => setExportOpen((value) => !value)}
-          >
-            导出 ▾
-          </button>
-          {exportOpen && (
-            <div
-              className="menu export-menu"
-              role="menu"
-              aria-label="导出"
-              onKeyDown={(event) => {
-                const items = Array.from(document.querySelectorAll<HTMLElement>('.export-menu button'))
-                const index = items.indexOf(document.activeElement as HTMLElement)
-                if (event.key === 'ArrowDown') {
-                  event.preventDefault()
-                  items[(index + 1) % items.length]?.focus()
-                } else if (event.key === 'ArrowUp') {
-                  event.preventDefault()
-                  items[(index - 1 + items.length) % items.length]?.focus()
-                } else if (event.key === 'Home') {
-                  event.preventDefault()
-                  items[0]?.focus()
-                } else if (event.key === 'End') {
-                  event.preventDefault()
-                  items[items.length - 1]?.focus()
-                } else if (event.key === 'Tab' || event.key === 'Escape') {
-                  event.preventDefault()
-                  setExportOpen(false)
-                  exportTriggerRef.current?.focus()
-                }
-              }}
-            >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  exportAs('html')
-                  exportTriggerRef.current?.focus()
-                }}
-              >
-                HTML
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  exportAs('markdown')
-                  exportTriggerRef.current?.focus()
-                }}
-              >
-                <span>Markdown</span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  exportAs('text')
-                  exportTriggerRef.current?.focus()
-                }}
-              >
-                <span>纯文本</span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setExportOpen(false)
-                  exportTriggerRef.current?.focus()
-                  window.print()
-                }}
-              >
-                <span>打印 / PDF</span>
-              </button>
-            </div>
-          )}
-        </div>
-        <button type="button" onClick={() => setShortcutsOpen(true)} aria-label="快捷键" title="快捷键">
-          ?
-        </button>
         <button type="button" onClick={saveFile} aria-busy={saving}>
           {saving ? '保存中…' : '保存'}
         </button>
-        <button type="button" onClick={() => setSettingsOpen(true)}>
-          设置
-        </button>
-        {/* 第 140 轮 A2：「与打开时相比」入口从右栏小窗搬到顶栏，点开进全宽模式 */}
-        {viewMode === 'edit' && (
-          <button
-            ref={diffToggleRef}
-            type="button"
-            className={`diff-toggle${diffActive ? ' is-on' : ''}`}
-            aria-pressed={diffActive}
-            aria-controls="diff-view"
-            title="与打开时相比"
-            onClick={() => (diffOpen ? closeDiff() : openDiff())}
-          >
-            对比
-          </button>
-        )}
-        {viewMode === 'edit' && (
-          <button
-            ref={railToggleRef}
-            type="button"
-            className="rail-toggle"
-            aria-expanded={narrow ? railOpen : !railCollapsed}
-            aria-controls="margin-rail"
-            aria-label={`批注（${annotations.length} 条）`}
-            title={`批注（${annotations.length} 条）`}
-            disabled={diffActive}
-            onClick={() =>
-              narrow ? (railOpen ? closeRail() : openRail()) : railCollapsed ? expandRail() : collapseRail()
-            }
-          >
-            批注
-            {railOpen && annotations.length > 0 && <span className="rail-count">{annotations.length}</span>}
-          </button>
-        )}
-      </header>
-
-      <div className="toolbar" inert={diffActive}>
-        <div className="toolbar-group">
+        {/* 第 143 轮 B1：插入菜单从格式栏搬到顶栏（唯一块级插入入口，保留原位宽相对容器） */}
+        <div className="menu-wrap">
           <button
             type="button"
             className={`menu-trigger${menuOpen ? ' is-open' : ''}`}
-            disabled={viewMode !== 'edit'}
+            disabled={viewMode !== 'edit' || diffActive}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
             title={
               viewMode === 'edit'
                 ? '插入：表格 / 代码块 / 引用 / 任务列表 / 分割线 / 图片 / 公式 / 公式块 / 链接'
@@ -5875,9 +5771,10 @@ export default function App() {
             插入 ▾
           </button>
           {menuOpen && (
-            <div className="menu">
+            <div className="menu" role="menu" aria-label="插入">
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   if (!guardBlockInTable()) run((chain) => chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))
                 }}
@@ -5886,6 +5783,7 @@ export default function App() {
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   if (!guardBlockInTable()) run((chain) => chain.toggleCodeBlock())
                 }}
@@ -5894,6 +5792,7 @@ export default function App() {
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   if (!guardBlockInTable()) run((chain) => chain.toggleBlockquote())
                 }}
@@ -5902,6 +5801,7 @@ export default function App() {
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   if (!guardBlockInTable()) run((chain) => chain.toggleTaskList())
                 }}
@@ -5910,6 +5810,7 @@ export default function App() {
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   if (!guardBlockInTable()) run((chain) => chain.setHorizontalRule())
                 }}
@@ -5918,6 +5819,7 @@ export default function App() {
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   imageInputRef.current?.click()
                   setMenuOpen(false)
@@ -5927,6 +5829,7 @@ export default function App() {
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   setMenuOpen(false)
                   openMathAtCursorRef.current(false)
@@ -5936,6 +5839,7 @@ export default function App() {
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   setMenuOpen(false)
                   openMathAtCursorRef.current(true)
@@ -5945,6 +5849,7 @@ export default function App() {
               </button>
               <button
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   setMenuOpen(false)
                   openLinkAtCursorRef.current()
@@ -5955,105 +5860,24 @@ export default function App() {
             </div>
           )}
         </div>
-
-        <div className="toolbar-group">
-          <button
-            type="button"
-            className={heading1On ? 'is-on' : undefined}
-            aria-pressed={heading1On}
-            disabled={viewMode !== 'edit'}
-            title={viewMode === 'edit' ? '一级标题（Ctrl+1）' : '只有编辑视图支持'}
-            onClick={() => {
-              if (!guardBlockInTable()) run((chain) => chain.toggleHeading({ level: 1 }))
-            }}
-          >
-            H1
-          </button>
-          <button
-            type="button"
-            className={heading2On ? 'is-on' : undefined}
-            aria-pressed={heading2On}
-            disabled={viewMode !== 'edit'}
-            title={viewMode === 'edit' ? '二级标题（Ctrl+2）' : '只有编辑视图支持'}
-            onClick={() => {
-              if (!guardBlockInTable()) run((chain) => chain.toggleHeading({ level: 2 }))
-            }}
-          >
-            H2
-          </button>
-          <button
-            type="button"
-            className={boldOn ? 'is-on' : undefined}
-            aria-pressed={boldOn}
-            disabled={viewMode !== 'edit'}
-            onClick={() => run((chain) => chain.toggleBold())}
-            title={viewMode === 'edit' ? '粗体（Ctrl+B）' : '只有编辑视图支持'}
-          >
-            B
-          </button>
-          <button type="button" className={`italic${italicOn ? ' is-on' : ''}`} aria-pressed={italicOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleItalic())} title={viewMode === 'edit' ? '斜体（Ctrl+I）' : '只有编辑视图支持'}>
-            I
-          </button>
-          <button type="button" className={`strike${strikeOn ? ' is-on' : ''}`} aria-pressed={strikeOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleStrike())} title={viewMode === 'edit' ? '删除线（Ctrl+Shift+X）' : '只有编辑视图支持'}>
-            S
-          </button>
-          <button type="button" className={`mono${codeOn ? ' is-on' : ''}`} aria-pressed={codeOn} disabled={viewMode !== 'edit'} onClick={() => run((chain) => chain.toggleCode())} title={viewMode === 'edit' ? '行内代码' : '只有编辑视图支持'}>
-            {'</>'}
-          </button>
-        </div>
-
-        <div className="spacer" />
-
-        <div className="toolbar-group" role="group" aria-label="视图">
-          <button
-            type="button"
-            className={focusMode ? 'is-on' : ''}
-            aria-pressed={focusMode}
-            disabled={viewMode !== 'edit'}
-            title={viewMode === 'edit' ? '只显示光标所在块' : '只有编辑视图支持'}
-            onClick={() => setFocusMode((value) => !value)}
-          >
-            专注
-          </button>
-          <button
-            type="button"
-            className={typewriterMode ? 'is-on' : ''}
-            aria-pressed={typewriterMode}
-            disabled={viewMode !== 'edit'}
-            title={viewMode === 'edit' ? '光标保持在视口中部' : '只有编辑视图支持'}
-            onClick={() => {
-              setTypewriterMode((value) => !value)
-              requestAnimationFrame(() => typewriterRef.current())
-            }}
-          >
-            打字机
-          </button>
-          <button
-            type="button"
-            className={sourceMode ? 'is-on' : ''}
-            aria-pressed={sourceMode}
-            title={
-              sourceMode
-                ? '回到编辑视图'
-                : dirty
-                  ? '源码：你的改动 + 编辑器整理结果（不是文件原文）'
-                  : '源码：显示文件原文'
-            }
-            onClick={toggleSource}
-          >
-            源码
-          </button>
-          <button
-            type="button"
-            className={previewMode ? 'is-on' : ''}
-            aria-pressed={previewMode}
-            title="只读预览（Ctrl+Shift+P）"
-            onClick={togglePreview}
-          >
-            预览
-          </button>
-        </div>
-      </div>
+        {/* 第 143 轮 B1：批注钮常驻（不随视图变），非编辑视图禁用；快捷键与设置进了文件菜单 */}
+        <button
+          ref={railToggleRef}
+          type="button"
+          className="rail-toggle"
+          aria-expanded={narrow ? railOpen : !railCollapsed}
+          aria-controls="margin-rail"
+          aria-label={`批注（${annotations.length} 条）`}
+          title={viewMode === 'edit' ? `批注（${annotations.length} 条）` : '只有编辑视图支持'}
+          disabled={diffActive || viewMode !== 'edit'}
+          onClick={() =>
+            narrow ? (railOpen ? closeRail() : openRail()) : railCollapsed ? expandRail() : collapseRail()
+          }
+        >
+          批注
+          {railOpen && annotations.length > 0 && <span className="rail-count">{annotations.length}</span>}
+        </button>
+      </header>
 
       {findOpen && (
         <Suspense fallback={null}>
@@ -6511,11 +6335,6 @@ export default function App() {
         statsOpen={statsDetail !== null}
         onStatsClick={openStatsDetail}
         selectionWords={viewMode === 'edit' ? selection.words : 0}
-        mode={viewMode}
-        focusMode={focusMode}
-        typewriterMode={typewriterMode}
-        hasFrontmatter={frontmatter.length > 0}
-        hostFileName={hostDoc?.ready ? hostDoc.fileName : undefined}
         draftRestored={draftRestored}
         autoSaveLabel={
           autoSaveScheduled
@@ -6537,11 +6356,6 @@ export default function App() {
               ? 'warn'
               : 'ok'
         }
-        draftLabel={
-          draftShown && initial.savedAt > 0
-            ? `草稿 ${new Date(initial.savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
-            : undefined
-        }
         pageZoom={settings.pageZoom}
         onZoomReset={resetPageZoom}
         restoreLabel={restoreLabel(restoreEntry)}
@@ -6556,6 +6370,7 @@ export default function App() {
             text={statsDetail.text}
             selection={statsDetail.selection}
             paragraphs={statsDetail.paragraphs}
+            frontmatter={statsDetail.frontmatter}
             onClose={() => setStatsDetail(null)}
           />
         </Suspense>
