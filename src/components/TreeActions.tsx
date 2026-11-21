@@ -5,20 +5,41 @@ import { renameFile, validateRename } from '../lib/rename.ts'
 import type { WorkspaceFileNode, WorkspaceNode } from '../lib/workspace.ts'
 import { useDialogFocus } from './useDialogFocus.ts'
 
+const MENU_WIDTH = 168
+/** 右边留 8px：窗口再窄，菜单也不越界（168 + 8） */
+const VIEWPORT_GUTTER = MENU_WIDTH + 8
+/** 菜单下面至少留 120px，避免贴到窗口底边被裁 */
+const BOTTOM_RESERVE = 120
+
 const MENU_STYLE: CSSProperties = {
-  position: 'absolute',
-  top: 'calc(100% + 4px)',
-  left: 0,
+  position: 'fixed',
   zIndex: 40,
-  minWidth: 168,
+  minWidth: MENU_WIDTH,
   padding: 4,
   border: '1px solid var(--line)',
   borderRadius: 8,
   background: 'var(--paper-raised)',
   boxShadow: '0 12px 32px rgba(18, 20, 22, 0.16)',
 }
-const MENU_MORE_STYLE: CSSProperties = { ...MENU_STYLE, left: 'auto', right: 0 }
-const ROW_MENU_STYLE: CSSProperties = { ...MENU_STYLE, position: 'fixed', zIndex: 50 }
+const ROW_MENU_STYLE: CSSProperties = { ...MENU_STYLE, zIndex: 50 }
+
+/**
+ * 第 147 轮：树头菜单贴触发钮。
+ * 锚点来自触发钮的 getBoundingClientRect()（视口坐标），菜单用 position:fixed，
+ * 不再跟着 `top:calc(100%+4px); left:0` 落到左栏末尾。
+ * 「⋯」按右缘对齐：left = min(x - 菜单宽, 窗口宽 - 176)；新建菜单按左缘对齐。
+ */
+function headerMenuStyle(anchor: { x: number; y: number; align: 'left' | 'right' }): CSSProperties {
+  const left =
+    anchor.align === 'right'
+      ? Math.min(anchor.x - MENU_WIDTH, window.innerWidth - VIEWPORT_GUTTER)
+      : Math.min(anchor.x, window.innerWidth - VIEWPORT_GUTTER)
+  return {
+    ...MENU_STYLE,
+    left,
+    top: Math.min(anchor.y, window.innerHeight - BOTTOM_RESERVE),
+  }
+}
 const ITEM_STYLE: CSSProperties = {
   display: 'block',
   width: '100%',
@@ -35,6 +56,8 @@ type Props = {
   menu: { node: WorkspaceNode; x: number; y: number } | null
   deleteTarget: WorkspaceFileNode | null
   headerMenu: 'new' | 'more' | null
+  /** 触发钮的视口坐标（第 147 轮）：菜单贴按钮下方 4px，窄窗夹在视口内 */
+  headerAnchor: { x: number; y: number; align: 'left' | 'right' } | null
   onCloseMenu: () => void
   onAskDelete: (file: WorkspaceFileNode) => void
   onCancelDelete: () => void
@@ -167,6 +190,7 @@ export default function TreeActions({
   menu,
   deleteTarget,
   headerMenu,
+  headerAnchor,
   onCloseMenu,
   onAskDelete,
   onCancelDelete,
@@ -190,8 +214,8 @@ export default function TreeActions({
 
   return (
     <>
-      {headerMenu === 'new' && (
-        <div className="tree-popover" style={MENU_STYLE} role="menu" aria-label="新建">
+      {headerMenu === 'new' && headerAnchor && (
+        <div className="tree-popover" style={headerMenuStyle(headerAnchor)} role="menu" aria-label="新建">
           <button
             type="button"
             role="menuitem"
@@ -217,8 +241,8 @@ export default function TreeActions({
         </div>
       )}
 
-      {headerMenu === 'more' && (
-        <div className="tree-popover" style={MENU_MORE_STYLE} role="menu" aria-label="更多">
+      {headerMenu === 'more' && headerAnchor && (
+        <div className="tree-popover" style={headerMenuStyle(headerAnchor)} role="menu" aria-label="更多">
           <button
             type="button"
             role="menuitem"

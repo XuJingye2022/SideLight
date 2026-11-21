@@ -42,6 +42,9 @@ type Props = {
 
 type Row = { node: WorkspaceNode; level: number }
 
+/** 第 147 轮：树头菜单锚点。x/y 是视口坐标（触发钮 getBoundingClientRect()），align 决定菜单贴哪条边 */
+type HeaderAnchor = { x: number; y: number; align: 'left' | 'right' }
+
 function visibleRows(nodes: WorkspaceNode[], expanded: Set<string>, level = 1): Row[] {
   const rows: Row[] = []
   for (const node of nodes) {
@@ -82,6 +85,7 @@ export function FileTree({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [newMenuOpen, setNewMenuOpen] = useState(false)
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+  const [headerAnchor, setHeaderAnchor] = useState<HeaderAnchor | null>(null)
   const [rowMenu, setRowMenu] = useState<{ node: WorkspaceNode; x: number; y: number } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceFileNode | null>(null)
   const [renamePath, setRenamePath] = useState<string | null>(null)
@@ -257,6 +261,64 @@ export function FileTree({
       if (row.node.kind === 'file') setRowMenu({ node: row.node, x: 32, y: 120 })
     }
     // Tab 不拦截：roving tabindex 只让树占一个 tab 站，焦点自然离开
+  }
+
+  const closeHeaderMenu = () => {
+    setNewMenuOpen(false)
+    setMoreMenuOpen(false)
+    setHeaderAnchor(null)
+  }
+
+  // 第 147 轮：树头下拉菜单贴触发钮定位。锚点只在点开那一刻量一次（视口坐标），
+  // 所以滚动 / 窗口 resize 直接关掉——重算反而会让菜单在滚动中左右跳。
+  useEffect(() => {
+    if (!newMenuOpen && !moreMenuOpen) return
+    const onDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      // 触发钮自己交给 onClick 切换；菜单内点击由 menuitem 自己先关再执行动作
+      if (target?.closest('.tree-popover, .tree-new-caret, .tree-more-wrap')) return
+      closeHeaderMenu()
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.isComposing) return
+      // 捕获阶段就吞掉：App 的 Esc 链（预览 / 专注退出）不该被一次关菜单顺带触发
+      event.preventDefault()
+      event.stopPropagation()
+      closeHeaderMenu()
+    }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('resize', closeHeaderMenu)
+    window.addEventListener('scroll', closeHeaderMenu, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('resize', closeHeaderMenu)
+      window.removeEventListener('scroll', closeHeaderMenu, true)
+    }
+    // closeHeaderMenu 只调 setState，闭包旧一份也不影响结果；deps 只跟菜单开合走
+  }, [newMenuOpen, moreMenuOpen])
+
+  const toggleNewMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (newMenuOpen) {
+      closeHeaderMenu()
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
+    setMoreMenuOpen(false)
+    setHeaderAnchor({ x: rect.left, y: rect.bottom + 4, align: 'left' })
+    setNewMenuOpen(true)
+  }
+
+  const toggleMoreMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (moreMenuOpen) {
+      closeHeaderMenu()
+      return
+    }
+    const rect = event.currentTarget.getBoundingClientRect()
+    setNewMenuOpen(false)
+    setHeaderAnchor({ x: rect.right, y: rect.bottom + 4, align: 'right' })
+    setMoreMenuOpen(true)
   }
 
   if (collapsed) {
@@ -461,7 +523,7 @@ export function FileTree({
               aria-haspopup="menu"
               aria-expanded={newMenuOpen}
               aria-label="新建选项"
-              onClick={() => setNewMenuOpen((value) => !value)}
+              onClick={toggleNewMenu}
             >
               ▾
             </button>
@@ -483,7 +545,7 @@ export function FileTree({
               aria-label="更多文件树操作"
               aria-haspopup="menu"
               aria-expanded={moreMenuOpen}
-              onClick={() => setMoreMenuOpen((value) => !value)}
+              onClick={toggleMoreMenu}
             >
               ⋯
             </button>
@@ -565,13 +627,11 @@ export function FileTree({
           menu={rowMenu}
           deleteTarget={deleteTarget}
           headerMenu={newMenuOpen ? 'new' : moreMenuOpen ? 'more' : null}
+          headerAnchor={headerAnchor}
           onNewFile={onNewFile}
           onNewFolder={onNewFolder}
           onOpenFolder={onOpenFolder}
-          onCloseHeaderMenu={() => {
-            setNewMenuOpen(false)
-            setMoreMenuOpen(false)
-          }}
+          onCloseHeaderMenu={closeHeaderMenu}
           onCloseMenu={() => setRowMenu(null)}
           onRename={(file) => {
             if (workspace?.rootHandle) setRenamePath(file.path)
