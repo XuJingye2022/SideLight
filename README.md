@@ -10,7 +10,7 @@
 
 最新版本：[github.com/XuJingye2022/SideLight/releases](https://github.com/XuJingye2022/SideLight/releases)。
 
-- **Windows**：`Sidelight-<版本>-win-x64-setup.exe`（per-user 安装包，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据）或 `Sidelight-<版本>-win-x64-portable.zip`（免安装）。
+- **Windows**：`Sidelight-<版本>-win-x64-setup.exe`（per-user 安装包，装到 `%LOCALAPPDATA%\Programs\Sidelight`，卸载保留用户数据）。不再提供 Windows 便携 zip。
 - **macOS**：`Sidelight-<版本>-macos-universal.zip`，**Universal（Apple Silicon + Intel）**，要求 macOS 13+；zip 根目录里还有 `README.txt`，一个包两种芯片都能跑。
 
 Windows 首次安装（**先看运行时**）：
@@ -19,7 +19,6 @@ Windows 首次安装（**先看运行时**）：
 - 双击 `Sidelight-<版本>-win-x64-setup.exe`。安装包没有代码签名，SmartScreen 会拦一次：点「更多信息」→「仍要运行」。
 - 默认装到 `%LOCALAPPDATA%\Programs\Sidelight`（可改）。从开始菜单启动、卸载在「设置 → 应用」；具体步骤见 [`packaging/README.md`](packaging/README.md)（开始菜单快捷方式与 HKCU 卸载项**尚未人工验**）。卸载保留 `%LOCALAPPDATA%\Sidelight`，要彻底清掉手动删。
 - 校验下载：`Get-FileHash -Algorithm SHA256 <文件>`（或 `certutil -hashfile <文件> SHA256`），与 Release 页的 `SHA256SUMS-<版本>.txt` 对照。
-- 便携包：解压 `…-win-x64-portable.zip`，双击 `Sidelight.exe`，同样会被 SmartScreen 拦一次。
 
 macOS 首次打开（未签名时按系统版本二选一，**每次更新后重做**）：
 
@@ -160,9 +159,9 @@ node scripts/qa.mjs  # 缺陷探测：切换文档、设置、字号、批注漂
 ```powershell
 powershell -ExecutionPolicy Bypass -File host\build.ps1           # 编宿主到 host\bin；缺 WebView2 SDK 时按脚本提示取 .tmp\wv2
 node scripts/host-smoke.mjs --fsa                                  # 宿主 7 项冒烟：窗口、渲染、argv、单实例、真实写盘
-powershell -ExecutionPolicy Bypass -File packaging\portable.ps1    # 便携 zip -> release\
 powershell -ExecutionPolicy Bypass -File packaging\installer.ps1   # NSIS 安装包 -> release\
 powershell -ExecutionPolicy Bypass -File packaging\verify-installer.ps1  # 静默装/卸 + 断言
+powershell -ExecutionPolicy Bypass -File packaging\relabel-medium.ps1   # 管理员：把 setup.exe 的 Low 标签改成 Medium
 ```
 
 macOS 宿主（需要 macOS + Xcode Command Line Tools；本机是 Windows，**没有本地验过**，以 CI 的 `macos-host` job 为准）：
@@ -186,12 +185,12 @@ src/
   lib/                    上下文、批注、大纲、字数、frontmatter、脚注、HTML/callout、公式、导出、差分、图片命名、查找、缓存、搜索、错误文案
   lib/*.test.ts           73 个测试文件挂进 npm test（含 session / prompt / settings / keybindings / emoji / imageWidth / mathNodeView / katexLazy / mermaidLazy / toc / tocRender / globalSearch / rename），与实现同目录
 host/                     C# WebView2 宿主（Program.cs、build.ps1、冒烟与转发探针）
-packaging/                NSIS 安装器、便携包、图标生成、安装/便携验收脚本
+packaging/                NSIS 安装器、图标生成、安装验收与 Medium 标签修复脚本
 scripts/                  截图、验收、缺陷探测、往返测量、字体裁剪
 fixtures/markdown/        9 个真实 .md 样本
 docs/adr/                 架构决策记录（0001–0017）
 docs/iteration/           每轮简报、发现、计划、实施、验收
-release/                  安装包与便携 zip，不进版本控制
+release/                  安装包，不进版本控制
 ```
 
 ## 已定的技术决策

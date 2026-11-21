@@ -96,9 +96,6 @@ jobs:
       - name: Build NSIS installer
         run: powershell -ExecutionPolicy Bypass -File packaging/installer.ps1
 
-      - name: Build portable zip
-        run: powershell -ExecutionPolicy Bypass -File packaging/portable.ps1
-
       - name: Checksums
         run: |
           $setup = Get-ChildItem release/Sidelight-*-win-x64-setup.exe

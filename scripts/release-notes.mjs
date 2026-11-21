@@ -1,7 +1,7 @@
 // 生成 Release 正文：六节固定结构 + 签名状态（HTML 注释，不出现在可见正文里）。
 // 用法：
 //   node scripts/release-notes.mjs [--dir out] [--out out/RELEASE_NOTES.md] [--dry-run]
-// 资产名：Sidelight-<版本>-win-x64-setup.exe、-win-x64-portable.zip、-macos-universal.zip
+// 资产名：Sidelight-<版本>-win-x64-setup.exe、-macos-universal.zip
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -33,7 +33,6 @@ function changelogSection() {
 
 const assets = [
   { platform: 'Windows 安装包', file: 'Sidelight-' + version + '-win-x64-setup.exe' },
-  { platform: 'Windows 便携 zip', file: 'Sidelight-' + version + '-win-x64-portable.zip' },
   { platform: 'macOS Universal zip', file: 'Sidelight-' + version + '-macos-universal.zip' },
 ]
 

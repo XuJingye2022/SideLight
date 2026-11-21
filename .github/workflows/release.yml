@@ -95,10 +95,9 @@ jobs:
       - name: Host smoke (7 checks)
         run: node scripts/host-smoke.mjs
 
-      - name: Build installer and portable zip
+      - name: Build installer
         run: |
           powershell -ExecutionPolicy Bypass -File packaging/installer.ps1
-          powershell -ExecutionPolicy Bypass -File packaging/portable.ps1
 
       - name: Assert setup FileVersion matches package version
         shell: pwsh
@@ -115,13 +114,6 @@ jobs:
         with:
           name: windows-setup
           path: release/Sidelight-*-win-x64-setup.exe
-          if-no-files-found: error
-
-      - name: Upload Windows portable zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-portable
-          path: release/Sidelight-*-win-x64-portable.zip
           if-no-files-found: error
 
   macos-build:
@@ -207,7 +199,7 @@ jobs:
         with:
           path: out
 
-      - name: Build SHA256SUMS for the three assets and verify
+      - name: Build SHA256SUMS for the two assets and verify
         shell: bash
         run: |
           set -euo pipefail
@@ -215,26 +207,25 @@ jobs:
 
           # download-artifact 会保留 artifact 名字目录；先摊平到 out/ 顶层，再按顶层文件名计算校验和。
           find out -mindepth 2 -type f \( -name '*.exe' -o -name '*.zip' \) -exec cp -n {} out/ \;
-          rm -rf out/windows-setup out/windows-portable out/macos-zip
+          rm -rf out/windows-setup out/macos-zip
 
           SETUP="$(find out -maxdepth 1 -type f -name 'Sidelight-*-win-x64-setup.exe' | head -1)"
-          WINZIP="$(find out -maxdepth 1 -type f -name 'Sidelight-*-win-x64-portable.zip' | head -1)"
           MACZIP="$(find out -maxdepth 1 -type f -name 'Sidelight-*-macos-universal.zip' | head -1)"
-          for f in "$SETUP" "$WINZIP" "$MACZIP"; do
+          for f in "$SETUP" "$MACZIP"; do
             [ -n "$f" ] && [ -f "$f" ] || { echo "::error::缺少发布资产"; exit 1; }
           done
 
           COUNT="$(find out -maxdepth 1 -type f \( -name '*.exe' -o -name '*.zip' \) | wc -l | tr -d ' ')"
-          [ "$COUNT" = "3" ] || { echo "::error::发布资产应为 3 个，实际 $COUNT"; exit 1; }
+          [ "$COUNT" = "2" ] || { echo "::error::发布资产应为 2 个，实际 $COUNT"; exit 1; }
 
           (
             cd out
-            sha256sum "$(basename "$SETUP")" "$(basename "$WINZIP")" "$(basename "$MACZIP")" > "SHA256SUMS-${VERSION}.txt"
+            sha256sum "$(basename "$SETUP")" "$(basename "$MACZIP")" > "SHA256SUMS-${VERSION}.txt"
             cat "SHA256SUMS-${VERSION}.txt"
           )
 
           FILES="$(find out -maxdepth 1 -type f | wc -l | tr -d ' ')"
-          [ "$FILES" = "4" ] || { echo "::error::发布包应为 4 个文件（3 资产 + checksum），实际 $FILES"; exit 1; }
+          [ "$FILES" = "3" ] || { echo "::error::发布包应为 3 个文件（2 资产 + checksum），实际 $FILES"; exit 1; }
 
           ( cd out && sha256sum -c "SHA256SUMS-${VERSION}.txt" )
       - name: Generate release notes (six sections)
@@ -242,7 +233,7 @@ jobs:
         run: |
           node scripts/release-notes.mjs --dir out --out out/RELEASE_NOTES.md
           test -s out/RELEASE_NOTES.md
-          for name in "Sidelight-${VERSION}-win-x64-setup.exe" "Sidelight-${VERSION}-win-x64-portable.zip" "Sidelight-${VERSION}-macos-universal.zip"; do
+          for name in "Sidelight-${VERSION}-win-x64-setup.exe" "Sidelight-${VERSION}-macos-universal.zip"; do
             grep -q "$name" out/RELEASE_NOTES.md || { echo "::error::RELEASE_NOTES.md 缺资产 $name"; exit 1; }
           done
         env:

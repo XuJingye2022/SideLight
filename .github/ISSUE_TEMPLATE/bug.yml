@@ -36,7 +36,6 @@ body:
       label: 安装方式
       options:
         - Windows 安装包（setup）
-        - Windows 便携 zip
         - macOS zip
         - 从源码跑（npm run dev）
     validations:
