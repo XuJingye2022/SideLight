@@ -71,5 +71,5 @@
 
 - **新增常驻控件必须同时删一个，或进菜单/键位**；否则不加。首屏余量只剩约 3.7 KB（真实首载 321,273 B / 硬线 325,000 B），任何新增静态代码先算体积。
 - 菜单项用写作语汇、键位写右侧；动作后焦点按动作归还（新建回正文，其余回「文件」触发器）。
-- 实测：`scripts/keyboard-acceptance.mjs` **52/52**（含 `Ctrl+Alt+E` 打开菜单并聚焦导出首项、`?` 仍能开一览）；`.tmp/e2e-r143-ui.mjs` **23/23**（含文件菜单 5 个 radio 与 `aria-checked`、文件→帮助→设置、`F8` 后 `.is-dimmed` ≥1、状态栏文案、右栏 1440/1024 两态、首卡上移 31 px）；`.tmp/e2e-r140-b.mjs` 38/38；`npm test` 全绿；`npm run verify` 真实首载 321,273 B。
+- 实测：`scripts/keyboard-acceptance.mjs` **52/52**（含 `Ctrl+Alt+E` 打开菜单并聚焦导出首项、`?` 仍能开一览）；`.tmp/e2e-r143-ui.mjs` **23/23**（含文件菜单 5 个 radio 与 `aria-checked`、文件→帮助→设置、`F8` 后 `.is-dimmed` ≥1、状态栏文案、右栏 1440/1024 两态、首卡上移 31 px（tester 另一夹具实测 −36 px，门槛 ≥20 成立））；`.tmp/e2e-r140-b.mjs` 38/38；`npm test` **72 文件 1003 条 0 fail**；`npm run verify` 真实首载 321,273 B。
 - 未验：`F8` 在 WebView2 宿主里会被宿主吞掉（真宿主未跑；菜单项是等价入口）；真实中文 IME；macOS 宿主。
