@@ -10,6 +10,8 @@ type ViewId = keyof ViewState
 
 type Props = {
   onNew: () => void
+  /** 重命名当前文档（第 144 轮 A3）：与双击顶栏标题同一个动作 */
+  onRename: () => void
   onSaveAs: () => void
   onOpenFile: () => void
   onOpenFolder: () => void
@@ -33,8 +35,9 @@ type Props = {
   openGroup?: { token: number; group: 'export' } | null
 }
 
-const ITEMS: Array<{ label: string; keys: string; action: 'new' | 'saveAs' | 'openFile' | 'openFolder' | 'find' }> = [
+const ITEMS: Array<{ label: string; keys: string; action: 'new' | 'rename' | 'saveAs' | 'openFile' | 'openFolder' | 'find' }> = [
   { label: '新建', keys: 'Ctrl+Alt+N', action: 'new' },
+  { label: '重命名文档…', keys: '', action: 'rename' },
   { label: '另存为…', keys: 'Ctrl+Alt+S', action: 'saveAs' },
   { label: '打开文件…', keys: 'Ctrl+Alt+O', action: 'openFile' },
   { label: '打开文件夹…', keys: 'Ctrl+Alt+Shift+O', action: 'openFolder' },
@@ -65,6 +68,7 @@ const ariaKeys = (keys: string) => keys.replace('Ctrl', 'Control')
  */
 export function FileMenu({
   onNew,
+  onRename,
   onSaveAs,
   onOpenFile,
   onOpenFolder,
@@ -136,6 +140,12 @@ export function FileMenu({
     if (action === 'new') {
       onNew()
       closeTo('editor')
+      return
+    }
+    if (action === 'rename') {
+      // 菜单关掉但焦点留给顶栏的新输入框：closeTo('trigger') 的 rAF 会把焦点抢回去
+      onRename()
+      setOpen(false)
       return
     }
     if (action === 'saveAs') onSaveAs()

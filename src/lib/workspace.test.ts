@@ -8,6 +8,7 @@ import {
   fileFromDrop,
   fileFromHandle,
   flattenFiles,
+  freeRootName,
   workspaceFromHandle,
   type WorkspaceFileNode,
 } from './workspace.ts'
@@ -143,8 +144,7 @@ test('fallbackTargets：path 去重，最多 3 个，不回绕', () => {
   )
 })
 
-test('dropHandle：合成的 DataTransferItem 返回 undefined，按「没有句柄」处理', () => {
-  const item = { kind: 'file', getAsFileSystemHandle: () => undefined } as unknown as DataTransferItem
+test('dropHandle：合成的 DataTransferItem 返回 undefined，按「没有句柄」处理', () => {  const item = { kind: 'file', getAsFileSystemHandle: () => undefined } as unknown as DataTransferItem
   assert.equal(dropHandle(item), null)
 
   const missing = { kind: 'file' } as unknown as DataTransferItem
@@ -164,4 +164,28 @@ test('dropHandle：合成的 DataTransferItem 返回 undefined，按「没有句
     getAsFileSystemHandle: () => Promise.resolve(fake),
   } as unknown as DataTransferItem)
   assert.ok(pending instanceof Promise)
+})
+
+/* ---------- freeRootName：无句柄保存落到根目录时取不撞名的文件名（第 144 轮 A3） ---------- */
+
+test('freeRootName：名字没被占用就原样用（首次 Ctrl+S 仍建「未命名.md」）', () => {
+  assert.equal(freeRootName('未命名.md', []), '未命名.md')
+  // 与既有的「未命名 N.md」进位规则同源
+  assert.equal(freeRootName('未命名.md', ['未命名.md']), '未命名 2.md')
+  assert.equal(freeRootName('未命名.md', ['未命名.md', '未命名 2.md']), '未命名 3.md')
+})
+
+test('freeRootName：沿用用户起的名字（改名后立刻 Ctrl+S 落在新名字上）', () => {
+  assert.equal(freeRootName('读书笔记.md', ['未命名.md']), '读书笔记.md')
+  // 重名才加序号，插在扩展名之前
+  assert.equal(freeRootName('读书笔记.md', ['读书笔记.md']), '读书笔记 2.md')
+  assert.equal(freeRootName('读书笔记.md', ['读书笔记.md', '读书笔记 2.md']), '读书笔记 3.md')
+  // 其它扩展名同一条规则
+  assert.equal(freeRootName('笔记.markdown', ['笔记.markdown']), '笔记 2.markdown')
+})
+
+test('freeRootName：没写扩展名就补 .md，空白名回落到「未命名.md」', () => {
+  assert.equal(freeRootName('笔记', []), '笔记.md')
+  assert.equal(freeRootName('   ', []), '未命名.md')
+  assert.equal(freeRootName(' 笔记 ', ['笔记.md']), '笔记 2.md')
 })

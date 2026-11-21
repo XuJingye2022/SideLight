@@ -25,6 +25,22 @@ export function validateRename(raw: string, oldName: string): RenameValidation {
   return { ok: true, name: withExtension }
 }
 
+export type DocNameValidation = { ok: true; name: string; unchanged: boolean } | { ok: false; error: string }
+
+/**
+ * 顶栏标题改名（第 144 轮 A3）：同一套文件名规则，但「名字没变」算成功——
+ * 双击标题、没改字就回车应该安静退出编辑，而不是弹一句错误。
+ * `读书笔记` → 补成 `读书笔记.md`；补完正好等于旧名也当没变（别做无意义的 move）。
+ */
+export function validateDocName(raw: string, oldName: string): DocNameValidation {
+  const name = raw.trim()
+  if (name.length === 0) return { ok: false, error: '文件名不能为空。' }
+  if (name === oldName) return { ok: true, name: oldName, unchanged: true }
+  const result = validateRename(name, oldName)
+  if (!result.ok) return result
+  return { ok: true, name: result.name, unchanged: result.name === oldName }
+}
+
 export type ProbeResult = 'free' | 'same' | 'taken' | 'unknown'
 
 /** getFileHandle(create:false) 探测；同句柄视为仅大小写改名，允许继续 */

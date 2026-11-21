@@ -165,7 +165,10 @@ test('performCommit / performSaveAs 两处 catch 都用 describeSaveFailure，�
     appSource.includes('describeSaveFailure(error, target?.name ?? docNameRef.current)'),
     'performCommit 没带文件名（应为 target?.name ?? docNameRef.current）',
   )
-  assert.ok(appSource.includes('describeSaveFailure(error, docName)'), 'performSaveAs 没接 describeSaveFailure')
+  assert.ok(
+    appSource.includes('describeSaveFailure(error, docNameRef.current)'),
+    'performSaveAs 没接 describeSaveFailure（第 144 轮起读 ref：改名后立刻另存为要落到新名字）',
+  )
   assert.ok(!appSource.includes('保存失败：${reasonOf(error)}。改动还在'), '旧口径还在：会继续把英文原文给用户')
   assert.ok(
     appSource.includes(
@@ -177,8 +180,10 @@ test('performCommit / performSaveAs 两处 catch 都用 describeSaveFailure，�
 
 test('performSaveAs 自己不挂「另存为」（点它只会再开一次选择器）', () => {
   const start = appSource.indexOf('const performSaveAs = useCallback(')
-  const end = appSource.indexOf('const performSwitch = useCallback(')
+  // 第 144 轮：performSaveAs 上移到 performCommit 之前（只读保存要直接走它），切片终点跟着改
+  const end = appSource.indexOf('const performCommit = useCallback(')
   assert.ok(start >= 0 && end > start, '找不到 performSaveAs 的范围')
+  assert.ok(start < end, 'performSaveAs 必须在 performCommit 之前声明（否则 TDZ）')
   assert.ok(!appSource.slice(start, end).includes("label: '另存为'"), 'performSaveAs 里不该再有「另存为」动作')
 })
 
@@ -193,14 +198,16 @@ test('performCommit 失败写草稿兜底（ref 绕开声明顺序）', () => {
   )
 })
 
-test('打开文件夹不再用错误 toast 挡第一眼：写入探测只留文件树那行常驻警示', () => {
+test('打开文件夹不再用错误 toast 挡第一眼：写入探测只留树头一个安静的「只读」徽标', () => {
   const start = appSource.indexOf('const ensureWorkspaceWritable = useCallback(')
   const end = appSource.indexOf('const openFolder = useCallback(')
   assert.ok(start >= 0 && end > start, '找不到 ensureWorkspaceWritable 的位置')
   const helper = appSource.slice(start, end)
   assert.ok(!helper.includes('setNotice('), '写入探测仍会弹提示条：用户打开后第一眼就被挡住')
   assert.ok(!helper.includes("kind: 'error'"), '写入探测仍是错误态提示')
-  assert.ok(helper.includes('setTrashReason('), '探测结果必须交给文件树那行警示')
+  assert.ok(!helper.includes('trashReason'), '探测结果不再存原因文本（第 144 轮：只说「只读」）')
+  assert.ok(helper.includes('applyFolderReadOnly('), '探测结果必须交给「只读」徽标状态')
+  assert.ok(helper.includes('folderProbeEpochRef'), '缺代际守卫：晚到的探测会覆盖后开的文件夹')
   assert.ok(helper.includes('ensureTrashDir(root)'), '缺回收站前置探测')
   const calls = appSource.split('ensureWorkspaceWritable(next.rootHandle)').length - 1
   assert.equal(calls, 2, '两条打开路径必须一致，别一边有一边没有')
@@ -212,38 +219,55 @@ test('trash.ts 的 11 处失败原因全部改中文，不再拼 error.message',
   assert.equal(calls, 11, `writeReasonOf 只接了 ${calls} 处，应有 11 处`)
 })
 
-test('新建文件/文件夹失败也走中文原因，并把用户从死路里带出来', () => {
-  const start = appSource.indexOf('const createWorkspaceFile = useCallback(')
+test('新建失败不再报「新建失败」：只读直接进命名流程，写失败也走同一条', () => {
+  const start = appSource.indexOf('const newDocumentForNaming = useCallback(')
   const end = appSource.indexOf('const newFileInWorkspace = useCallback(')
-  assert.ok(start >= 0 && end > start, '找不到 createWorkspaceFile 的范围')
-  const block = appSource.slice(start, end)
-  assert.ok(block.includes('writeReasonOf(error)'), '新建失败还在拼英文原文')
-  assert.ok(!block.includes('reasonOf(error)'), '旧口径还在')
-  assert.ok(block.includes('await startNewDocument()'), '新建失败没退回空白文档，用户没有保存出路')
-  assert.ok(block.includes('另存为'), '新建失败没说「另存为」')
+  assert.ok(start >= 0 && end > start, '找不到「命名 + 空白文档」那段')
+  const naming = appSource.slice(start, end)
+  assert.ok(!naming.includes('新建失败：'), '不能再说「新建失败：…」：用户要的是一篇能起名字的空白稿')
+  assert.ok(!naming.includes('已换到空白文档'), '别再说「已换到空白文档」——那读起来像一次失败')
+  assert.ok(!naming.includes("kind: 'error'"), '命名流程不该是错误态')
+  assert.ok(naming.includes("kind: 'info'"), '命名流程要用 info 提示')
+  assert.ok(naming.includes('startRename()'), '命名流程要把标题输入框打开并聚焦')
+  assert.ok(naming.includes('另存为'), '提示要说清之后保存走「另存为」')
+  const createStart = appSource.indexOf('const createWorkspaceFile = useCallback(')
+  const createBlock = appSource.slice(createStart, end)
+  assert.ok(createBlock.includes('folderReadOnlyRef.current'), '只读文件夹不该先试写再失败')
+  assert.ok(createBlock.includes('newDocumentForNaming()'), '试写失败也要落到同一条命名流程')
+  assert.ok(!createBlock.includes('新建失败：'), '新建路径里不许再出现「新建失败：…」')
   const folderStart = appSource.indexOf('const createFolder = useCallback(')
   const folderEnd = appSource.indexOf('const removeFile = useCallback(')
   assert.ok(folderStart >= 0 && folderEnd > folderStart, '找不到 createFolder 的范围')
   assert.ok(appSource.slice(folderStart, folderEnd).includes('writeReasonOf(error)'), 'createFolder 没接 writeReasonOf')
 })
 
-test('「＋ 新建」不再因为写不进去而禁用，警示行给中文出路', () => {
+test('「＋ 新建」不再因为写不进去而禁用，只读用安静的徽标表达', () => {
   assert.ok(!fileTreeSource.includes('disabled={Boolean(trashReason)}'), '写不进去就禁用「＋ 新建」会把用户留在死路')
-  assert.ok(fileTreeSource.includes("title={trashReason ?? '新建文件'}"), 'title 要保留')
-  assert.ok(fileTreeSource.includes('aria-describedby={trashReason ? WRITE_WARNING_ID : undefined}'), '缺 aria-describedby')
-  assert.ok(fileTreeSource.includes('id={WRITE_WARNING_ID}'), '警示行缺稳定 id')
-  assert.ok(fileTreeSource.includes('className="tree-write-warning"'), '缺可见警示行的类名')
-  assert.ok(fileTreeSource.includes('role="status"'), '警示行要用 role="status" 让读屏播报')
-  assert.ok(fileTreeSource.includes('保存会失败') && fileTreeSource.includes('另存为'), '警示行没说保存会失败、没给「另存为」')
+  // 旧那行警示（类名 tree-write-w…）必须删干净；写成正则免得本文件自己又留下 0 命中门的字面量
+  assert.ok(!/tree-write-warn\w*/.test(fileTreeSource), '旧的那行警示已删（第 144 轮改成树头徽标）')
+  assert.ok(fileTreeSource.includes('title="新建文件"'), '「＋ 新建」的 title 不该变成错误原因')
+  assert.ok(fileTreeSource.includes('aria-describedby={readOnly ? READONLY_BADGE_ID : undefined}'), '缺 aria-describedby')
+  assert.ok(fileTreeSource.includes('id={READONLY_BADGE_ID}'), '徽标缺稳定 id')
+  assert.ok(fileTreeSource.includes('className="tree-readonly-badge"'), '缺「只读」徽标的类名')
+  const badgeAt = fileTreeSource.indexOf('className="tree-readonly-badge"')
+  const badgeText = fileTreeSource.slice(badgeAt, fileTreeSource.indexOf('</span>', badgeAt))
+  assert.ok(badgeText.trim().endsWith('只读'), '徽标文字必须是「只读」')
+  assert.ok(!badgeText.includes('<button'), '徽标是状态，不是按钮（不进 Tab 序）')
+  assert.ok(!fileTreeSource.includes('无法创建回收站'), '打开只读文件夹不许提回收站')
+  assert.ok(!fileTreeSource.includes('保存会失败'), '打开只读文件夹不该先说不好的事')
   assert.ok(!treeActionsSource.includes('trashReason'), 'TreeActions 里已无禁用逻辑，别留死 prop')
 })
 
-test('styles.css 有 .tree-write-warning，且复用既有 token、不写死颜色', () => {
-  const start = cssSource.indexOf('.tree-write-warning {')
-  assert.ok(start >= 0, '缺 .tree-write-warning 规则')
-  const block = cssSource.slice(start, cssSource.indexOf('}', start))
-  assert.ok(block.includes('var(--danger)'), '警示色要用 --danger，不要写死')
-  assert.ok(block.includes('var(--text-xs)'), '字号要跟随 --text-xs')
-  assert.ok(!/#[0-9a-fA-F]{3,8}/.test(block), '规则里不许写死色值（深色/暖纸主题要自动跟随）')
+test('styles.css 有 .tree-readonly-badge 与 .doc-name-input，且复用既有 token、不写死颜色', () => {
+  for (const selector of ['.tree-readonly-badge {', '.doc-name-input {']) {
+    const start = cssSource.indexOf(selector)
+    assert.ok(start >= 0, `缺 ${selector} 规则`)
+    const block = cssSource.slice(start, cssSource.indexOf('}', start))
+    assert.ok(!/#[0-9a-fA-F]{3,8}/.test(block), `${selector} 里不许写死色值（深色/暖纸主题要自动跟随）`)
+  }
+  const badge = cssSource.slice(cssSource.indexOf('.tree-readonly-badge {'), cssSource.indexOf('}', cssSource.indexOf('.tree-readonly-badge {')))
+  assert.ok(badge.includes('var(--ink-faint)'), '徽标文字要用 --ink-faint（安静，不是危险色）')
+  assert.ok(badge.includes('var(--line)'), '徽标边框要用 --line')
+  assert.ok(!/tree-write-warn\w*/.test(cssSource), '旧的警示行样式已删')
 })
 

@@ -48,7 +48,7 @@ export function trashName(name: string): string {
   return `${prefix}${sanitizeTrashName(name).slice(0, Math.max(1, 120 - prefix.length))}`
 }
 
-type TrashDirResult = { dir: FileSystemDirectoryHandle | null; error?: string }
+type TrashDirResult = { dir: FileSystemDirectoryHandle | null; error?: string; errorName?: string }
 
 /** 工作区根目录下的 .sidelight/trash；.sidelight 是文件/无权限时返回可显示的原因 */
 export async function ensureTrashDir(root: FileSystemDirectoryHandle): Promise<TrashDirResult> {
@@ -58,18 +58,22 @@ export async function ensureTrashDir(root: FileSystemDirectoryHandle): Promise<T
     return { dir: trash }
   } catch (error) {
     const name = error instanceof DOMException ? error.name : ''
-    if (name === 'TypeMismatchError') return { dir: null, error: '.sidelight 是一个文件，无法创建回收站。' }
-    if (name === 'NotAllowedError') return { dir: null, error: '没有写入这个文件夹的权限。' }
+    if (name === 'TypeMismatchError') return { dir: null, errorName: name, error: '.sidelight 是一个文件，无法创建回收站。' }
+    if (name === 'NotAllowedError') return { dir: null, errorName: name, error: '没有写入这个文件夹的权限。' }
     if (name === 'NotFoundError') {
       try {
         const cacheDir = await root.getDirectoryHandle('.sidelight', { create: true })
         const trash = await cacheDir.getDirectoryHandle('trash', { create: true })
         return { dir: trash }
       } catch (second) {
-        return { dir: null, error: `无法创建回收站：${writeReasonOf(second)}。` }
+        return {
+          dir: null,
+          errorName: second instanceof DOMException ? second.name : name,
+          error: `无法创建回收站：${writeReasonOf(second)}。`,
+        }
       }
     }
-    return { dir: null, error: `无法创建回收站：${writeReasonOf(error)}。` }
+    return { dir: null, errorName: name, error: `无法创建回收站：${writeReasonOf(error)}。` }
   }
 }
 

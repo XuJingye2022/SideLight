@@ -21,7 +21,8 @@ type Props = {
   workspace: Workspace | null
   activePath: string | null
   collapsed: boolean
-  trashReason: string | null
+  /** 这个文件夹写不进去（第 144 轮 A2）：只在树头挂一个安静的「只读」徽标，不出错、不提回收站 */
+  readOnly: boolean
   refreshing: boolean
   onToggle: () => void
   onOpenFolder: () => void
@@ -44,10 +45,10 @@ type Props = {
 type Row = { node: WorkspaceNode; level: number }
 
 /**
- * 「写不进去」那行警示的 id（第 141 轮）：文件树的「＋ 新建」用 aria-describedby 指向它。
- * 原因以前只放在 title 里，键盘与触屏用户看不到；现在必须有一行可见文本。
+ * 「只读」徽标的 id（第 144 轮 A2）：文件树的「＋ 新建」用 aria-describedby 指向它。
+ * 徽标只说状态，不说原因、不提回收站——用户打开只读文件夹不该第一眼看到一串技术句子。
  */
-const WRITE_WARNING_ID = 'tree-write-warning'
+const READONLY_BADGE_ID = 'tree-readonly-badge'
 
 function visibleRows(nodes: WorkspaceNode[], expanded: Set<string>, level = 1): Row[] {
   const rows: Row[] = []
@@ -69,7 +70,7 @@ export function FileTree({
   workspace,
   activePath,
   collapsed,
-  trashReason,
+  readOnly,
   refreshing,
   onToggle,
   onOpenFolder,
@@ -428,6 +429,15 @@ export function FileTree({
         <span className="file-tree-name" title={workspace.name}>
           {workspace.name}
         </span>
+        {readOnly ? (
+          <span
+            className="tree-readonly-badge"
+            id={READONLY_BADGE_ID}
+            title="这个文件夹写不进去：能打开、能编辑；保存请用「文件 → 另存为」。"
+          >
+            只读
+          </span>
+        ) : null}
         <div className="tree-view-toggle" role="group" aria-label="文件显示方式">
           <button
             type="button"
@@ -459,8 +469,8 @@ export function FileTree({
               type="button"
               className="tree-new-main"
               onClick={onNewFile}
-              title={trashReason ?? '新建文件'}
-              aria-describedby={trashReason ? WRITE_WARNING_ID : undefined}
+              title="新建文件"
+              aria-describedby={readOnly ? READONLY_BADGE_ID : undefined}
             >
               ＋ 新建
             </button>
@@ -498,12 +508,6 @@ export function FileTree({
             </button>
           </div>
         </div>
-
-      {trashReason ? (
-        <p className="tree-write-warning" id={WRITE_WARNING_ID} role="status">
-          {trashReason}能打开也能编辑，保存会失败：请用「文件 → 另存为」换一个位置。
-        </p>
-      ) : null}
 
       {view === 'list' ? (
         <div

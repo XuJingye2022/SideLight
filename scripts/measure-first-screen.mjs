@@ -8,19 +8,20 @@
 //   目前只有 MarginRail-*.js（App.tsx 的 lazy + 默认 edit 下挂载）。常驻按「seed 名单 + 它静态 import 的
 //   传递闭包（已在门里计过的入口文件排除）」算，否则拆出共享 chunk 后会漏算（第 136 轮 plan-review CR-6）。
 //
-// **默认判定口径 = 真实首载（real）**（第 139 轮 B-229 翻转）：
-//   `--max` 就是真实首载硬线（默认 325000，第 140 轮 A3 按授权 320000→325000）——写成 `--max 316200`
-//   这种旧门槛的调用会直接红；`--target` 内部预算（默认 310000）仍只 WARN；`headroom` 与「距硬线 <5%」也按 real 判。
-//   实测（第 140 轮最终 build）：门 total=316,648 / 常驻 resident=4,473 / 真实首载 real=321,121。
-//   第 140 轮 A3 调线理由：右栏贴右缘 + 可拖宽/折叠与顶栏全宽对比净增 1,315 B（先删旧浮层/网格 CSS 与
-//   MarginRail 的对比链抵消后仍超 320,000 1,121 B），按授权最多到 325,000；超过 325,000 必须拆批。
-// `--no-resident` 复旧口径：不扫常驻、不打印 real 行，预算与 --target 都判 total（CI/发布门用的就是默认口径，
-//   第 139 轮起同步变成 real ≤325,000；本轮不 push，CI 侧未验）。
-// `--real-max N` 单独改真实首载硬线（默认等于 --max）。
+// 判定口径 = 真实首载（real），但**默认只记录、不判体积**（第 144 轮 A1，用户 2026-11-21「取消首屏硬线，
+// 不要为体积砍体验」）：字节照旧全部打印（total / resident / real / headroom），`--max` 与 `--real-max`
+// **默认为 null**，不传就只报告、退出码始终 0；传了才是硬线（超线 exit 1），CI 三处裸调用因此不会因体积失败。
+//   `--target` 内部预算（默认 310000）仍只 WARN；`headroom=none` 表示没有硬线可算余量。
+//   实测（第 143 轮最终 build）：门 total=316,793 / 常驻 resident=4,480 / 真实首载 real=321,273——只记录。
+// `--no-resident` 复旧口径：不扫常驻、不打印 real 行，`--max` 与 `--target` 都判 total。
+// `--real-max N` 单独给真实首载硬线（默认等于 --max；两者都不传时都是 null）。
 //
-// 用法：node scripts/measure-first-screen.mjs [--dir dist] [--max 325000] [--target 310000]
+// 保留的非体积守卫（与硬线无关，仍然 exit 1）：首屏集合里出现 katex / lazy / mermaid chunk、
+//   常驻 seed 0 命中、常驻 chunk 同时出现在门里（重复计数）。
+//
+// 用法：node scripts/measure-first-screen.mjs [--dir dist] [--max N] [--target 310000]
 //       [--real-max N] [--no-resident]
-// 只读产物，不构建；超预算 exit 1，首屏集合里出现 katex / lazy chunk 也 exit 1。
+// 只读产物，不构建。
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { URL } from 'node:url'
@@ -54,11 +55,15 @@ const readArg = (name, fallback) => {
 }
 const positional = args.find((arg, i) => !arg.startsWith('--') && !(args[i - 1] ?? '').startsWith('--'))
 const dir = resolve(readArg('--dir', positional || 'dist'))
-const max = Number(readArg('--max', '325000'))
+// 第 144 轮 A1：两条体积硬线默认 null（不传 = 只记录，不判失败）；显式传值才当硬线。
+const numberOrNull = (value) => (value === null || value === undefined ? null : Number(value))
+const max = numberOrNull(readArg('--max', null))
 const target = Number(readArg('--target', '310000'))
 // 第 139 轮 B-229：默认真实首载硬线就是 --max；显式 --real-max 才另给一条（--no-resident 时不看它）
-const realMax = Number(readArg('--real-max', String(max)))
+const realMax = numberOrNull(readArg('--real-max', null)) ?? max
 const noResident = args.includes('--no-resident')
+const label = (value) => (value === null ? 'none' : String(value))
+const headroomOf = (limit, used) => (limit === null ? 'none' : String(limit - used))
 const indexHtml = readFileSync(join(dir, 'index.html'), 'utf8')
 
 const urls = new Set()
@@ -100,7 +105,7 @@ for (const entry of entries) {
 const saved = totalRaw - totalGzip
 const percent = totalRaw === 0 ? 0 : (saved / totalRaw) * 100
 // 门的三个数照旧打一行（日志兼容）；预算判定见文件末段的 budgetGzip（默认判 real）
-console.log(`total raw=${totalRaw} gzip=${totalGzip} headroom=${max - totalGzip} files=${entries.length} max=${max}`)
+console.log(`total raw=${totalRaw} gzip=${totalGzip} headroom=${headroomOf(max, totalGzip)} files=${entries.length} max=${label(max)}`)
 console.log(`gzip 省下 ${saved} B（${percent.toFixed(1)}%）`)
 
 const banned = entries.filter((entry) => /katex/i.test(entry.url) || /lazy/i.test(entry.url) || /mermaid/i.test(entry.url))
@@ -130,8 +135,8 @@ if (!noResident) {
     process.exit(1)
   }
 }
-// 门本身仍受 --max 约束：real ≥ total，门超线时先按门报（信息更直接）
-if (totalGzip > max) {
+// 门本身仍受 --max 约束：real ≥ total，门超线时先按门报（信息更直接）。没给硬线（null）就不判。
+if (max !== null && totalGzip > max) {
   console.log(`FAIL 首屏 gzip ${totalGzip} 超过上限 ${max}`)
   process.exit(1)
 }
@@ -167,25 +172,28 @@ if (!noResident) {
   const realRaw = totalRaw + residentRaw
   realGzip = totalGzip + residentGzip
   console.log(`resident raw=${residentRaw} gzip=${residentGzip} files=${resident.length}`)
-  console.log(`real raw=${realRaw} gzip=${realGzip} headroom=${realMax - realGzip} max=${realMax}`)
+  console.log(`real raw=${realRaw} gzip=${realGzip} headroom=${headroomOf(realMax, realGzip)} max=${label(realMax)}`)
   console.log(`total=${totalGzip} resident=${residentGzip} real=${realGzip}`)
 }
 
-// ── 预算判定（第 139 轮 B-229 翻转：默认 = 真实首载；--no-resident 复旧口径判门）──
+// ── 预算判定（第 139 轮 B-229 翻转：默认口径 = 真实首载；第 144 轮 A1：默认只记录，硬线 null 不判）──
 const budgetGzip = noResident ? totalGzip : realGzip
 const budgetMax = noResident ? max : realMax
 const budgetName = noResident ? '首屏' : '真实首载'
+const hasHardLine = budgetMax !== null
 console.log(`target=${target} gap=${target - budgetGzip}（按${budgetName}）`)
 if (budgetGzip > target) {
-  console.log(`WARN ${budgetName} gzip ${budgetGzip} 超过内部预算 ${target}（越过 ${budgetGzip - target} B），仍在硬线 ${budgetMax} 内`)
+  const tail = hasHardLine ? `，仍在硬线 ${budgetMax} 内` : '（硬线未设置，只记录）'
+  console.log(`WARN ${budgetName} gzip ${budgetGzip} 超过内部预算 ${target}（越过 ${budgetGzip - target} B）${tail}`)
 }
-// 余量预警：距硬线不到 5% 时提醒下一轮先算体积（第 37 轮；只提醒，不改 exit 码）
-const headroom = budgetMax - budgetGzip
-if (headroom > 0 && headroom < budgetMax * 0.05) {
+// 余量预警：距硬线不到 5% 时提醒下一轮先算体积（第 37 轮；只提醒，不改 exit 码）；没有硬线就不算。
+const headroom = hasHardLine ? budgetMax - budgetGzip : 0
+if (hasHardLine && headroom > 0 && headroom < budgetMax * 0.05) {
   console.log(`WARN ${budgetName}距硬线 ${budgetMax} 只余 ${headroom} B（<5%），下一轮加静态代码前先算体积`)
 }
-if (budgetGzip > budgetMax) {
+if (hasHardLine && budgetGzip > budgetMax) {
   console.log(`FAIL ${budgetName} gzip ${budgetGzip} 超过上限 ${budgetMax}（越过 ${budgetGzip - budgetMax} B）`)
   process.exit(1)
 }
+if (!hasHardLine) console.log(`仅记录：${budgetName} gzip ${budgetGzip} B（硬线未设置；--max / --real-max 显式才判）`)
 console.log('PASS')

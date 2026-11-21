@@ -263,10 +263,15 @@ const menuOpen = await page.evaluate(() => ({
 }))
 check('文件菜单打开后焦点进第一项', menuOpen.count === 1 && (menuOpen.first ?? '').startsWith('新建'), JSON.stringify(menuOpen))
 await page.screenshot({ path: 'shots/round-05/t1-filemenu.png' })
+// 第 144 轮：文件菜单第 2 项改成「重命名文档…」。这里不再写死项名，期望值直接取菜单里
+// 第 2 个 menuitem（顺序仍由产品定义，方向键只负责在项之间移动）。
+const menuOrder = await page.evaluate(() =>
+  [...document.querySelectorAll('.file-menu [role="menuitem"]')].map((el) => (el.textContent ?? '').trim()),
+)
 await page.keyboard.press('ArrowDown')
 await page.waitForTimeout(150)
 const second = await page.evaluate(() => (document.activeElement?.textContent ?? '').trim())
-check('方向键在菜单项之间移动', (second ?? '').startsWith('另存为'), second)
+check('方向键在菜单项之间移动', (second ?? '') === (menuOrder[1] ?? 'x'), `${second} vs ${menuOrder[1] ?? ''}`)
 await page.keyboard.press('Escape')
 await page.waitForTimeout(250)
 const escFocus = await page.evaluate(() => ({
@@ -276,7 +281,13 @@ const escFocus = await page.evaluate(() => ({
 check('Esc 关闭菜单且焦点回「文件」按钮', escFocus.menu === 0 && escFocus.focused === true)
 await page.keyboard.press('Enter')
 await page.waitForTimeout(250)
-await page.keyboard.press('ArrowDown')
+// 第 144 轮：菜单插入「重命名文档…」后不能再按固定次数 ArrowDown 找「另存为」；按键走到它为止。
+for (let step = 0; step < 8; step += 1) {
+  const focusText = await page.evaluate(() => (document.activeElement?.textContent ?? '').trim())
+  if (focusText.startsWith('另存为')) break
+  await page.keyboard.press('ArrowDown')
+  await page.waitForTimeout(80)
+}
 await page.keyboard.press('Enter')
 await page.waitForTimeout(800)
 const afterAction = await page.evaluate(() => ({

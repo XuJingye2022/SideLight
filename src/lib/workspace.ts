@@ -385,6 +385,24 @@ export function fallbackTargets(
 }
 
 /**
+ * 给「保存到工作区根目录」取一个不撞名的文件名（第 144 轮 A3）。
+ * 先按用户起的名字原样用；重名就在扩展名前加 ` 2`、` 3`…（与「未命名.md」→「未命名 2.md」同一条规则）。
+ * 没写 `.md` / `.markdown` 的补 `.md`：文档名没有扩展名时不该让文件从树里消失。
+ */
+export function freeRootName(desired: string, taken: Iterable<string>): string {
+  const names = new Set(taken)
+  const raw = desired.trim() || '未命名.md'
+  const base = /\.(md|markdown)$/i.test(raw) ? raw : `${raw}.md`
+  if (!names.has(base)) return base
+  const cut = base.lastIndexOf('.')
+  const stem = cut > 0 ? base.slice(0, cut) : base
+  const ext = cut > 0 ? base.slice(cut) : ''
+  let index = 2
+  while (names.has(`${stem} ${index}${ext}`)) index += 1
+  return `${stem} ${index}${ext}`
+}
+
+/**
  * 路径去掉首段（工作区名），给全局搜索结果行与列表态侧栏显示相对路径。
  * 不在工作区里的路径（只有文件名）原样返回。
  */
