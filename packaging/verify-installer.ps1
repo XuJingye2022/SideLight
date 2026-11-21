@@ -1,4 +1,4 @@
-﻿# T2 验收：静默安装 → 校验文件/启动/回环 → 静默卸载 → 校验清理干净且用户数据还在。
+# T2 验收：静默安装 → 校验文件/启动/回环 → 静默卸载 → 校验清理干净且用户数据还在。
 # 本沙箱的两个已知限制（见 packaging/README.md）：
 #   1) 默认 %TEMP% 对子进程不可写，NSIS 会以 exit 2 失败；脚本强制 TEMP/TMP 指向工作区 .tmp。
 #   2) HKCU 写入被环境吞掉、不可观测；注册项与快捷方式只报 UNVERIFIED，不报 FAIL。
@@ -21,7 +21,7 @@ function Start-NoShell([string]$file, [string]$arguments) {
 $root = Split-Path -Parent $PSScriptRoot
 $version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
 if ($Setup) {
-    # 相对路径按仓库根解析，不吃进程 CWD（installer.ps1/portable.ps1 同样以 $root 为基准）
+    # 相对路径按仓库根解析，不吃进程 CWD（installer.ps1 同样以 $root 为基准）
     $setup = if ([IO.Path]::IsPathRooted($Setup)) { $Setup } else { Join-Path $root $Setup }
 } else {
     $setup = Join-Path $root "release\Sidelight-$version-win-x64-setup.exe"
