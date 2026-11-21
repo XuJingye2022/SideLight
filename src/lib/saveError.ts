@@ -32,6 +32,33 @@ function messageOf(error: unknown): string {
 }
 
 /**
+ * 写盘失败的中文短原因（第 142 轮）：回收站、删除、缓存搬移、恢复、新建共用一句。
+ * 只按错误类别说话，**不拼 `error.message`**：Chromium 的 DOMException 把 W3C 英文原文
+ * 直接甩给用户，原文只留在错误对象里给调试用，不上屏。
+ */
+export function writeReasonOf(error: unknown): string {
+  switch (nameOf(error)) {
+    case 'NoModificationAllowedError':
+      return '这个位置不允许写入'
+    case 'NotAllowedError':
+      return '没有写入这个位置的权限'
+    case 'NotFoundError':
+      return '这个位置已经不存在'
+    case 'QuotaExceededError':
+      return '磁盘空间不足'
+    case 'InvalidStateError':
+    case 'SecurityError':
+      return '系统拒绝了这次写入'
+    case 'TypeMismatchError':
+      return '同名位置被一个文件占住了'
+    case 'NotReadableError':
+      return '读不到文件内容'
+    default:
+      return '原因未知'
+  }
+}
+
+/**
  * 把一次保存失败翻成中文、可执行的一句话。
  * 文案顺序固定：先说发生了什么，再说下一步。
  */

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-import { describeSaveFailure } from './saveError.ts'
+import { describeSaveFailure, writeReasonOf } from './saveError.ts'
 
 const DOC = '第三章.md'
 /** Chromium 实际抛出的英文原文：不能原样出现在给用户看的文案里 */
@@ -124,11 +124,40 @@ test('每个分支都说清「改动还在」', () => {
   }
 })
 
+/* ---------- writeReasonOf：写盘失败的中文短原因（第 142 轮） ---------- */
+
+test('writeReasonOf：按错误名给中文短原因，不带英文原文', () => {
+  const cases: Array<[string, string]> = [
+    ['NoModificationAllowedError', '这个位置不允许写入'],
+    ['NotAllowedError', '没有写入这个位置的权限'],
+    ['NotFoundError', '这个位置已经不存在'],
+    ['QuotaExceededError', '磁盘空间不足'],
+  ]
+  for (const [name, expected] of cases) {
+    const reason = writeReasonOf(new DOMException(W3C, name))
+    assert.equal(reason, expected, `${name} 的短原因不对：${reason}`)
+  }
+})
+
+test('writeReasonOf：其它错误名与不可识别对象都有中文兜底、都不带英文原文', () => {
+  for (const name of ['SecurityError', 'InvalidStateError', 'TypeMismatchError', 'NotReadableError', 'Weird']) {
+    const reason = writeReasonOf(new DOMException(W3C, name))
+    assert.ok(!reason.includes('An attempt') && /[\u4e00-\u9fa5]/.test(reason), `${name}：${reason}`)
+  }
+  // 普通 Error 的 message 可能是 W3C 原文，也不能上屏
+  for (const value of [null, undefined, 42, 'boom', {}, new Error(W3C)]) {
+    const reason = writeReasonOf(value)
+    assert.ok(!reason.includes('An attempt') && /[\u4e00-\u9fa5]/.test(reason), `兜底漏了：${reason}`)
+  }
+})
+
 /* ---------- 接线静态门：上面的文案必须真被两处保存 catch 用上 ---------- */
-// 行为证据是 `.tmp/e2e-r141-save.mjs`（假 FSA + 真 toast）；这里只防「函数写好了却没人调」。
+// 行为证据是 `.tmp/e2e-r142-a.mjs`（假 FSA 拒写 + 真 toast / 真文件树）；这里只防「函数写好了却没人调」。
 
 const appSource = readFileSync('src/App.tsx', 'utf8')
 const fileTreeSource = readFileSync('src/components/FileTree.tsx', 'utf8')
+const treeActionsSource = readFileSync('src/components/TreeActions.tsx', 'utf8')
+const trashSource = readFileSync('src/lib/trash.ts', 'utf8')
 const cssSource = readFileSync('src/styles.css', 'utf8')
 
 test('performCommit / performSaveAs 两处 catch 都用 describeSaveFailure，旧英文口径已清', () => {
@@ -164,26 +193,49 @@ test('performCommit 失败写草稿兜底（ref 绕开声明顺序）', () => {
   )
 })
 
-test('打开文件夹的两条路径都挂常驻警示（openFolder / openDropped）', () => {
+test('打开文件夹不再用错误 toast 挡第一眼：写入探测只留文件树那行常驻警示', () => {
   const start = appSource.indexOf('const ensureWorkspaceWritable = useCallback(')
   const end = appSource.indexOf('const openFolder = useCallback(')
   assert.ok(start >= 0 && end > start, '找不到 ensureWorkspaceWritable 的位置')
   const helper = appSource.slice(start, end)
-  assert.ok(helper.includes('persist: true'), '警示必须常驻（persist: true）')
-  assert.ok(helper.includes("label: '另存为'"), '警示必须给「另存为」出路')
-  assert.ok(helper.includes('保存会失败'), '警示要说清「能打开但保存会失败」')
+  assert.ok(!helper.includes('setNotice('), '写入探测仍会弹提示条：用户打开后第一眼就被挡住')
+  assert.ok(!helper.includes("kind: 'error'"), '写入探测仍是错误态提示')
+  assert.ok(helper.includes('setTrashReason('), '探测结果必须交给文件树那行警示')
   assert.ok(helper.includes('ensureTrashDir(root)'), '缺回收站前置探测')
   const calls = appSource.split('ensureWorkspaceWritable(next.rootHandle)').length - 1
   assert.equal(calls, 2, '两条打开路径必须一致，别一边有一边没有')
 })
 
-test('FileTree 的「＋ 新建」仍禁用，但原因有一行可见文本并被 aria-describedby 指着', () => {
-  assert.ok(fileTreeSource.includes('disabled={Boolean(trashReason)}'), '写不进去就是建不了文件，按钮仍要禁用')
+test('trash.ts 的 11 处失败原因全部改中文，不再拼 error.message', () => {
+  assert.ok(!/error\.message|second\.message/.test(trashSource), 'trash.ts 还在把 DOMException 英文原文给用户')
+  const calls = trashSource.split('writeReasonOf(').length - 1
+  assert.equal(calls, 11, `writeReasonOf 只接了 ${calls} 处，应有 11 处`)
+})
+
+test('新建文件/文件夹失败也走中文原因，并把用户从死路里带出来', () => {
+  const start = appSource.indexOf('const createWorkspaceFile = useCallback(')
+  const end = appSource.indexOf('const newFileInWorkspace = useCallback(')
+  assert.ok(start >= 0 && end > start, '找不到 createWorkspaceFile 的范围')
+  const block = appSource.slice(start, end)
+  assert.ok(block.includes('writeReasonOf(error)'), '新建失败还在拼英文原文')
+  assert.ok(!block.includes('reasonOf(error)'), '旧口径还在')
+  assert.ok(block.includes('await startNewDocument()'), '新建失败没退回空白文档，用户没有保存出路')
+  assert.ok(block.includes('另存为'), '新建失败没说「另存为」')
+  const folderStart = appSource.indexOf('const createFolder = useCallback(')
+  const folderEnd = appSource.indexOf('const removeFile = useCallback(')
+  assert.ok(folderStart >= 0 && folderEnd > folderStart, '找不到 createFolder 的范围')
+  assert.ok(appSource.slice(folderStart, folderEnd).includes('writeReasonOf(error)'), 'createFolder 没接 writeReasonOf')
+})
+
+test('「＋ 新建」不再因为写不进去而禁用，警示行给中文出路', () => {
+  assert.ok(!fileTreeSource.includes('disabled={Boolean(trashReason)}'), '写不进去就禁用「＋ 新建」会把用户留在死路')
   assert.ok(fileTreeSource.includes("title={trashReason ?? '新建文件'}"), 'title 要保留')
   assert.ok(fileTreeSource.includes('aria-describedby={trashReason ? WRITE_WARNING_ID : undefined}'), '缺 aria-describedby')
   assert.ok(fileTreeSource.includes('id={WRITE_WARNING_ID}'), '警示行缺稳定 id')
   assert.ok(fileTreeSource.includes('className="tree-write-warning"'), '缺可见警示行的类名')
   assert.ok(fileTreeSource.includes('role="status"'), '警示行要用 role="status" 让读屏播报')
+  assert.ok(fileTreeSource.includes('保存会失败') && fileTreeSource.includes('另存为'), '警示行没说保存会失败、没给「另存为」')
+  assert.ok(!treeActionsSource.includes('trashReason'), 'TreeActions 里已无禁用逻辑，别留死 prop')
 })
 
 test('styles.css 有 .tree-write-warning，且复用既有 token、不写死颜色', () => {

@@ -1,5 +1,6 @@
 import type { WorkspaceFileNode } from './workspace.ts'
 import { cacheKey } from './cache.ts'
+import { writeReasonOf } from './saveError.ts'
 
 export type TrashResult = {
   ok: boolean
@@ -58,17 +59,17 @@ export async function ensureTrashDir(root: FileSystemDirectoryHandle): Promise<T
   } catch (error) {
     const name = error instanceof DOMException ? error.name : ''
     if (name === 'TypeMismatchError') return { dir: null, error: '.sidelight 是一个文件，无法创建回收站。' }
-    if (name === 'NotAllowedError') return { dir: null, error: '没有写入这个文件夹的权限，删除不可用。' }
+    if (name === 'NotAllowedError') return { dir: null, error: '没有写入这个文件夹的权限。' }
     if (name === 'NotFoundError') {
       try {
         const cacheDir = await root.getDirectoryHandle('.sidelight', { create: true })
         const trash = await cacheDir.getDirectoryHandle('trash', { create: true })
         return { dir: trash }
       } catch (second) {
-        return { dir: null, error: `无法创建回收站：${second instanceof Error ? second.message : '未知错误'}` }
+        return { dir: null, error: `无法创建回收站：${writeReasonOf(second)}。` }
       }
     }
-    return { dir: null, error: `无法创建回收站：${error instanceof Error ? error.message : '未知错误'}` }
+    return { dir: null, error: `无法创建回收站：${writeReasonOf(error)}。` }
   }
 }
 
@@ -112,7 +113,7 @@ async function copyThenVerify(source: FileSystemFileHandle, parent: FileSystemDi
     return { ok: true, trashName: finalName, mode: 'copy' }
   } catch (error) {
     if (target) await trashDir.removeEntry(finalName).catch(() => undefined)
-    return { ok: false, error: `删除失败：${error instanceof Error ? error.message : '未知错误'}` }
+    return { ok: false, error: `删除失败：${writeReasonOf(error)}。` }
   }
 }
 
@@ -125,14 +126,14 @@ export async function deleteFileToTrash(root: FileSystemDirectoryHandle, node: W
     if (!ensured.dir) return { ok: false, error: ensured.error ?? '回收站不可用。' }
     trashDir = ensured.dir
   } catch (error) {
-    return { ok: false, error: `回收站不可用：${error instanceof Error ? error.message : '未知错误'}` }
+    return { ok: false, error: `回收站不可用：${writeReasonOf(error)}。` }
   }
 
   let parent: FileSystemDirectoryHandle
   try {
     parent = await parentForPath(root, node.path)
   } catch (error) {
-    return { ok: false, error: `找不到原文件所在目录：${error instanceof Error ? error.message : '未知错误'}` }
+    return { ok: false, error: `找不到原文件所在目录：${writeReasonOf(error)}。` }
   }
 
   const finalName = trashName(node.name)
@@ -204,7 +205,7 @@ export async function deleteFileWithText(
       } catch (error) {
         await trashDir.removeEntry(currentName).catch(() => undefined)
         await trashDir.removeEntry(finalName).catch(() => undefined)
-        return { ok: false, error: `写入当前正文失败：${error instanceof Error ? error.message : '未知错误'}` }
+        return { ok: false, error: `写入当前正文失败：${writeReasonOf(error)}。` }
       }
     }
     // 删原文件这一步干净文件也必须走，不要搬进上面的守卫块
@@ -214,11 +215,11 @@ export async function deleteFileWithText(
     } catch (error) {
       await trashDir.removeEntry(currentName).catch(() => undefined)
       await trashDir.removeEntry(finalName).catch(() => undefined)
-      return { ok: false, error: `删除原文件失败，已保留原文件：${error instanceof Error ? error.message : '未知错误'}` }
+      return { ok: false, error: `删除原文件失败，已保留原文件：${writeReasonOf(error)}。` }
     }
     return { ok: true, trashName: finalName, mode: 'copy' }
   } catch (error) {
-    return { ok: false, error: `删除失败：${error instanceof Error ? error.message : '未知错误'}` }
+    return { ok: false, error: `删除失败：${writeReasonOf(error)}。` }
   }
 }
 
@@ -252,7 +253,7 @@ export async function moveCachesToTrash(
     }
     return { ok: true, moved }
   } catch (error) {
-    return { ok: false, moved: [], error: `缓存搬移失败：${error instanceof Error ? error.message : '未知错误'}` }
+    return { ok: false, moved: [], error: `缓存搬移失败：${writeReasonOf(error)}。` }
   }
 }
 
@@ -411,9 +412,9 @@ export async function restoreFromTrash(root: FileSystemDirectoryHandle, trashNam
       return { ok: true, mode: 'copy' }
     } catch (error) {
       if (target) await parent.removeEntry(name).catch(() => undefined)
-      return { ok: false, error: `恢复失败：${error instanceof Error ? error.message : '未知错误'}` }
+      return { ok: false, error: `恢复失败：${writeReasonOf(error)}。` }
     }
   } catch (error) {
-    return { ok: false, error: `恢复失败：${error instanceof Error ? error.message : '未知错误'}` }
+    return { ok: false, error: `恢复失败：${writeReasonOf(error)}。` }
   }
 }

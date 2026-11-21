@@ -44,7 +44,7 @@ type Props = {
 type Row = { node: WorkspaceNode; level: number }
 
 /**
- * 「写不进去」那行警示的 id（第 141 轮）：禁用的「＋ 新建」用 aria-describedby 指向它。
+ * 「写不进去」那行警示的 id（第 141 轮）：文件树的「＋ 新建」用 aria-describedby 指向它。
  * 原因以前只放在 title 里，键盘与触屏用户看不到；现在必须有一行可见文本。
  */
 const WRITE_WARNING_ID = 'tree-write-warning'
@@ -459,7 +459,6 @@ export function FileTree({
               type="button"
               className="tree-new-main"
               onClick={onNewFile}
-              disabled={Boolean(trashReason)}
               title={trashReason ?? '新建文件'}
               aria-describedby={trashReason ? WRITE_WARNING_ID : undefined}
             >
@@ -502,7 +501,7 @@ export function FileTree({
 
       {trashReason ? (
         <p className="tree-write-warning" id={WRITE_WARNING_ID} role="status">
-          {trashReason}
+          {trashReason}能打开也能编辑，保存会失败：请用「文件 → 另存为」换一个位置。
         </p>
       ) : null}
 
@@ -581,7 +580,6 @@ export function FileTree({
           menu={rowMenu}
           deleteTarget={deleteTarget}
           headerMenu={newMenuOpen ? 'new' : moreMenuOpen ? 'more' : null}
-          trashReason={trashReason}
           onNewFile={onNewFile}
           onNewFolder={onNewFolder}
           onOpenFolder={onOpenFolder}

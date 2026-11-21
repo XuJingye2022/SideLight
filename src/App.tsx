@@ -83,7 +83,7 @@ import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } fro
 import { MathInputRules } from './lib/mathInput.ts'
 import { normalizeForBaseline } from './lib/baseline.ts'
 import { diskSnapshot, reusableDiskText, type DiskSnapshot } from './lib/saveDisk.ts'
-import { describeSaveFailure } from './lib/saveError.ts'
+import { describeSaveFailure, writeReasonOf } from './lib/saveError.ts'
 import { inTableAncestry, typingBlockMarkerInCell } from './lib/tableScope.ts'
 import { DISCUSS_SYSTEM_PROMPT } from './lib/prompt.ts'
 import { activeLosses, baselineLosses, countReferenceDefinitions, hasReferenceDefinitions, lossLabels, type Loss } from './lib/risk.ts'
@@ -2936,25 +2936,15 @@ export default function App() {
   )
 
   /**
-   * 打开文件夹时先试建 `.sidelight/trash`（第 141 轮）。建不出来说明这个位置写不进去：
+   * 打开文件夹时先试建 `.sidelight/trash`（第 141 轮）：建不出来说明这个位置写不进去——
    * 只读盘、没有写权限、网络盘掉线。回收站用不了只是表面现象，要提醒的是「保存会失败」。
-   * 同时给一条常驻错误提示，带原因与「另存为」出路；文件树头部另有一行可见警示。
+   * 第 142 轮起不再弹错误 toast：那会挡在用户打开后的第一眼，看起来像「打开失败」。
+   * 原因只交给文件树里那行常驻中文警示，树、正文、新建与另存为都照常可用。
    */
   const ensureWorkspaceWritable = useCallback((root: FileSystemDirectoryHandle) => {
     void import('./lib/trash.ts').then(({ ensureTrashDir }) =>
       ensureTrashDir(root).then((result) => {
-        if (result.dir) {
-          setTrashReason(null)
-          return
-        }
-        const detail = (result.error ?? '回收站不可用。').replace(/。+$/, '')
-        setTrashReason(result.error ?? '回收站不可用。')
-        setNotice({
-          text: `这个文件夹写不进去（${detail}）：文件能打开，但保存会失败。请用「另存为」换一个位置。`,
-          kind: 'error',
-          persist: true,
-          action: { label: '另存为', onClick: () => saveAsCopyRef.current() },
-        })
+        setTrashReason(result.dir ? null : (result.error ?? '回收站不可用。'))
       }),
     )
   }, [])
@@ -3306,7 +3296,7 @@ export default function App() {
       await refreshTree()
       show(`已新建文件夹 ${name}`)
     } catch (error) {
-      setNotice({ text: `新建文件夹失败：${reasonOf(error)}。`, kind: 'error' })
+      setNotice({ text: `新建文件夹失败：${writeReasonOf(error)}。`, kind: 'error' })
     }
   }, [refreshTree, show])
 
@@ -3448,9 +3438,17 @@ export default function App() {
       show(`已新建 ${name}`)
       focusEditor()
     } catch (error) {
-      setNotice({ text: `新建失败：${reasonOf(error)}。`, kind: 'error' })
+      // 写不进去时不能把用户留在死路（第 142 轮）：先换到空白文档，保存改走「另存为」。
+      // 顺序要紧：loadIntoEditor 会 setNotice(null)，提示必须等它跑完再出。
+      await startNewDocument()
+      setNotice({
+        text: `新建失败：${writeReasonOf(error)}。已换到空白文档，保存请用「文件 → 另存为」换一个位置。`,
+        kind: 'error',
+        persist: true,
+        action: { label: '另存为', onClick: () => saveAsCopyRef.current() },
+      })
     }
-  }, [loadIntoEditor, nextNewName, refreshTree, show, waitForHostSave])
+  }, [loadIntoEditor, nextNewName, refreshTree, show, startNewDocument, waitForHostSave])
 
   const newFileInWorkspace = useCallback(() => {
     if (dirty) {

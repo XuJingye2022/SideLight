@@ -35,7 +35,6 @@ type Props = {
   menu: { node: WorkspaceNode; x: number; y: number } | null
   deleteTarget: WorkspaceFileNode | null
   headerMenu: 'new' | 'more' | null
-  trashReason: string | null
   onCloseMenu: () => void
   onAskDelete: (file: WorkspaceFileNode) => void
   onCancelDelete: () => void
@@ -169,7 +168,6 @@ export default function TreeActions({
   menu,
   deleteTarget,
   headerMenu,
-  trashReason,
   onCloseMenu,
   onAskDelete,
   onCancelDelete,
@@ -211,8 +209,6 @@ export default function TreeActions({
             type="button"
             role="menuitem"
             style={ITEM_STYLE}
-            disabled={Boolean(trashReason)}
-            title={trashReason ?? undefined}
             onClick={() => {
               onCloseHeaderMenu()
               onNewFolder()
