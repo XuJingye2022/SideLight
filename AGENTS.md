@@ -227,3 +227,4 @@ v3 的「一条一轮、每条都走 planner+critic+executor+tester、每轮全�
 - 定位：先用 CodeGraph CLI（`.tmp/codegraph/node_modules/@colbymchenry/codegraph/npm-shim.js query|node|callers|impact`），找不到再 read/grep；同一符号不重复查。
 - 切档判据：改 <2 个文件且不动序列化 / 保存 / 批注模型 → 快车道；否则慢车道。
 - 停止：队列空 + 复查 0 个 P0/P1；P2 不阻塞。
+- **Low 标签的 exe 会被 Windows 按 min(用户, 文件) 启动**：在 Low 会话里构建/解压会把 `Sidelight.exe` 标成 Low；Medium 用户双击也变 Low，保存被 Windows 拒。用管理员运行 `packaging/relabel-medium.ps1`（或 `icacls <exe> /setintegritylevel Medium`）修；发布前必须跑 `icacls` 验证没有 `Low Mandatory Level`。2026-11-21 第 147 轮实测：Typora 无 Low 标签所以 Medium；Sidelight 便携 exe 带 Low 所以双击仍 Low。
