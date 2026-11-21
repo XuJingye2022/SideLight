@@ -194,3 +194,44 @@ test('keybindings：落盘带 keybindings，读回仍是同一份', async () => 
   assert.equal(again.loadSettings().settingsVersion, 2)
 })
 
+/* ── 左栏宽度持久化（第 146 轮 B1）────────────────────────────────── */
+
+test('sidebarWidth：没有存档时是 218，不升 SETTINGS_VERSION', async () => {
+  const { loadSettings, DEFAULT_SETTINGS, SETTINGS_VERSION, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = await setup(undefined)
+  assert.equal(DEFAULT_SETTINGS.sidebarWidth, 218)
+  assert.equal(loadSettings().sidebarWidth, 218)
+  assert.equal(MIN_SIDEBAR_WIDTH, 200)
+  assert.equal(MAX_SIDEBAR_WIDTH, 480)
+  assert.equal(SETTINGS_VERSION, 2)
+})
+
+test('sidebarWidth：旧存档缺键读成 218，存过的宽度原样读回', async () => {
+  const old = await setup({ fontSize: 17, settingsVersion: 2 })
+  assert.equal(old.loadSettings().sidebarWidth, 218)
+  const saved = await setup({ sidebarWidth: 320 })
+  assert.equal(saved.loadSettings().sidebarWidth, 320)
+})
+
+test('sidebarWidth：越界夹进 200–480，非法值回 218', async () => {
+  const { clampSidebarWidth, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } = await setup({})
+  assert.equal(clampSidebarWidth(500), MAX_SIDEBAR_WIDTH)
+  assert.equal(clampSidebarWidth(100), MIN_SIDEBAR_WIDTH)
+  assert.equal(clampSidebarWidth(320), 320)
+  assert.equal(clampSidebarWidth(Number.NaN), 218)
+  const high = await setup({ sidebarWidth: 999 })
+  assert.equal(high.loadSettings().sidebarWidth, 480)
+  const low = await setup({ sidebarWidth: -20 })
+  assert.equal(low.loadSettings().sidebarWidth, 200)
+})
+
+test('sidebarWidth：落盘后读回同一值，不影响整页缩放那两条链', async () => {
+  const { storage, loadSettings, saveSettings } = await setup(undefined)
+  const loaded = loadSettings()
+  loaded.sidebarWidth = 300
+  saveSettings(loaded)
+  const saved = JSON.parse(storage.getItem(KEY) as string) as Record<string, unknown>
+  assert.equal(saved.sidebarWidth, 300)
+  assert.equal(saved.pageZoom, 100)
+  assert.equal(loadSettings().sidebarWidth, 300)
+})
+

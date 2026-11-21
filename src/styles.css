@@ -1195,6 +1195,31 @@ button:disabled {
   touch-action: none;
 }
 
+/* 第 146 轮 B1：把手常显一条 2px×28px 的圆角竖条（--line → hover/active --accent），
+   命中区仍是上面那块 10px 宽的透明条 */
+.rail-resize::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 28px;
+  margin: -14px 0 0 -1px;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.rail-resize:hover::before,
+.rail-resize:focus-visible::before,
+.rail-resize.is-active::before {
+  background: var(--accent);
+}
+
+.rail-resize:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+
 .rail-overall {
   position: sticky;
   bottom: 0;
@@ -2207,7 +2232,9 @@ button:disabled {
   flex: none;
   display: flex;
   flex-direction: column;
-  width: 218px;
+  /* 第 146 轮 B1：宽度来自设置（拖宽后记忆），缺省仍是 218 */
+  position: relative;
+  width: var(--sidebar-width, 218px);
   min-height: 0;
   border-right: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 70%, var(--paper));
@@ -2215,6 +2242,44 @@ button:disabled {
 
 .sidebar.is-collapsed {
   width: 44px;
+}
+
+/* 第 146 轮 B1：左栏拖宽把手。10px 命中区跨在右边界上，2px 竖条常显（不是只在 hover 时冒出来） */
+.sidebar-resize {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  bottom: 0;
+  z-index: 4;
+  width: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resize::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 28px;
+  margin: -14px 0 0 -1px;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.sidebar-resize:hover::before,
+.sidebar-resize:focus-visible::before,
+.sidebar-resize.is-active::before {
+  background: var(--accent);
+}
+
+.sidebar-resize:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .sidebar-tabs {
@@ -3667,9 +3732,15 @@ button:disabled {
     display: none;
   }
 
-  /* 第 140 轮 A1：折叠钮与拖宽把手只服务宽窗，窄窗走抽屉 */
+  /* 第 146 轮 B1：窄窗别让记忆的宽度（最大 480）吃掉大半屏——按 40% 视口封顶，收起态仍是 44 */
+  .sidebar {
+    width: min(var(--sidebar-width, 218px), 40vw);
+  }
+
+  /* 第 140 轮 A1：折叠钮与拖宽把手只服务宽窗，窄窗走抽屉；第 146 轮 B1：左栏把手同样只在宽窗出现 */
   .rail-collapse,
-  .rail-resize {
+  .rail-resize,
+  .sidebar-resize {
     display: none;
   }
 

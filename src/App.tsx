@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { Extension, type ChainedCommands, type Editor } from '@tiptap/core'
 import { Markdown } from '@tiptap/markdown'
 import { EditorContent, useEditor } from '@tiptap/react'
@@ -119,7 +119,8 @@ import { DelimiterPair } from './lib/delimiterPair.ts'
 import { protectMathPairs } from './lib/math.ts'
 import { disableSingleTildeStrike } from './lib/tilde.ts'
 import { activeOutlineId, extractOutline, type OutlineItem } from './lib/outline.ts'
-import { clampFontSize, clampPageZoom, DEFAULT_SETTINGS, PAGE_ZOOM_STEP } from './lib/settings.ts'
+import { observerCtor, OBSERVER_DEBOUNCE_MS, POLL_INTERVAL_MS, shouldAutoRefresh, treeSignature, type FileSystemObserverLike } from './lib/autoRefresh.ts'
+import { clampFontSize, clampPageZoom, clampSidebarWidth, DEFAULT_SETTINGS, MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, PAGE_ZOOM_STEP } from './lib/settings.ts'
 import { matchKeybinding, resolveKeybindings, type Keybindings } from './lib/keybindings.ts'
 import { hasKey, loadSettings, saveSettings, type Settings } from './lib/settings.ts'
 import { createSmartTyping } from './lib/smartTyping.ts'
@@ -666,6 +667,8 @@ export default function App() {
   const cardRefs = useRef(new Map<string, HTMLElement>())
   /** 第 140 轮 A1：拖宽时直接写这个布局节点的 `--rail-width`（不逐帧 setState） */
   const layoutRef = useRef<HTMLDivElement | null>(null)
+  /** 第 146 轮 B1：左栏拖宽时直接写这个节点的 `--sidebar-width`（不逐帧 setState） */
+  const sidebarRef = useRef<HTMLDivElement | null>(null)
   /** 折叠/展开后的焦点去向（在 effect 里消费，避免裸 rAF 抢焦点） */
   const pendingRailFocusRef = useRef<'reopen' | 'collapse' | null>(null)
   const railReopenRef = useRef<HTMLButtonElement | null>(null)
@@ -756,7 +759,7 @@ export default function App() {
   const loadEpochRef = useRef(0)
   /** 文档身份代号：切文档/新建/另存为/改名/删除都递增，旧回包据此作废 */
   const activeDocIdRef = useRef(0)
-  const pendingRefreshRef = useRef<{ mode?: 'adopt' | 'check'; activePath?: string; announce?: boolean } | null>(null)
+  const pendingRefreshRef = useRef<{ mode?: 'adopt' | 'check' | 'background'; activePath?: string; announce?: boolean } | null>(null)
   const statsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 源码态字数的防抖计时器（第 81 轮 B-139） */
   const sourceStatsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -764,7 +767,7 @@ export default function App() {
   const sourceStatsSeededRef = useRef(false)
   const deriveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshTreeRef = useRef<
-    (options?: { mode?: 'adopt' | 'check'; activePath?: string; announce?: boolean }) => Promise<Workspace | null>
+    (options?: { mode?: 'adopt' | 'check' | 'background'; activePath?: string; announce?: boolean }) => Promise<Workspace | null>
   >(async () => null)
   /** 新建空文档在首次手动保存前没有基线：不允许自动保存写盘 */
   const hasSavedBaselineRef = useRef(false)
@@ -2417,6 +2420,45 @@ export default function App() {
   // 状态栏「缩放 N%」点一下回到 100（第 54 轮 B-113）
   const resetPageZoom = useCallback(() => setPageZoom(100), [setPageZoom])
 
+  /* ---------- 左栏拖宽（第 146 轮 B1） ---------- */
+
+  /** 宽度落盘：拖拽抬手 / 键盘一次即写 localStorage，下次启动按这个值还原 */
+  const setSidebarWidth = useCallback((value: number) => {
+    const next = clampSidebarWidth(value)
+    setSettings((current) => {
+      if (current.sidebarWidth === next) return current
+      const merged = { ...current, sidebarWidth: next }
+      saveSettings(merged)
+      return merged
+    })
+  }, [])
+
+  /**
+   * pointerdown 记起点；move 按「右移变宽」算（除以整页缩放），抬手才落盘。
+   * 拖拽期间只改 `.sidebar` 上的 `--sidebar-width`，不逐帧 setState（与右栏同一写法）。
+   */
+  const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const zoom = settings.pageZoom / 100 || 1
+    const startX = event.clientX
+    const startWidth = clampSidebarWidth(settings.sidebarWidth)
+    const bar = event.currentTarget
+    let latest = startWidth
+    bar.classList.add('is-active')
+    const move = (moveEvent: PointerEvent) => {
+      latest = clampSidebarWidth(startWidth + (moveEvent.clientX - startX) / zoom)
+      sidebarRef.current?.style.setProperty('--sidebar-width', `${latest}px`)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      bar.classList.remove('is-active')
+      setSidebarWidth(latest)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   // Ctrl + 滚轮：接管浏览器自己的整页缩放（那条会把布局一起缩，滚动条与固定层都乱）
   useEffect(() => {
     let lastAt = 0
@@ -3115,10 +3157,11 @@ export default function App() {
     [requestLoad, show, tooLargeNote],
   )
 
-  /** 刷新文件树：adopt=按新路径重绑（新建/另存为/改名）；check=找不到就清成只能另存为。
+  /** 刷新文件树：adopt=按新路径重绑（新建/另存为/改名）；check=找不到就清成只能另存为；
+      background=目录变化自动跟随（第 146 轮 B2）：不动身份/保存目标、不提示、不打断自动保存。
       announce:false 用于调用方自己会报结果的场景（改名），免得刷新计数提示顶掉专属提示 */
   const refreshTree = useCallback(
-    async (options?: { mode?: 'adopt' | 'check'; activePath?: string; announce?: boolean }): Promise<Workspace | null> => {
+    async (options?: { mode?: 'adopt' | 'check' | 'background'; activePath?: string; announce?: boolean }): Promise<Workspace | null> => {
       const space = workspaceRef.current
       if (!space || !space.rootHandle) return null
       if (refreshingRef.current) {
@@ -3126,23 +3169,29 @@ export default function App() {
         pendingRefreshRef.current = options ?? {}
         return null
       }
+      const background = options?.mode === 'background'
       refreshingRef.current = true
-      setTreeRefreshing(true)
-      cancelAutoSaveRef.current()
+      if (!background) {
+        setTreeRefreshing(true)
+        cancelAutoSaveRef.current()
+      }
       try {
         const next = await refreshWorkspace(space)
         if (!next) {
-          setNotice({ text: '读不到文件夹了。请点「打开其他文件夹」重新授权。', kind: 'error' })
+          // 后台刷新失败：静默留旧树，等下一次轮询/focus；手动刷新仍要报原因
+          if (!background) setNotice({ text: '读不到文件夹了。请点「打开其他文件夹」重新授权。', kind: 'error' })
           return null
         }
         const before = flattenFiles(space.root)
         const after = flattenFiles(next.root)
+        const treeChanged = treeSignature(space.root) !== treeSignature(next.root)
         const afterByPath = new Map(after.map((file) => [file.path, file]))
-        setWorkspace(next)
+        // 结构没变就不 setWorkspace：后台轮询每 2.5 s 一次，整树重渲染没有意义
+        if (!background || treeChanged) setWorkspace(next)
         const mode = options?.mode ?? 'check'
         const targetPath = options?.activePath ?? (deletingRef.current ? null : activeFile?.path)
         let missingName: string | null = null
-        if (targetPath) {
+        if (!background && targetPath) {
           const rebound = afterByPath.get(targetPath)
           if (rebound) {
             // 只有编辑器里载入的就是这个文件，才把身份与保存目标接过去。
@@ -3158,19 +3207,21 @@ export default function App() {
           }
           // adopt 找不到时保留调用方刚设置的新值，不拿旧闭包清空
         }
-        const added = after.filter((file) => !before.some((old) => old.path === file.path)).length
-        const gone = before.filter((file) => !afterByPath.has(file.path)).length
-        if ((added > 0 || gone > 0) && options?.announce !== false) show(`已刷新：新增 ${added} 个，消失 ${gone} 个`)
-        if (missingName) {
-          setNotice({
-            text: `「${missingName}」已不在磁盘上（可能已删除、改名或移走），保存只能另存为。`,
-            kind: 'error',
-          })
+        if (!background) {
+          const added = after.filter((file) => !before.some((old) => old.path === file.path)).length
+          const gone = before.filter((file) => !afterByPath.has(file.path)).length
+          if ((added > 0 || gone > 0) && options?.announce !== false) show(`已刷新：新增 ${added} 个，消失 ${gone} 个`)
+          if (missingName) {
+            setNotice({
+              text: `「${missingName}」已不在磁盘上（可能已删除、改名或移走），保存只能另存为。`,
+              kind: 'error',
+            })
+          }
         }
         return next
       } finally {
         refreshingRef.current = false
-        setTreeRefreshing(false)
+        if (!background) setTreeRefreshing(false)
         const queued = pendingRefreshRef.current
         pendingRefreshRef.current = null
         if (queued) void refreshTreeRef.current(queued)
@@ -3179,6 +3230,74 @@ export default function App() {
     [activeFile, show],
   )
   refreshTreeRef.current = refreshTree
+
+  /** 上一次后台刷新的时刻（第 146 轮 B2）：focus 与轮询共用一条 MIN_GAP_MS 节流 */
+  const autoRefreshAtRef = useRef(0)
+
+  /**
+   * 第 146 轮 B2：目录变化自动跟随。有 FileSystemObserver 就观察根目录（回调 300 ms 合并），
+   * 没有就 2.5 s 轮询（只在页面可见时）；window.focus 与 visibilitychange→visible 立即补一次。
+   * 只刷新树，不碰正文/选区/脏标记（refreshTree 的 background 分支）。
+   */
+  useEffect(() => {
+    const root = workspace?.rootHandle ?? null
+    if (!root) return
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let timerAt = 0
+    let observer: FileSystemObserverLike | null = null
+    const fire = () => {
+      timer = null
+      if (stopped) return
+      const now = Date.now()
+      const allowed = shouldAutoRefresh({
+        hasRoot: true,
+        visible: document.visibilityState === 'visible',
+        refreshing: refreshingRef.current,
+        lastAt: autoRefreshAtRef.current,
+        now,
+      })
+      if (!allowed) return
+      autoRefreshAtRef.current = now
+      void refreshTreeRef.current({ mode: 'background' })
+    }
+    // 合并窗口内只保留最早的一次（轮询/focus 的延迟是 0，observer 是 300 ms）
+    const schedule = (delay: number) => {
+      if (stopped) return
+      const at = Date.now() + delay
+      if (timer !== null && timerAt <= at) return
+      if (timer !== null) clearTimeout(timer)
+      timerAt = at
+      timer = setTimeout(fire, delay)
+    }
+    const onVisibleOrFocus = () => schedule(0)
+    const Ctor = observerCtor(window)
+    if (Ctor) {
+      try {
+        observer = new Ctor(() => schedule(OBSERVER_DEBOUNCE_MS))
+        const result = observer.observe(root, { recursive: true }) as Promise<void> | void
+        if (result && typeof result.catch === 'function') result.catch(() => {})
+      } catch {
+        // 合成句柄或不支持的实现：退回轮询
+        observer = null
+      }
+    }
+    const poll = observer
+      ? null
+      : setInterval(() => {
+          if (document.visibilityState === 'visible') schedule(0)
+        }, POLL_INTERVAL_MS)
+    window.addEventListener('focus', onVisibleOrFocus)
+    document.addEventListener('visibilitychange', onVisibleOrFocus)
+    return () => {
+      stopped = true
+      if (timer !== null) clearTimeout(timer)
+      if (poll !== null) clearInterval(poll)
+      window.removeEventListener('focus', onVisibleOrFocus)
+      document.removeEventListener('visibilitychange', onVisibleOrFocus)
+      observer?.disconnect()
+    }
+  }, [workspace?.rootHandle])
 
   /**
    * 恢复最近一次删除（第 84 轮 B-142）。toast 的「撤销」与状态栏常驻 chip 共用这一个回调：
@@ -4259,7 +4378,13 @@ export default function App() {
     if (Date.now() < composeUntilRef.current) return
     if (autoFailCountRef.current >= 3) return
     if (saving || pendingIdsRef.current.size > 0 || savingRef.current) return
-    if (deletingRef.current || refreshingRef.current) return
+    if (deletingRef.current) return
+    if (refreshingRef.current) {
+      // 第 146 轮 B2：后台自动刷新在做（每 2.5 s 一次）时正好撞上停笔保存，就让这一次，
+      // 但要重新排队——否则这次改动要等下一次打字才会再保存。
+      scheduleAutoSaveRef.current()
+      return
+    }
     const generation = autoSaveGenerationRef.current
     if (pendingConfirmRef.current !== null || pendingSwitchRef.current !== null) return
     if (closeRequestedRef.current || closeGuardOpenRef.current || settingsOpenRef.current) return
@@ -6048,7 +6173,11 @@ export default function App() {
       )}
 
       <div className="workbench">
-        <div className={`sidebar${treeCollapsed ? ' is-collapsed' : ''}`}>
+        <div
+          className={`sidebar${treeCollapsed ? ' is-collapsed' : ''}`}
+          ref={sidebarRef}
+          style={{ '--sidebar-width': `${settings.sidebarWidth}px` } as CSSProperties}
+        >
           {!treeCollapsed && (
             <div className="sidebar-tabs" role="tablist" aria-label="侧栏">
               {(['files', 'outline'] as const).map((tab) => (
@@ -6118,6 +6247,27 @@ export default function App() {
                 </Suspense>
               </div>
             </aside>
+          )}
+
+          {/* 第 146 轮 B1：左栏拖宽把手（宽窗、展开态）。role=separator + 键盘 ←/→ 各 16px */}
+          {!treeCollapsed && (
+            <div
+              className="sidebar-resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整文件侧栏宽度"
+              aria-valuemin={MIN_SIDEBAR_WIDTH}
+              aria-valuemax={MAX_SIDEBAR_WIDTH}
+              aria-valuenow={settings.sidebarWidth}
+              tabIndex={0}
+              onPointerDown={startSidebarResize}
+              onKeyDown={(event) => {
+                const step = event.key === 'ArrowRight' ? 16 : event.key === 'ArrowLeft' ? -16 : 0
+                if (step === 0) return
+                event.preventDefault()
+                setSidebarWidth(settings.sidebarWidth + step)
+              }}
+            />
           )}
         </div>
 

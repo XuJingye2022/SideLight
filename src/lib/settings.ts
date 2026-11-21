@@ -31,6 +31,8 @@ export type Settings = {
   inlineSyntax: boolean
   /** 8 条可改命令的当前键位（第 89 轮 B-107）；读出来时已按默认表逐个归一 */
   keybindings: Keybindings
+  /** 左栏宽度，像素（第 146 轮 B1）：拖宽后记忆，收起时仍是 44px 不读这个值 */
+  sidebarWidth: number
   /** 设置结构版本：用来区分「旧存档的默认值」与「用户显式选择」，见 SETTINGS_VERSION */
   settingsVersion: number
 }
@@ -53,6 +55,11 @@ export const MIN_PAGE_ZOOM = 50
 export const MAX_PAGE_ZOOM = 200
 export const PAGE_ZOOM_STEP = 10
 
+/** 左栏宽度范围与默认值（第 146 轮 B1）；默认 218 与 styles.css 的缺省值一致 */
+export const MIN_SIDEBAR_WIDTH = 200
+export const MAX_SIDEBAR_WIDTH = 480
+export const DEFAULT_SIDEBAR_WIDTH = 218
+
 export const DEFAULT_SETTINGS: Settings = {
   baseUrl: 'https://api.deepseek.com/v1',
   apiKey: '',
@@ -70,6 +77,8 @@ export const DEFAULT_SETTINGS: Settings = {
   inlineSyntax: true,
   // 第 89 轮 B-107：8 条可改命令的默认键位（设置面板里逐条改，冲突在 bindKey 里拒）
   keybindings: { ...DEFAULT_KEYBINDINGS },
+  // 第 146 轮 B1：左栏默认 218（旧存档缺这个键也读成 218，不升 SETTINGS_VERSION）
+  sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
   settingsVersion: SETTINGS_VERSION,
 }
 
@@ -95,6 +104,12 @@ export function clampFontSize(value: number): number {
 export function clampPageZoom(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_SETTINGS.pageZoom
   return Math.min(MAX_PAGE_ZOOM, Math.max(MIN_PAGE_ZOOM, Math.round(value)))
+}
+
+/** 左栏宽度夹取：缺键/非法值回默认，越界进 200–480（第 146 轮 B1） */
+export function clampSidebarWidth(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_SIDEBAR_WIDTH
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(value)))
 }
 
 /** 落盘形状：新键 userPrompt；旧版把字段叫 analysisPrompt，读的时候兼容一次 */
@@ -139,6 +154,8 @@ export function loadSettings(): Settings {
       inlineSyntax: parsed.settingsVersion !== undefined && parsed.settingsVersion >= SETTINGS_VERSION ? parsed.inlineSyntax !== false : true,
       // 第 89 轮 B-107：缺键、非法值、未知 id、撞固定键都回默认；不升版本
       keybindings: resolveKeybindings(parsed.keybindings),
+      // 第 146 轮 B1：旧存档没有这个键 → 218；越界（用户改过 localStorage）夹进 200–480
+      sidebarWidth: clampSidebarWidth(parsed.sidebarWidth ?? DEFAULT_SETTINGS.sidebarWidth),
       // 读出来就带当前版本：下次 save 落盘即是已迁移的形状
       settingsVersion: SETTINGS_VERSION,
     }
