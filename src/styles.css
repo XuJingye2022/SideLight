@@ -419,19 +419,6 @@ button:disabled {
   padding: 4px 0;
 }
 
-/* 第 144 轮：文件夹写不进去时树头只挂一个安静的「只读」徽标——不出错、不弹提示、不提回收站。
-   非按钮、不进 Tab 序；颜色只用既有 token，浅色 / 深色 / 暖纸三套主题自动跟随。 */
-.tree-readonly-badge {
-  flex: none;
-  padding: 1px 6px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--ink-faint);
-  font-size: 11px;
-  line-height: 1.5;
-  white-space: nowrap;
-}
-
 .tree-new-wrap,
 .tree-more-wrap {
   position: relative;

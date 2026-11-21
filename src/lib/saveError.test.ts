@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-import { describeSaveFailure, writeReasonOf } from './saveError.ts'
+import { describeSaveFailure, isWriteDenied, writeReasonOf } from './saveError.ts'
 
 const DOC = '第三章.md'
 /** Chromium 实际抛出的英文原文：不能原样出现在给用户看的文案里 */
@@ -27,17 +27,30 @@ test('每个 DOMException 名称都翻成中文、留「另存为」出路', () 
   }
 })
 
-test('四个「换位置」分支不带 W3C 英文原文', () => {
-  // InvalidStateError / SecurityError 按产品口径要带原始 message（见下一条），不能一起断言
-  for (const name of ['NoModificationAllowedError', 'NotAllowedError', 'NotFoundError', 'QuotaExceededError']) {
+test('四个「换位置」分支不带 W3C 英文原文（InvalidStateError / SecurityError 也不再拼原文）', () => {
+  for (const name of [
+    'NoModificationAllowedError',
+    'NotAllowedError',
+    'NotFoundError',
+    'QuotaExceededError',
+    'InvalidStateError',
+    'SecurityError',
+  ]) {
     const failure = report(name)
     assert.ok(!failure.text.includes(W3C), `${name} 把英文原文漏给了用户：${failure.text}`)
+    assert.ok(!/An attempt|DOMException|Error|insecure/.test(failure.text), `${name} 还带错误名/英文：${failure.text}`)
   }
 })
 
-test('说清是哪一篇：四个「有出路」的分支都带文件名', () => {
-  // InvalidStateError / SecurityError 按产品口径只带 name 与原始 message，见下一条
-  for (const name of ['NoModificationAllowedError', 'NotAllowedError', 'NotFoundError', 'QuotaExceededError']) {
+test('说清是哪一篇：六个「有出路」的分支都带文件名', () => {
+  for (const name of [
+    'NoModificationAllowedError',
+    'NotAllowedError',
+    'NotFoundError',
+    'QuotaExceededError',
+    'InvalidStateError',
+    'SecurityError',
+  ]) {
     const failure = report(name)
     assert.ok(failure.text.includes(`「${DOC}」`), `${name} 没带文件名：${failure.text}`)
   }
@@ -47,8 +60,21 @@ test('NoModificationAllowedError：说清常见原因与下一步', () => {
   const { text } = report('NoModificationAllowedError')
   assert.equal(
     text,
-    '保存失败：系统不允许改写「第三章.md」。常见原因是文件被别的程序占用、文件夹只读，或应用没有这个位置的写入权限。请用「另存为」换一个位置。',
+    '保存失败：系统不允许改写「第三章.md」。常见原因是文件被别的程序占用、文件夹只读，或应用没有这个位置的写入权限。请用「另存为」换一个位置。如果一直失败，请从正常桌面双击启动 Sidelight 再保存：受限账户或沙箱里，应用不能写普通文件夹。',
   )
+})
+
+test('「写不进去」的四个分支都提「正常桌面」这条兜底（第 145 轮 A2）', () => {
+  for (const name of ['NoModificationAllowedError', 'NotAllowedError', 'InvalidStateError', 'SecurityError']) {
+    const { text } = report(name)
+    assert.ok(text.includes('正常桌面'), `${name} 没说换一种启动方式：${text}`)
+    assert.ok(text.includes('另存为'), `${name} 没给下一步：${text}`)
+    assert.ok(text.includes(`「${DOC}」`), `${name} 没带文件名：${text}`)
+  }
+  // 磁盘满、文件被移走这两类换位置就够，不该劝用户换启动方式
+  for (const name of ['NotFoundError', 'QuotaExceededError']) {
+    assert.ok(!report(name).text.includes('正常桌面'), `${name} 不该提「正常桌面」`)
+  }
 })
 
 test('NotAllowedError：提示重新打开文件夹并允许写入', () => {
@@ -68,11 +94,11 @@ test('QuotaExceededError：说清磁盘空间不足', () => {
   assert.match(text, /清理空间/)
 })
 
-test('InvalidStateError / SecurityError：带 name 与原始 message', () => {
+test('InvalidStateError / SecurityError：中文短原因，不带 name 与原始 message', () => {
   for (const name of ['InvalidStateError', 'SecurityError']) {
     const { text } = report(name, 'The operation is insecure.')
-    assert.ok(text.includes(name), `${name} 没带错误名：${text}`)
-    assert.ok(text.includes('The operation is insecure.'), `${name} 没带原始原因：${text}`)
+    assert.ok(!text.includes(name), `${name} 还带错误名：${text}`)
+    assert.ok(!text.includes('The operation is insecure.'), `${name} 还带原始原因：${text}`)
     assert.match(text, /系统拒绝了这次写入/)
   }
 })
@@ -93,7 +119,7 @@ test('不可识别对象有兜底，不抛错', () => {
 
 test('没有 message 的 DOMException 也有一句完整的话', () => {
   const { text } = describeSaveFailure(new DOMException('', 'SecurityError'), DOC)
-  assert.match(text, /系统拒绝了这次写入（SecurityError）/)
+  assert.match(text, /「第三章\.md」没有写进去（系统拒绝了这次写入）/)
 })
 
 test('文件名缺失时用「当前文档」', () => {
@@ -151,6 +177,24 @@ test('writeReasonOf：其它错误名与不可识别对象都有中文兜底、�
   }
 })
 
+test('isWriteDenied：写类错误为真，其它为假（performCommit 据此转「另存为」）', () => {
+  for (const name of [
+    'NoModificationAllowedError',
+    'NotAllowedError',
+    'InvalidStateError',
+    'SecurityError',
+    'NotFoundError',
+  ]) {
+    assert.equal(isWriteDenied(new DOMException(W3C, name)), true, `${name} 应算写不进去`)
+  }
+  for (const name of ['QuotaExceededError', 'TypeMismatchError', 'NotReadableError', 'AbortError']) {
+    assert.equal(isWriteDenied(new DOMException(W3C, name)), false, `${name} 不该直接转另存为`)
+  }
+  for (const value of [null, undefined, 42, 'boom', {}, new Error(W3C)]) {
+    assert.equal(isWriteDenied(value), false, '不可识别对象不该算写不进去')
+  }
+})
+
 /* ---------- 接线静态门：上面的文案必须真被两处保存 catch 用上 ---------- */
 // 行为证据是 `.tmp/e2e-r142-a.mjs`（假 FSA 拒写 + 真 toast / 真文件树）；这里只防「函数写好了却没人调」。
 
@@ -198,19 +242,76 @@ test('performCommit 失败写草稿兜底（ref 绕开声明顺序）', () => {
   )
 })
 
-test('打开文件夹不再用错误 toast 挡第一眼：写入探测只留树头一个安静的「只读」徽标', () => {
-  const start = appSource.indexOf('const ensureWorkspaceWritable = useCallback(')
-  const end = appSource.indexOf('const openFolder = useCallback(')
-  assert.ok(start >= 0 && end > start, '找不到 ensureWorkspaceWritable 的位置')
-  const helper = appSource.slice(start, end)
-  assert.ok(!helper.includes('setNotice('), '写入探测仍会弹提示条：用户打开后第一眼就被挡住')
-  assert.ok(!helper.includes("kind: 'error'"), '写入探测仍是错误态提示')
-  assert.ok(!helper.includes('trashReason'), '探测结果不再存原因文本（第 144 轮：只说「只读」）')
-  assert.ok(helper.includes('applyFolderReadOnly('), '探测结果必须交给「只读」徽标状态')
-  assert.ok(helper.includes('folderProbeEpochRef'), '缺代际守卫：晚到的探测会覆盖后开的文件夹')
-  assert.ok(helper.includes('ensureTrashDir(root)'), '缺回收站前置探测')
-  const calls = appSource.split('ensureWorkspaceWritable(next.rootHandle)').length - 1
-  assert.equal(calls, 2, '两条打开路径必须一致，别一边有一边没有')
+test('新建不再预探测写入，也没有「只读」徽标 / 状态（第 145 轮 A1 删干净）', () => {
+  // 字面量拼出来：这三个模式本身要能从 src 里 0 命中，别在本文件里又留一份
+  const PROBE = ['ensureWorkspace', 'Writable'].join('')
+  const BADGE_CLASS = ['tree-readonly', 'badge'].join('-')
+  const BADGE_ID = ['READONLY', 'BADGE_ID'].join('_')
+  for (const [label, source] of [
+    ['App.tsx', appSource],
+    ['FileTree.tsx', fileTreeSource],
+    ['styles.css', cssSource],
+  ] as const) {
+    assert.ok(!source.includes(PROBE), `${label} 还有写入预探测（第 145 轮改成直接试建）`)
+    assert.ok(!source.includes(BADGE_CLASS), `${label} 还有「只读」徽标`)
+    assert.ok(!source.includes(BADGE_ID), `${label} 还有徽标 id`)
+  }
+  assert.ok(!appSource.includes('folderReadOnly'), '「只读」状态已删：写不进去按错误类型当场处理')
+})
+
+test('「文件 → 新建」与 Ctrl+Alt+N 走同一条：有文件夹就建在文件夹里（第 145 轮 A1）', () => {
+  assert.ok(appSource.includes('onNew={newFileInWorkspace}'), '菜单「新建」还在走空白文档')
+  assert.match(
+    appSource,
+    /customId === 'newDocument'\) \{\s*newFileInWorkspace\(\)/,
+    'Ctrl+Alt+N 还在走空白文档',
+  )
+  assert.ok(!appSource.includes('const newDocument = useCallback('), '旧的空白新建入口已删')
+})
+
+test('新建恒先试建文件，失败才转「命名 + 另存为」', () => {
+  const start = appSource.indexOf('const createWorkspaceFile = useCallback(')
+  const end = appSource.indexOf('const newFileInWorkspace = useCallback(')
+  assert.ok(start >= 0 && end > start, '找不到 createWorkspaceFile 的范围')
+  const block = appSource.slice(start, end)
+  const createAt = block.indexOf('getFileHandle(')
+  const namingAt = block.indexOf('newDocumentForNaming()')
+  assert.ok(createAt >= 0, '新建不试写：已开文件夹时新建不会落在文件夹里')
+  assert.ok(namingAt > createAt, '试建必须排在命名流程之前')
+  assert.ok(block.includes('writeReasonOf(error)'), '试建失败要说中文原因')
+  assert.ok(block.includes('另存为'), '试建失败要给「另存为」这条出路')
+  assert.ok(block.includes('新建失败：'), '试建失败要说清楚发生了什么')
+  assert.ok(!block.includes('console.debug('), '失败原因该上屏，不该只留日志')
+  // 命名流程本身仍是 info，且要把标题输入框打开
+  const namingStart = appSource.indexOf('const newDocumentForNaming = useCallback(')
+  assert.ok(namingStart >= 0 && namingStart < start, '找不到「命名 + 空白文档」那段')
+  const naming = appSource.slice(namingStart, start)
+  assert.ok(naming.includes("kind: 'info'"), '命名流程要用 info 提示')
+  assert.ok(naming.includes('startRename()'), '命名流程要把标题输入框打开并聚焦')
+  assert.ok(naming.includes('另存为'), '提示要说清之后保存走「另存为」')
+})
+
+test('performCommit 无落点先试写当前文件夹，写类错误直接转「另存为」（第 145 轮 A1）', () => {
+  const start = appSource.indexOf('const performCommit = useCallback(')
+  const end = appSource.indexOf('const serializeBodyNow = useCallback(')
+  assert.ok(start >= 0 && end > start, '找不到 performCommit 的范围')
+  const block = appSource.slice(start, end)
+  const writeAt = block.indexOf('saveIntoWorkspace(normalized, withEol)')
+  const deniedAt = block.indexOf('isWriteDenied(error)')
+  assert.ok(writeAt >= 0, '无落点保存不再先试写当前文件夹')
+  assert.ok(deniedAt > writeAt, '写类错误要在试写之后判')
+  assert.ok(block.includes('if (!isWriteDenied(error)) throw error'), '非写类错误要照旧走 catch（含草稿兜底）')
+  assert.ok(block.includes('return await performSaveAs(normalized, withEol)'), '写不进去要直接给「另存为」')
+})
+
+test('改名不再被「只读」状态拦住：直接试一次，失败走 renameFile 的中文错误', () => {
+  const start = appSource.indexOf('const commitDocName = useCallback(')
+  const end = appSource.indexOf('const createFolder = useCallback(')
+  assert.ok(start >= 0 && end > start, '找不到 commitDocName 的范围')
+  const block = appSource.slice(start, end)
+  assert.ok(!block.includes('folderReadOnly'), '改名仍读「只读」状态')
+  assert.ok(block.includes('renameFile(dir, file.handle, file.name, parsed.name)'), '改名没走 renameFile')
+  assert.ok(block.includes("setNotice({ text: result.error, kind: 'error' })"), '改名失败要把中文原因上屏')
 })
 
 test('trash.ts 的 11 处失败原因全部改中文，不再拼 error.message', () => {
@@ -219,55 +320,20 @@ test('trash.ts 的 11 处失败原因全部改中文，不再拼 error.message',
   assert.equal(calls, 11, `writeReasonOf 只接了 ${calls} 处，应有 11 处`)
 })
 
-test('新建失败不再报「新建失败」：只读直接进命名流程，写失败也走同一条', () => {
-  const start = appSource.indexOf('const newDocumentForNaming = useCallback(')
-  const end = appSource.indexOf('const newFileInWorkspace = useCallback(')
-  assert.ok(start >= 0 && end > start, '找不到「命名 + 空白文档」那段')
-  const naming = appSource.slice(start, end)
-  assert.ok(!naming.includes('新建失败：'), '不能再说「新建失败：…」：用户要的是一篇能起名字的空白稿')
-  assert.ok(!naming.includes('已换到空白文档'), '别再说「已换到空白文档」——那读起来像一次失败')
-  assert.ok(!naming.includes("kind: 'error'"), '命名流程不该是错误态')
-  assert.ok(naming.includes("kind: 'info'"), '命名流程要用 info 提示')
-  assert.ok(naming.includes('startRename()'), '命名流程要把标题输入框打开并聚焦')
-  assert.ok(naming.includes('另存为'), '提示要说清之后保存走「另存为」')
-  const createStart = appSource.indexOf('const createWorkspaceFile = useCallback(')
-  const createBlock = appSource.slice(createStart, end)
-  assert.ok(createBlock.includes('folderReadOnlyRef.current'), '只读文件夹不该先试写再失败')
-  assert.ok(createBlock.includes('newDocumentForNaming()'), '试写失败也要落到同一条命名流程')
-  assert.ok(!createBlock.includes('新建失败：'), '新建路径里不许再出现「新建失败：…」')
-  const folderStart = appSource.indexOf('const createFolder = useCallback(')
-  const folderEnd = appSource.indexOf('const removeFile = useCallback(')
-  assert.ok(folderStart >= 0 && folderEnd > folderStart, '找不到 createFolder 的范围')
-  assert.ok(appSource.slice(folderStart, folderEnd).includes('writeReasonOf(error)'), 'createFolder 没接 writeReasonOf')
-})
-
-test('「＋ 新建」不再因为写不进去而禁用，只读用安静的徽标表达', () => {
+test('「＋ 新建」不禁用、树头不再有徽标文案', () => {
   assert.ok(!fileTreeSource.includes('disabled={Boolean(trashReason)}'), '写不进去就禁用「＋ 新建」会把用户留在死路')
-  // 旧那行警示（类名 tree-write-w…）必须删干净；写成正则免得本文件自己又留下 0 命中门的字面量
-  assert.ok(!/tree-write-warn\w*/.test(fileTreeSource), '旧的那行警示已删（第 144 轮改成树头徽标）')
+  assert.ok(!/tree-write-warn\w*/.test(fileTreeSource), '旧的那行警示已删')
   assert.ok(fileTreeSource.includes('title="新建文件"'), '「＋ 新建」的 title 不该变成错误原因')
-  assert.ok(fileTreeSource.includes('aria-describedby={readOnly ? READONLY_BADGE_ID : undefined}'), '缺 aria-describedby')
-  assert.ok(fileTreeSource.includes('id={READONLY_BADGE_ID}'), '徽标缺稳定 id')
-  assert.ok(fileTreeSource.includes('className="tree-readonly-badge"'), '缺「只读」徽标的类名')
-  const badgeAt = fileTreeSource.indexOf('className="tree-readonly-badge"')
-  const badgeText = fileTreeSource.slice(badgeAt, fileTreeSource.indexOf('</span>', badgeAt))
-  assert.ok(badgeText.trim().endsWith('只读'), '徽标文字必须是「只读」')
-  assert.ok(!badgeText.includes('<button'), '徽标是状态，不是按钮（不进 Tab 序）')
-  assert.ok(!fileTreeSource.includes('无法创建回收站'), '打开只读文件夹不许提回收站')
-  assert.ok(!fileTreeSource.includes('保存会失败'), '打开只读文件夹不该先说不好的事')
+  assert.ok(!fileTreeSource.includes('无法创建回收站'), '文件树不许提回收站')
+  assert.ok(!fileTreeSource.includes('保存会失败'), '文件树不该先说不好的事')
   assert.ok(!treeActionsSource.includes('trashReason'), 'TreeActions 里已无禁用逻辑，别留死 prop')
 })
 
-test('styles.css 有 .tree-readonly-badge 与 .doc-name-input，且复用既有 token、不写死颜色', () => {
-  for (const selector of ['.tree-readonly-badge {', '.doc-name-input {']) {
-    const start = cssSource.indexOf(selector)
-    assert.ok(start >= 0, `缺 ${selector} 规则`)
-    const block = cssSource.slice(start, cssSource.indexOf('}', start))
-    assert.ok(!/#[0-9a-fA-F]{3,8}/.test(block), `${selector} 里不许写死色值（深色/暖纸主题要自动跟随）`)
-  }
-  const badge = cssSource.slice(cssSource.indexOf('.tree-readonly-badge {'), cssSource.indexOf('}', cssSource.indexOf('.tree-readonly-badge {')))
-  assert.ok(badge.includes('var(--ink-faint)'), '徽标文字要用 --ink-faint（安静，不是危险色）')
-  assert.ok(badge.includes('var(--line)'), '徽标边框要用 --line')
+test('styles.css 仍有 .doc-name-input，且不写死色值', () => {
+  const start = cssSource.indexOf('.doc-name-input {')
+  assert.ok(start >= 0, '缺 .doc-name-input 规则')
+  const block = cssSource.slice(start, cssSource.indexOf('}', start))
+  assert.ok(!/#[0-9a-fA-F]{3,8}/.test(block), '.doc-name-input 里不许写死色值（深色/暖纸主题要自动跟随）')
   assert.ok(!/tree-write-warn\w*/.test(cssSource), '旧的警示行样式已删')
 })
 

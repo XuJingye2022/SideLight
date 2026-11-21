@@ -21,8 +21,6 @@ type Props = {
   workspace: Workspace | null
   activePath: string | null
   collapsed: boolean
-  /** 这个文件夹写不进去（第 144 轮 A2）：只在树头挂一个安静的「只读」徽标，不出错、不提回收站 */
-  readOnly: boolean
   refreshing: boolean
   onToggle: () => void
   onOpenFolder: () => void
@@ -44,12 +42,6 @@ type Props = {
 
 type Row = { node: WorkspaceNode; level: number }
 
-/**
- * 「只读」徽标的 id（第 144 轮 A2）：文件树的「＋ 新建」用 aria-describedby 指向它。
- * 徽标只说状态，不说原因、不提回收站——用户打开只读文件夹不该第一眼看到一串技术句子。
- */
-const READONLY_BADGE_ID = 'tree-readonly-badge'
-
 function visibleRows(nodes: WorkspaceNode[], expanded: Set<string>, level = 1): Row[] {
   const rows: Row[] = []
   for (const node of nodes) {
@@ -70,7 +62,6 @@ export function FileTree({
   workspace,
   activePath,
   collapsed,
-  readOnly,
   refreshing,
   onToggle,
   onOpenFolder,
@@ -429,15 +420,6 @@ export function FileTree({
         <span className="file-tree-name" title={workspace.name}>
           {workspace.name}
         </span>
-        {readOnly ? (
-          <span
-            className="tree-readonly-badge"
-            id={READONLY_BADGE_ID}
-            title="这个文件夹写不进去：能打开、能编辑；保存请用「文件 → 另存为」。"
-          >
-            只读
-          </span>
-        ) : null}
         <div className="tree-view-toggle" role="group" aria-label="文件显示方式">
           <button
             type="button"
@@ -470,7 +452,6 @@ export function FileTree({
               className="tree-new-main"
               onClick={onNewFile}
               title="新建文件"
-              aria-describedby={readOnly ? READONLY_BADGE_ID : undefined}
             >
               ＋ 新建
             </button>

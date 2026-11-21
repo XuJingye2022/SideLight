@@ -17,6 +17,28 @@ export type SaveFailure = {
 /** 拿不到文件名时的兜底称呼 */
 const FALLBACK_DOC_NAME = '当前文档'
 
+/**
+ * 一直失败时的兜底提示（第 145 轮 A2）：用户现场是便携版以低完整性运行，
+ * 写普通文件夹被 Windows 拒绝。这种情形换位置没用，得从正常桌面启动。
+ * 不写英文、不写错误码：用户只需要知道「换一种启动方式」。
+ */
+const SANDBOX_HINT =
+  '如果一直失败，请从正常桌面双击启动 Sidelight 再保存：受限账户或沙箱里，应用不能写普通文件夹。'
+
+/** 写类错误（第 145 轮 A1）：`performCommit` 据此从「写当前文件夹失败」直接转「另存为」 */
+const WRITE_DENIED_NAMES = [
+  'NoModificationAllowedError',
+  'NotAllowedError',
+  'InvalidStateError',
+  'SecurityError',
+  'NotFoundError',
+]
+
+/** 这个错误是不是「写不进去」：是就给「另存为」当下一步，别只说一句失败 */
+export function isWriteDenied(error: unknown): boolean {
+  return WRITE_DENIED_NAMES.includes(nameOf(error))
+}
+
 /** 取 DOMException 的名称：测试与宿主回包可能是普通对象，取不到 name 就当没有 */
 function nameOf(error: unknown): string {
   if (typeof DOMException !== 'undefined' && error instanceof DOMException) return error.name
@@ -69,12 +91,12 @@ export function describeSaveFailure(error: unknown, docName: string): SaveFailur
   switch (failureName) {
     case 'NoModificationAllowedError':
       return {
-        text: `保存失败：系统不允许改写「${name}」。常见原因是文件被别的程序占用、文件夹只读，或应用没有这个位置的写入权限。请用「另存为」换一个位置。`,
+        text: `保存失败：系统不允许改写「${name}」。常见原因是文件被别的程序占用、文件夹只读，或应用没有这个位置的写入权限。请用「另存为」换一个位置。${SANDBOX_HINT}`,
         canSaveAs: true,
       }
     case 'NotAllowedError':
       return {
-        text: `保存失败：没有写入「${name}」的权限。请重新打开这个文件夹并允许写入，或用「另存为」保存副本。`,
+        text: `保存失败：没有写入「${name}」的权限。请重新打开这个文件夹并允许写入，或用「另存为」保存副本。${SANDBOX_HINT}`,
         canSaveAs: true,
       }
     case 'NotFoundError':
@@ -88,15 +110,12 @@ export function describeSaveFailure(error: unknown, docName: string): SaveFailur
         canSaveAs: true,
       }
     case 'InvalidStateError':
-    case 'SecurityError': {
-      // 这两类内部原因差别太大：把 name 与原始 message 一起带上，别自己编原因
-      const message = messageOf(error)
-      const detail = message ? `${failureName}：${message}` : failureName
+    case 'SecurityError':
+      // 第 145 轮 A2：不再拼原始 message（那是 W3C/Chromium 英文），统一用中文短原因
       return {
-        text: `保存失败：系统拒绝了这次写入（${detail}）。改动还在，可以用「另存为」保存副本。`,
+        text: `保存失败：「${name}」没有写进去（${writeReasonOf(error)}）。改动还在，可以用「另存为」保存副本。${SANDBOX_HINT}`,
         canSaveAs: true,
       }
-    }
     default:
       break
   }

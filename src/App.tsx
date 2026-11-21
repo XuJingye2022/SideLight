@@ -83,7 +83,7 @@ import { AnnotationDecorations, renderAnnotations, renderFind, renderFocus } fro
 import { MathInputRules } from './lib/mathInput.ts'
 import { normalizeForBaseline } from './lib/baseline.ts'
 import { diskSnapshot, reusableDiskText, type DiskSnapshot } from './lib/saveDisk.ts'
-import { describeSaveFailure, writeReasonOf } from './lib/saveError.ts'
+import { describeSaveFailure, isWriteDenied, writeReasonOf } from './lib/saveError.ts'
 import { renameFile, validateDocName } from './lib/rename.ts'
 import { inTableAncestry, typingBlockMarkerInCell } from './lib/tableScope.ts'
 import { DISCUSS_SYSTEM_PROMPT } from './lib/prompt.ts'
@@ -460,20 +460,6 @@ export default function App() {
   /** 第 143 轮 B1：Ctrl+Alt+E 请求文件菜单打开并聚焦导出组（token 变一次动作一次） */
   const [fileMenuRequest, setFileMenuRequest] = useState(0)
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
-  /**
-   * 文件夹只读（第 144 轮 A2）：第 141/142 轮的「写不进去」探测结果，只由一个安静的
-   * 「只读」徽标承载——不弹提示、不说回收站、不挡打开。用它决定新建走「先建还是先命名」。
-   * 与宿主单文件只读的 `readOnly` 是两件事，别混。
-   */
-  const [folderReadOnly, setFolderReadOnly] = useState(false)
-  const folderReadOnlyRef = useRef(false)
-  /** 写入探测的代际：晚到的结果不许覆盖后开的文件夹（第 144 轮） */
-  const folderProbeEpochRef = useRef(0)
-  /** state 与 ref 必须同步改：保存/新建在事件回调里读 ref，读 state 会晚一拍 */
-  const applyFolderReadOnly = useCallback((value: boolean) => {
-    folderReadOnlyRef.current = value
-    setFolderReadOnly(value)
-  }, [])
   const [treeRefreshing, setTreeRefreshing] = useState(false)
   const [activeFile, setActiveFile] = useState<WorkspaceFileNode | null>(null)
   /** 宿主桥每次渲染取一次；Windows/WK 单例稳定，浏览器为 null */
@@ -1695,8 +1681,6 @@ export default function App() {
           }
           setWorkspace(next)
           setSidebarTab('files')
-          // 换工作区：只读徽标先清掉，恢复的文件夹不再探测写入（第 144 轮）
-          applyFolderReadOnly(false)
           const target = flattenFiles(next.root).find((file) => file.path === session.path)
           if (!target) {
             show('上次打开的文件不在了，已恢复文件夹但没有打开正文。')
@@ -1815,7 +1799,6 @@ export default function App() {
           if (next && !cancelled) {
             setWorkspace(next)
             setSidebarTab('files')
-            applyFolderReadOnly(false)
             const matches = flattenFiles(next.root).filter((file) => file.name === (data.fileName ?? ''))
             if (matches.length === 1) {
               hostFile = matches[0]
@@ -2982,38 +2965,6 @@ export default function App() {
     [dirty, loadIntoEditor, waitForHostSave, activeFile],
   )
 
-  /**
-   * 打开文件夹时先试建 `.sidelight/trash`（第 141 轮）：建不出来说明这个位置大概写不进去——
-   * 只读盘、没有写权限、网络盘掉线。第 142 轮起不弹错误 toast（会挡在打开后的第一眼），
-   * **第 144 轮起连「原因文本」都不留**：只说这个文件夹是只读的（树头「只读」徽标），
-   * 不提回收站、不当错误。晚到的探测按代际丢弃，别覆盖后开的文件夹。
-   * 只有权限类失败才算只读：`.sidelight` 被占成文件（TypeMismatchError）这类不算，
-   * 那种情况新建会自己失败并走命名流程，不该把可写文件夹误标成只读。
-   */
-  const ensureWorkspaceWritable = useCallback(
-    (root: FileSystemDirectoryHandle) => {
-      const epoch = folderProbeEpochRef.current + 1
-      folderProbeEpochRef.current = epoch
-      const apply = (value: boolean) => {
-        if (epoch !== folderProbeEpochRef.current) return
-        applyFolderReadOnly(value)
-      }
-      void import('./lib/trash.ts').then(({ ensureTrashDir }) =>
-        ensureTrashDir(root)
-          .then((result) => {
-            if (result.dir) {
-              apply(false)
-              return
-            }
-            // `.sidelight` 被占成文件不算只读：那种文件夹照样能写，新建会自己失败再走命名流程。
-            apply(result.errorName !== 'TypeMismatchError')
-          })
-          .catch(() => apply(false)),
-      )
-    },
-    [applyFolderReadOnly],
-  )
-
   const openFolder = useCallback(async () => {
     try {
       const next = await pickWorkspace()
@@ -3021,18 +2972,13 @@ export default function App() {
         setWorkspace(next)
         setSidebarTab('files')
         setNotice(null)
-        // 换工作区：先清「只读」，写入探测回来再按新文件夹定
-        applyFolderReadOnly(false)
         // 换工作区：旧回收站里的凭据不再可信（第 84 轮 B-142）
         setRestoreEntry((current) => nextRestoreEntry(current, { type: 'workspace-changed' }))
-        if (next.rootHandle) {
-          ensureWorkspaceWritable(next.rootHandle)
-        }
       }
     } catch (error) {
       setNotice({ text: messageOf(error), kind: 'error' })
     }
-  }, [applyFolderReadOnly, ensureWorkspaceWritable])
+  }, [])
 
   /** 超大文件被拒时说清正文仍是哪一篇：否则用户以为窗口里是刚点的大文件，Ctrl+S 会写错篇 */
   const tooLargeNote = useCallback(
@@ -3136,9 +3082,6 @@ export default function App() {
           setWorkspace(next)
           setSidebarTab('files')
           setNotice(null)
-          // 换工作区：先清「只读」，探测回来再按新文件夹定（第 144 轮）
-          applyFolderReadOnly(false)
-          if (next.rootHandle) ensureWorkspaceWritable(next.rootHandle)
           show(`已打开文件夹「${next.name}」`)
         } catch (error) {
           setNotice({ text: messageOf(error), kind: 'error' })
@@ -3169,7 +3112,7 @@ export default function App() {
         setNotice({ text: messageOf(error), kind: 'error' })
       }
     },
-    [applyFolderReadOnly, ensureWorkspaceWritable, requestLoad, show, tooLargeNote],
+    [requestLoad, show, tooLargeNote],
   )
 
   /** 刷新文件树：adopt=按新路径重绑（新建/另存为/改名）；check=找不到就清成只能另存为。
@@ -3365,15 +3308,6 @@ export default function App() {
     }
     setNameEditing(false)
     if (parsed.unchanged) return
-    if (folderReadOnlyRef.current && (activeFile?.handle ?? saveTargetRef.current)) {
-      // 写不进去、已经有落点：改不了名，别让标题和磁盘上的名字分家
-      setNotice({
-        text: `这个文件夹写不进去，改不了「${docNameRef.current}」的名字。请用「文件 → 另存为」换一个位置和名字。`,
-        kind: 'info',
-        persist: true,
-      })
-      return
-    }
     const file = activeFile
     if (file?.handle) {
       const space = workspaceRef.current
@@ -3573,11 +3507,8 @@ export default function App() {
       focusEditor()
       return
     }
-    // 已经知道写不进去：不试写、不先失败，直接命名 + 之后「另存为」
-    if (folderReadOnlyRef.current) {
-      await newDocumentForNaming()
-      return
-    }
+    // 第 145 轮：不再预探测文件夹能不能写——直接试建；失败才转「命名 + 另存为」。
+    // 这样「能写」的文件夹不必先多一次 `.sidelight` 探测，只读的也不会被提前标成死路。
     try {
       const name = nextNewName(space)
       const handle = await root.getFileHandle(name, { create: true })
@@ -3590,13 +3521,15 @@ export default function App() {
       show(`已新建 ${name}`)
       focusEditor()
     } catch (error) {
-      // 没料到写不进去（探测没回来 / 网络盘刚掉线）：同样走命名流程，不报「新建失败」
-      applyFolderReadOnly(true)
+      // 试建失败：给一篇能起名字的空白稿，之后保存走「另存为」，不把用户留在死路里
       await newDocumentForNaming()
-      // 原因只给日志与详情，不到用户眼前
-      console.debug('新建文件失败', writeReasonOf(error))
+      setNotice({
+        text: `新建失败：${writeReasonOf(error)}。已打开空白文档；按「另存为」选一个能写的位置。`,
+        kind: 'error',
+        persist: true,
+      })
     }
-  }, [applyFolderReadOnly, loadIntoEditor, newDocumentForNaming, nextNewName, refreshTree, show, waitForHostSave])
+  }, [loadIntoEditor, newDocumentForNaming, nextNewName, refreshTree, show, waitForHostSave])
 
   const newFileInWorkspace = useCallback(() => {
     if (dirty) {
@@ -3605,14 +3538,6 @@ export default function App() {
     }
     void createWorkspaceFile()
   }, [createWorkspaceFile, dirty])
-
-  const newDocument = useCallback(() => {
-    if (dirty) {
-      setPendingSwitch({ text: '', name: '未命名.md', file: null, after: () => void startNewDocument() })
-      return
-    }
-    void startNewDocument()
-  }, [dirty, startNewDocument])
 
   /** 冷启动草稿确认：保留草稿 → 不载入宿主文件、之后保存走另存为 */
   const keepDraft = useCallback(() => {
@@ -3913,12 +3838,14 @@ export default function App() {
           return ok
         }
 
-        // 只读文件夹 + 还没有落点：直接走「另存为」，不要先写失败再提示（第 144 轮 A3）。
-        // 有落点时照常写（第一次另存为成功后 finishSaved 写了 saveTargetRef），否则每次 Ctrl+S 都重开选择器。
-        if (folderReadOnlyRef.current && !saveTargetRef.current && !activeFile?.handle) {
+        // 还没有落点：先试写当前文件夹；写类错误（没权限 / 不允许改写 / 位置不在了）直接转「另存为」，
+        // 别让用户先看一句失败再自己找按钮（第 145 轮 A1，原先靠「只读」预探测跳过首写）。
+        try {
+          if (await saveIntoWorkspace(normalized, withEol)) return true
+        } catch (error) {
+          if (!isWriteDenied(error)) throw error
           return await performSaveAs(normalized, withEol)
         }
-        if (await saveIntoWorkspace(normalized, withEol)) return true
         const result = await saveAsFile(docNameRef.current, withEol)
         if (result === null) {
           // 用户取消：不留「已保存」的假象
@@ -5007,7 +4934,7 @@ export default function App() {
         } else if (customId === 'togglePreview') {
           togglePreviewRef.current()
         } else if (customId === 'newDocument') {
-          newDocument()
+          newFileInWorkspace()
         } else {
           // 第 143 轮 B1：Ctrl+Alt+E 改成「开文件菜单并聚焦导出组首项」，导出项在菜单里
           setFileMenuRequest((value) => value + 1)
@@ -5142,7 +5069,7 @@ export default function App() {
     railOpen,
     diffActive,
     closeDiff,
-    newDocument,
+    newFileInWorkspace,
     openSingleFile,
     openFolder,
     statsDetail,
@@ -5834,7 +5761,7 @@ export default function App() {
           Sidelight
         </div>
         <FileMenu
-          onNew={newDocument}
+          onNew={newFileInWorkspace}
           onRename={startRename}
           onSaveAs={() => saveAsCopyRef.current()}
           onOpenFile={() => void openSingleFile()}
@@ -6171,7 +6098,6 @@ export default function App() {
             onNewFolder={() => void createFolder()}
             onRefresh={() => void refreshTree()}
             onDeleteFile={(file) => void removeFile(file)}
-            readOnly={folderReadOnly}
             refreshing={treeRefreshing}
             onBeforeRename={prepareRename}
             onRenameFile={(file, newName) => void handleRenamedFile(file, newName)}
