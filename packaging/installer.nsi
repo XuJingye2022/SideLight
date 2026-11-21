@@ -132,7 +132,6 @@ do_copy:
   File "..\host\bin\WebView2Loader.dll"
   File "..\host\bin\Sidelight.exe.config"
   File "..\packaging\sidelight.ico"
-  File "..\packaging\README.txt"
   File "..\LICENSE"
   ; Upgrades: drop the previous web bundle first, or old hashed chunks pile up (+3.85 MB/upgrade).
   RMDir /r "$INSTDIR\www"
